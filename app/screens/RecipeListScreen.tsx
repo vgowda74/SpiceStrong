@@ -492,17 +492,16 @@ const styles = StyleSheet.create({
   tabPillTextActive: { color: 'white', fontWeight: '700' },
 
   list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 44 },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  actionRow: { flexDirection: 'row', gap: 10 },
   deleteBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#CC3333',
+    backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteBtnText: { fontSize: 16 },
+  deleteBtnText: { fontSize: 14, color: '#fff' },
 
   addCard: {
     backgroundColor: WARM_CREAM,

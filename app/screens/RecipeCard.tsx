@@ -67,6 +67,13 @@ export default function RecipeCard({
             <Text style={styles.difficultyText}>{difficulty}</Text>
           </View>
 
+          {/* Delete button (custom recipes only) */}
+          {actionRow && (
+            <View style={styles.heroAction}>
+              {actionRow}
+            </View>
+          )}
+
           <Text style={styles.emoji}>{emoji}</Text>
         </LinearGradient>
 
@@ -82,18 +89,14 @@ export default function RecipeCard({
             {name}
           </Text>
 
-          {description ? (
-            <Text style={styles.description} numberOfLines={2}>
-              {description}
-            </Text>
-          ) : null}
+          <Text style={styles.description} numberOfLines={2}>
+            {description || ' '}
+          </Text>
 
           <View style={styles.metaRow}>
             <Text style={styles.meta}>{time}</Text>
             <Text style={styles.meta}>{protein}</Text>
           </View>
-
-          {actionRow}
         </View>
       </View>
     </Pressable>
@@ -168,6 +171,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
+  heroAction: {
+    position: 'absolute',
+    top: 38,
+    right: 10,
+  },
+
   info: {
     padding: 14,
     backgroundColor: '#FEFEFE',
@@ -185,6 +194,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#777',
     marginTop: 4,
+    minHeight: 34,
   },
 
   metaRow: {
