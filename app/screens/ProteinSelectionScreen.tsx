@@ -15,8 +15,8 @@ import {
 import { PROTEINS } from '../../src/theme';
 
 const screenWidth = Dimensions.get('window').width;
-const CARD_WIDTH = (screenWidth - 48) / 2;
-const CARD_HEIGHT = 200;
+const CARD_WIDTH = (screenWidth - 56) / 2;
+const CARD_HEIGHT = 150;
 
 const FILTERS = ['All', 'Non-Veg', 'Vegetarian', 'Vegan'] as const;
 type Filter = (typeof FILTERS)[number];
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   gridRow: {
-    marginBottom: 16,
+    marginBottom: 12,
     justifyContent: 'space-between',
   },
   card: {
@@ -305,21 +305,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 3, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 8,
     overflow: 'visible',
+    borderBottomWidth: 4,
+    borderRightWidth: 2,
+    borderBottomColor: '#D4D4D4',
+    borderRightColor: '#E0E0E0',
   },
   emojiCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: '#FFF3E0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 12,
+    marginBottom: 6,
     shadowColor: '#E85D26',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -327,7 +331,7 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   emojiText: {
-    fontSize: 42,
+    fontSize: 30,
   },
   proteinName: {
     fontSize: 17,
@@ -347,7 +351,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
     marginTop: 'auto',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   categoryBadgeText: {
     color: '#FFFFFF',

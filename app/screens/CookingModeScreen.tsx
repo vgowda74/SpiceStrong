@@ -320,15 +320,7 @@ export default function CookingModeScreen() {
       setTimerRunning(true);
       const minutes = Math.floor(timerSeconds / 60);
       const secs = timerSeconds % 60;
-      const timeText =
-        secs > 0
-          ? `${minutes} minute${minutes !== 1 ? 's' : ''} and ${secs} seconds`
-          : `${minutes} minute${minutes !== 1 ? 's' : ''}`;
-      Linking.openURL(
-        `shortcuts://run-shortcut?name=Timer&input=${encodeURIComponent(timeText)}`
-      ).catch(() => {
-        Linking.openURL('clock-timer://').catch(() => null);
-      });
+      Linking.openURL(`clock-timer://?minutes=${minutes}&seconds=${secs}`).catch(() => null);
     }
   };
 
