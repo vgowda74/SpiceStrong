@@ -111,16 +111,22 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
+    borderBottomWidth: 5,
+    borderRightWidth: 2,
+    borderLeftWidth: 0.5,
+    borderBottomColor: '#C8C8C8',
+    borderRightColor: '#DCDCDC',
+    borderLeftColor: '#F0F0F0',
 
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOpacity: 0.18,
-        shadowRadius: 18,
-        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.28,
+        shadowRadius: 20,
+        shadowOffset: { width: 4, height: 10 },
       },
       android: {
-        elevation: 10,
+        elevation: 14,
       },
     }),
   },
@@ -164,6 +170,9 @@ const styles = StyleSheet.create({
 
   info: {
     padding: 14,
+    backgroundColor: '#FEFEFE',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.8)',
   },
 
   title: {

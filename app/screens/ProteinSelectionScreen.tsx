@@ -189,13 +189,6 @@ export default function ProteinSelectionScreen() {
         </View>
       </ScrollView>
 
-      <TouchableOpacity
-        style={styles.fabAI}
-        onPress={() => router.push('/screens/AIRecipeBuilderScreen')}
-        activeOpacity={0.9}
-      >
-        <Text style={styles.fabAIText}>🤖</Text>
-      </TouchableOpacity>
       </View>
     </ImageBackground>
   );
