@@ -32,6 +32,7 @@
       }
     },
     "android": {
+      "package": "com.spicestrong.app",
       "permissions": [
         "VIBRATE"
       ],
