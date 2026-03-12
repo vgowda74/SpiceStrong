@@ -102,15 +102,20 @@ export default function ProteinSelectionScreen() {
       style={{ flex: 1 }}
       resizeMode="cover"
     >
-      <View style={{
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.45)',
-      }} />
+      <View
+        pointerEvents="none"
+        style={{
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: 'rgba(0,0,0,0.45)',
+        }}
+      />
       <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled={true}
+        keyboardDismissMode="on-drag"
       >
         {/* HEADER */}
         <View style={styles.header}>
@@ -133,6 +138,7 @@ export default function ProteinSelectionScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filtersScrollContent}
             style={styles.filtersScroll}
+            nestedScrollEnabled={true}
           >
             {FILTERS.map((f) => (
               <TouchableOpacity
@@ -156,6 +162,7 @@ export default function ProteinSelectionScreen() {
                   data={nonVeg}
                   numColumns={2}
                   scrollEnabled={false}
+                  nestedScrollEnabled={true}
                   keyExtractor={(p) => p.id}
                   renderItem={({ item }) => (
                     <ProteinCard item={item} onPress={() => navigateToRecipes(item)} />
@@ -176,6 +183,7 @@ export default function ProteinSelectionScreen() {
                   data={veg}
                   numColumns={2}
                   scrollEnabled={false}
+                  nestedScrollEnabled={true}
                   keyExtractor={(p) => p.id}
                   renderItem={({ item }) => (
                     <ProteinCard item={item} onPress={() => navigateToRecipes(item)} />
