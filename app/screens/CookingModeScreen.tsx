@@ -18,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import { getRecipeById, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep } from '../../src/store/recipes';
+import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
 
 const ENCOURAGEMENTS = [
@@ -331,11 +332,12 @@ export default function CookingModeScreen() {
     });
   };
 
-  const toggleTimer = () => {
+  const toggleTimer = async () => {
     if (timerRunning) {
       if (intervalRef.current) clearInterval(intervalRef.current);
       setTimerRunning(false);
     } else if (timerSeconds > 0) {
+      await showTimerVolumeWarningOnce();
       setInitialTimerSeconds(timerSeconds);
       setTimerRunning(true);
       const minutes = Math.floor(timerSeconds / 60);
