@@ -28,7 +28,7 @@ export default function Index() {
             <Text style={styles.titleSpice}>Spice</Text>
             <Text style={styles.titleStrong}>Strong</Text>
           </Text>
-          <Text style={styles.subtitle}>HIGH PROTEIN  ·  INDIAN RECIPES</Text>
+          <Text style={styles.subtitle}>GUIDED HIGH-PROTEIN COOKING</Text>
         </View>
         {/* Bottom 40%: dots + button */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + 48 }]}>

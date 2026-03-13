@@ -10,7 +10,7 @@ export default function SplashScreen() {
       onPress={() => router.push('/screens/ProteinSelectionScreen')}>
       <Text style={styles.emoji}>💪</Text>
       <Text style={styles.title}>SpiceStrong</Text>
-      <Text style={styles.subtitle}>High Protein Indian Recipes</Text>
+      <Text style={styles.subtitle}>Guided High-Protein Cooking</Text>
       <Text style={styles.tap}>Tap to begin</Text>
     </TouchableOpacity>
   );
