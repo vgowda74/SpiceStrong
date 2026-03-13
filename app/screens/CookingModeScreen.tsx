@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+import { speakTTS, stopTTS } from '../../src/utils/tts';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -203,6 +204,15 @@ export default function CookingModeScreen() {
   const [showTimerCompleteAlert, setShowTimerCompleteAlert] = useState(false);
   const timerCompleteSlide = useRef(new Animated.Value(300)).current;
   const timerCompleteAutoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+
+  const speakStep = (s: CookingStep | undefined, enabled: boolean) => {
+    stopTTS();
+    if (!enabled || !s) return;
+    const parts = [s.title, s.description];
+    if (s.tip) parts.push(`Tip: ${s.tip}`);
+    speakTTS(parts.join('. '));
+  };
 
   useEffect(() => {
     if (!recipeId) return;
@@ -232,6 +242,12 @@ export default function CookingModeScreen() {
     }
   }, [currentStep, recipe?.id]);
 
+  // Speak step aloud when step changes
+  useEffect(() => {
+    if (!recipe || currentStep >= recipe.steps.length) return;
+    speakStep(recipe.steps[currentStep], audioEnabled);
+  }, [currentStep, recipe?.id, audioEnabled]);
+
   useEffect(() => {
     if (timerRunning && timerSeconds > 0) {
       intervalRef.current = setInterval(() => {
@@ -253,6 +269,7 @@ export default function CookingModeScreen() {
 
   useEffect(() => {
     return () => {
+      stopTTS();
       if (encouragementTimeoutRef.current) clearTimeout(encouragementTimeoutRef.current);
       if (timerCompleteAutoDismissRef.current) clearTimeout(timerCompleteAutoDismissRef.current);
       Linking.openURL('clock-timer://stop').catch(() => null);
@@ -265,6 +282,9 @@ export default function CookingModeScreen() {
     Linking.openURL('clock-timer://stop').catch(() => null);
     playAlarmSound();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (audioEnabled) {
+      setTimeout(() => speakTTS('Timer complete. Move to next step.'), 4500);
+    }
     setShowTimerCompleteAlert(true);
     timerCompleteSlide.setValue(300);
     Animated.spring(timerCompleteSlide, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
@@ -374,6 +394,7 @@ export default function CookingModeScreen() {
         text: 'Exit',
         style: 'destructive',
         onPress: () => {
+          stopTTS();
           Linking.openURL('clock-timer://stop').catch(() => null);
           router.back();
         },
@@ -577,6 +598,17 @@ export default function CookingModeScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{displayName}</Text>
         <Text style={styles.headerStepCount}>Step {stepNum} of {totalSteps}</Text>
+        <TouchableOpacity
+          onPress={() => {
+            const next = !audioEnabled;
+            setAudioEnabled(next);
+            if (!next) stopTTS();
+          }}
+          style={styles.audioToggle}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.audioToggleText}>{audioEnabled ? '🔊' : '🔇'}</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Segmented progress bar: one segment per step */}
@@ -728,6 +760,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   headerStepCount: { color: ORANGE, fontSize: 14, fontWeight: 'bold' },
+  audioToggle: { padding: 4, marginLeft: 8 },
+  audioToggleText: { fontSize: 20 },
   progressRow: {
     flexDirection: 'row',
     gap: 4,

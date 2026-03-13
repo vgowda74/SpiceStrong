@@ -26,7 +26,9 @@
       "Bash(mv \"screenshot-proteins.png.jpeg\" \"screenshot-proteins.png\")",
       "Bash(mv \"screenshot-recipes.png.jpeg\" \"screenshot-recipes.png\")",
       "Bash(mv \"screenshot-splash.png.jpeg\" \"screenshot-splash.png\")",
-      "Bash(find /c/Users/v_gow/SpiceStrong/app -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))"
+      "Bash(find /c/Users/v_gow/SpiceStrong/app -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(npx tsc:*)",
+      "Bash(grep -r EXPO_PUBLIC C:Usersv_gowSpiceStrong --include=*.tsx --include=*.ts --include=*.js)"
     ]
   }
 }
