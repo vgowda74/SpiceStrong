@@ -1,11 +1,13 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 import { speakTTS, stopTTS } from '../../src/utils/tts';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  AppState,
   ImageBackground,
   LayoutAnimation,
   Linking,
@@ -206,6 +208,8 @@ export default function CookingModeScreen() {
   const timerCompleteSlide = useRef(new Animated.Value(300)).current;
   const timerCompleteAutoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const timerEndTimeRef = useRef<number | null>(null);
+  const notificationIdRef = useRef<string | null>(null);
 
   const speakStep = (s: CookingStep | undefined, enabled: boolean) => {
     stopTTS();
@@ -237,6 +241,7 @@ export default function CookingModeScreen() {
     const def = stepTimerDefault;
     setTimerSeconds(def);
     setInitialTimerSeconds(def);
+    timerEndTimeRef.current = null;
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       setTimerRunning(false);
@@ -249,18 +254,23 @@ export default function CookingModeScreen() {
     speakStep(recipe.steps[currentStep], audioEnabled);
   }, [currentStep, recipe?.id, audioEnabled]);
 
+  // Use end-time approach so timer survives background
   useEffect(() => {
     if (timerRunning && timerSeconds > 0) {
+      if (!timerEndTimeRef.current) {
+        timerEndTimeRef.current = Date.now() + timerSeconds * 1000;
+      }
       intervalRef.current = setInterval(() => {
-        setTimerSeconds((s) => {
-          if (s <= 1) {
-            if (intervalRef.current) clearInterval(intervalRef.current);
-            timerReachedZeroRef.current = true;
-            setTimerRunning(false);
-            return 0;
-          }
-          return s - 1;
-        });
+        const remaining = Math.round((timerEndTimeRef.current! - Date.now()) / 1000);
+        if (remaining <= 0) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          timerEndTimeRef.current = null;
+          timerReachedZeroRef.current = true;
+          setTimerRunning(false);
+          setTimerSeconds(0);
+        } else {
+          setTimerSeconds(remaining);
+        }
       }, 1000);
     }
     return () => {
@@ -268,18 +278,9 @@ export default function CookingModeScreen() {
     };
   }, [timerRunning]);
 
-  useEffect(() => {
-    return () => {
-      stopTTS();
-      if (encouragementTimeoutRef.current) clearTimeout(encouragementTimeoutRef.current);
-      if (timerCompleteAutoDismissRef.current) clearTimeout(timerCompleteAutoDismissRef.current);
-      Linking.openURL('clock-timer://stop').catch(() => null);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (timerSeconds !== 0 || !timerReachedZeroRef.current) return;
-    timerReachedZeroRef.current = false;
+  // Sync timer when app returns from background
+  // Extract alarm trigger into a reusable function
+  const triggerTimerAlarm = () => {
     Linking.openURL('clock-timer://stop').catch(() => null);
     playAlarmSound();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -296,6 +297,42 @@ export default function CookingModeScreen() {
         setShowTimerCompleteAlert(false);
       });
     }, 5000);
+  };
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && timerEndTimeRef.current) {
+        const remaining = Math.round((timerEndTimeRef.current - Date.now()) / 1000);
+        if (remaining <= 0) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+          timerEndTimeRef.current = null;
+          setTimerRunning(false);
+          setTimerSeconds(0);
+          cancelTimerNotification();
+          // Directly trigger alarm — don't rely on the effect
+          triggerTimerAlarm();
+        } else {
+          setTimerSeconds(remaining);
+        }
+      }
+    });
+    return () => sub.remove();
+  }, [audioEnabled]);
+
+  useEffect(() => {
+    return () => {
+      stopTTS();
+      cancelTimerNotification();
+      if (encouragementTimeoutRef.current) clearTimeout(encouragementTimeoutRef.current);
+      if (timerCompleteAutoDismissRef.current) clearTimeout(timerCompleteAutoDismissRef.current);
+      Linking.openURL('clock-timer://stop').catch(() => null);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (timerSeconds !== 0 || !timerReachedZeroRef.current) return;
+    timerReachedZeroRef.current = false;
+    triggerTimerAlarm();
   }, [timerSeconds]);
 
   const overlay = (
@@ -332,14 +369,52 @@ export default function CookingModeScreen() {
     });
   };
 
+  const scheduleTimerNotification = async (seconds: number) => {
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') return;
+      // Cancel any existing timer notification
+      if (notificationIdRef.current) {
+        await Notifications.cancelScheduledNotificationAsync(notificationIdRef.current);
+      }
+      notificationIdRef.current = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '⏰ Timer Complete!',
+          body: 'Your cooking step is ready — head back to SpiceStrong!',
+          sound: true,
+          ...(Platform.OS === 'android' ? { channelId: 'timer' } : {}),
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds, repeats: false },
+      });
+    } catch (e) {
+      console.log('Notification schedule error:', e);
+    }
+  };
+
+  const cancelTimerNotification = async () => {
+    if (notificationIdRef.current) {
+      await Notifications.cancelScheduledNotificationAsync(notificationIdRef.current).catch(() => null);
+      notificationIdRef.current = null;
+    }
+  };
+
   const toggleTimer = async () => {
     if (timerRunning) {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      // Save remaining time so it can be resumed
+      const remaining = timerEndTimeRef.current
+        ? Math.max(0, Math.round((timerEndTimeRef.current - Date.now()) / 1000))
+        : timerSeconds;
+      timerEndTimeRef.current = null;
+      setTimerSeconds(remaining);
       setTimerRunning(false);
+      await cancelTimerNotification();
     } else if (timerSeconds > 0) {
       await showTimerVolumeWarningOnce();
       setInitialTimerSeconds(timerSeconds);
+      timerEndTimeRef.current = Date.now() + timerSeconds * 1000;
       setTimerRunning(true);
+      await scheduleTimerNotification(timerSeconds);
       const minutes = Math.floor(timerSeconds / 60);
       const secs = timerSeconds % 60;
       Linking.openURL(`clock-timer://?minutes=${minutes}&seconds=${secs}`).catch(() => null);
@@ -348,9 +423,11 @@ export default function CookingModeScreen() {
 
   const resetTimer = () => {
     if (intervalRef.current) clearInterval(intervalRef.current);
+    timerEndTimeRef.current = null;
     setTimerRunning(false);
     setTimerSeconds(stepTimerDefault);
     setInitialTimerSeconds(stepTimerDefault);
+    cancelTimerNotification();
     Linking.openURL('clock-timer://stop').catch(() => null);
   };
 
@@ -600,17 +677,6 @@ export default function CookingModeScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{displayName}</Text>
         <Text style={styles.headerStepCount}>Step {stepNum} of {totalSteps}</Text>
-        <TouchableOpacity
-          onPress={() => {
-            const next = !audioEnabled;
-            setAudioEnabled(next);
-            if (!next) stopTTS();
-          }}
-          style={styles.audioToggle}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Text style={styles.audioToggleText}>{audioEnabled ? '🔊' : '🔇'}</Text>
-        </TouchableOpacity>
       </View>
 
       {/* Segmented progress bar: one segment per step */}
@@ -645,8 +711,24 @@ export default function CookingModeScreen() {
         <View style={styles.card}>
           <Text style={styles.stepLabel}>{stepLabel}</Text>
           <Text style={styles.stepTitle}>{step.title}</Text>
-          <View style={styles.imageArea}>
-            <Text style={styles.stepEmoji}>{stepEmoji}</Text>
+          <View style={styles.imageAreaWrapper}>
+            <View style={styles.imageArea}>
+              <Text style={styles.stepEmoji}>{stepEmoji}</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => {
+                const next = !audioEnabled;
+                setAudioEnabled(next);
+                if (!next) stopTTS();
+              }}
+              style={[styles.audioToggleBtn, audioEnabled ? styles.audioToggleBtnOn : styles.audioToggleBtnOff]}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.audioToggleIcon}>{audioEnabled ? '🎙️' : '🔇'}</Text>
+              <Text style={[styles.audioToggleLabel, audioEnabled ? styles.audioToggleLabelOn : styles.audioToggleLabelOff]}>
+                {audioEnabled ? 'Voice On' : 'Voice Off'}
+              </Text>
+            </TouchableOpacity>
           </View>
           <Text style={styles.stepDescription}>{step.description}</Text>
           {stepIngredients.length > 0 && (
@@ -762,8 +844,34 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   headerStepCount: { color: ORANGE, fontSize: 14, fontWeight: 'bold' },
-  audioToggle: { padding: 4, marginLeft: 8 },
-  audioToggleText: { fontSize: 20 },
+  imageAreaWrapper: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  audioToggleBtn: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 6,
+  },
+  audioToggleBtnOn: {
+    backgroundColor: 'rgba(232, 93, 38, 0.9)',
+  },
+  audioToggleBtnOff: {
+    backgroundColor: 'rgba(80, 80, 80, 0.9)',
+  },
+  audioToggleIcon: { fontSize: 16 },
+  audioToggleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  audioToggleLabelOn: { color: '#FFFFFF' },
+  audioToggleLabelOff: { color: '#CCCCCC' },
   progressRow: {
     flexDirection: 'row',
     gap: 4,
@@ -812,7 +920,6 @@ const styles = StyleSheet.create({
     height: 120,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
   },
   stepEmoji: { fontSize: 72 },
   stepDescription: {
