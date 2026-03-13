@@ -6,7 +6,27 @@
       "Bash(npx expo:*)",
       "Bash(git checkout:*)",
       "Bash(xargs grep:*)",
-      "Bash(xargs cat:*)"
+      "Bash(xargs cat:*)",
+      "Bash(git rm:*)",
+      "Bash(git push:*)",
+      "WebFetch(domain:vgowda74.github.io)",
+      "Bash(nslookup spicestrong.app)",
+      "Bash(grep -iE \"\\\\.\\(png|jpg|jpeg|svg|ico|webp\\)$\")",
+      "Bash(find /c/Users/v_gow/Downloads/ -maxdepth 1 -type f \\\\\\(-name *.png -o -name *.jpg -o -name *.jpeg -o -name *.svg -o -name *.ico -o -name *.webp \\\\\\) -newer /c/Users/v_gow/spicestrong-website/index.html)",
+      "Bash(find /c/Users/v_gow/SpiceStrong/ -maxdepth 4 -type f \\\\\\(-name *.png -o -name *.jpg -o -name *.jpeg -o -name *.webp \\\\\\))",
+      "Bash(find /c/Users/v_gow/SpiceStrong/assets/ -type f \\\\\\(-name *.png -o -name *.jpg \\\\\\))",
+      "Bash(mkdir -p /c/Users/v_gow/spicestrong-website/images)",
+      "Bash(cp /c/Users/v_gow/SpiceStrong/assets/images/icon.png /c/Users/v_gow/spicestrong-website/images/icon.png)",
+      "Bash(cp /c/Users/v_gow/SpiceStrong/assets/images/splash-bg.png /c/Users/v_gow/spicestrong-website/images/splash-bg.png)",
+      "Bash(gh pr:*)",
+      "Bash(where gh:*)",
+      "Read(//c/Program Files/GitHub CLI/**)",
+      "Bash(mv \"screenshot-ai.png.jpeg\" \"screenshot-ai.png\")",
+      "Bash(mv \"screenshot-detail.png.jpeg\" \"screenshot-detail.png\")",
+      "Bash(mv \"screenshot-proteins.png.jpeg\" \"screenshot-proteins.png\")",
+      "Bash(mv \"screenshot-recipes.png.jpeg\" \"screenshot-recipes.png\")",
+      "Bash(mv \"screenshot-splash.png.jpeg\" \"screenshot-splash.png\")",
+      "Bash(find /c/Users/v_gow/SpiceStrong/app -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))"
     ]
   }
 }
