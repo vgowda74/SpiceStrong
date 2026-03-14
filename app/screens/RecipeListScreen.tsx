@@ -7,7 +7,6 @@ import {
   FlatList,
   ImageBackground,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -200,7 +199,7 @@ export default function RecipeListScreen() {
     );
   };
 
-  const listData: Array<{ type: 'add' } | { type: 'builtin'; item: BuiltInRecipeDisplay } | { type: 'custom'; item: SavedRecipe }> = useMemo(() => {
+  const listData: Array<{ type: 'builtin'; item: BuiltInRecipeDisplay } | { type: 'custom'; item: SavedRecipe }> = useMemo(() => {
     const builtInItems = builtInForProtein.map((item) => ({ type: 'builtin' as const, item }));
     const customItems = recipes.map((item) => ({ type: 'custom' as const, item }));
     const allRecipeEntries = [...builtInItems, ...customItems];
@@ -231,9 +230,6 @@ export default function RecipeListScreen() {
       });
     }
 
-    if (activeFilter === 'all') {
-      return [{ type: 'add' }, ...filtered];
-    }
     return filtered;
   }, [builtInForProtein, recipes, activeFilter, ratings, favourites]);
 
@@ -308,18 +304,32 @@ export default function RecipeListScreen() {
           </ScrollView>
         </View>
 
-        <TouchableOpacity
-          style={styles.aiBuilderBtn}
-          onPress={() =>
-            router.push({
-              pathname: '/screens/AIRecipeBuilderScreen',
-              params: { proteinId, proteinName, proteinEmoji },
-            })
-          }
-          activeOpacity={0.85}
-        >
-          <Text style={styles.aiBuilderBtnText}>🤖 Build with AI</Text>
-        </TouchableOpacity>
+        <View style={styles.actionBtnRow}>
+          <TouchableOpacity
+            style={styles.actionPill}
+            onPress={() =>
+              router.push({
+                pathname: '/screens/AIRecipeBuilderScreen',
+                params: { proteinId, proteinName, proteinEmoji },
+              })
+            }
+            activeOpacity={0.85}
+          >
+            <Text style={styles.actionPillText}>+ 🤖 Build with AI</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionPill}
+            onPress={() =>
+              router.push({
+                pathname: '/screens/AddRecipeScreen',
+                params: { proteinId, proteinName, proteinEmoji },
+              })
+            }
+            activeOpacity={0.85}
+          >
+            <Text style={styles.actionPillText}>+ 📝 Add Recipe</Text>
+          </TouchableOpacity>
+        </View>
 
       <FlatList
         data={listData}
@@ -327,30 +337,6 @@ export default function RecipeListScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={null}
         renderItem={({ item }) => {
-          if (item.type === 'add') {
-            return (
-              <Pressable
-                style={({ pressed }) => [styles.addCard, pressed && styles.addCardPressed]}
-                onPress={() =>
-                  router.push({
-                    pathname: '/screens/AIRecipeBuilderScreen',
-                    params: { proteinId, proteinName, proteinEmoji },
-                  })
-                }
-              >
-                <View style={styles.addCardHero}>
-                  <Text style={styles.addCardEmoji}>+</Text>
-                </View>
-                <View style={styles.addCardBodyWrap}>
-                  <View style={styles.addCardAccentBar} />
-                  <View style={styles.addCardBody}>
-                    <Text style={styles.addCardName}>Add Your Own Recipe</Text>
-                    <Text style={styles.addCardSubtitle}>Create a custom high-protein recipe</Text>
-                  </View>
-                </View>
-              </Pressable>
-            );
-          }
           if (item.type === 'builtin') {
             return renderRecipeCard(item.item, true);
           }
@@ -467,17 +453,24 @@ const styles = StyleSheet.create({
 
   tabsWrap: { backgroundColor: 'transparent', paddingVertical: 14 },
   tabsContent: { flexDirection: 'row', gap: 10 },
-  aiBuilderBtn: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 16,
-    padding: 12,
+  actionBtnRow: {
     flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 18,
+    marginBottom: 4,
+  },
+  actionPill: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 18,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 18,
-    marginBottom: 12,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
-  aiBuilderBtnText: { color: CARD_WHITE, fontWeight: '700', fontSize: 15 },
+  actionPillText: { color: CARD_WHITE, fontWeight: '600', fontSize: 12 },
   tabPill: {
     paddingHorizontal: 16,
     paddingVertical: 12,
@@ -503,53 +496,5 @@ const styles = StyleSheet.create({
   },
   deleteBtnText: { fontSize: 14, color: '#fff' },
 
-  addCard: {
-    backgroundColor: WARM_CREAM,
-    borderRadius: 26,
-    marginHorizontal: 18,
-    marginVertical: 10,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.18,
-        shadowRadius: 20,
-      },
-      android: { elevation: 12 },
-    }),
-  },
-  addCardPressed: {
-    transform: [{ scale: 0.98 }],
-    ...Platform.select({
-      ios: { shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 6 } },
-      android: { elevation: 6 },
-    }),
-  },
-  addCardHero: {
-    height: 140,
-    backgroundColor: '#2A1005',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  addCardEmoji: { fontSize: 56, color: '#E85D26', fontWeight: '300' },
-  addCardBodyWrap: {
-    flexDirection: 'row',
-    backgroundColor: CARD_WHITE,
-  },
-  addCardAccentBar: {
-    width: 4,
-    backgroundColor: HEADER_ORANGE,
-  },
-  addCardBody: {
-    flex: 1,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    backgroundColor: CARD_WHITE,
-  },
-  addCardName: { fontSize: 20, fontWeight: '800', color: '#1A1A1A', marginBottom: 4 },
-  addCardSubtitle: { fontSize: 13, color: '#666' },
+  // Add card styles removed — replaced by compact pill buttons
 });

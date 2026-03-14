@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -22,31 +22,105 @@ const BORDER_LIGHT = 'rgba(255,255,255,0.2)';
 
 const VEG_PROTEIN_IDS = ['paneer', 'tofu', 'soy', 'beans', 'eggs'];
 
+// Meat type options per protein
+const MEAT_TYPE_MAP: Record<string, { id: string; label: string }[]> = {
+  chicken: [
+    { id: 'drumstick', label: '🍗 Drumstick' },
+    { id: 'boneless', label: '🥩 Boneless' },
+    { id: 'bone-in', label: '🦴 Bone-In' },
+    { id: 'minced', label: '🫕 Minced' },
+  ],
+  lamb: [
+    { id: 'boneless', label: '🥩 Boneless' },
+    { id: 'bone-in', label: '🦴 Bone-In' },
+    { id: 'minced', label: '🫕 Minced' },
+  ],
+  pork: [
+    { id: 'boneless', label: '🥩 Boneless' },
+    { id: 'bone-in', label: '🦴 Bone-In' },
+    { id: 'minced', label: '🫕 Minced' },
+  ],
+  goat: [
+    { id: 'boneless', label: '🥩 Boneless' },
+    { id: 'bone-in', label: '🦴 Bone-In' },
+    { id: 'minced', label: '🫕 Minced' },
+  ],
+  fish: [
+    { id: 'fillet', label: '🐟 Fillet' },
+    { id: 'whole', label: '🐠 Whole' },
+    { id: 'boneless', label: '🥩 Boneless' },
+  ],
+  prawns: [
+    { id: 'whole', label: '🦐 Whole' },
+    { id: 'peeled', label: '🍤 Peeled' },
+  ],
+};
+
+const PROTEIN_GOAL_OPTIONS = [
+  { id: 'under-20', label: '🥗 Under 20g' },
+  { id: '20-plus', label: '💪 20g+' },
+  { id: '30-plus', label: '🔥 30g+' },
+];
+
+const MEAL_TYPE_OPTIONS = [
+  { id: 'breakfast', label: '🌅 Breakfast' },
+  { id: 'lunch-dinner', label: '🥗 Lunch/Dinner' },
+  { id: 'snack', label: '🥜 Snack/Dessert/Drink' },
+];
+
+const COOKING_TIME_OPTIONS = [
+  { id: 'under-20', label: '⚡ Under 20 Min' },
+  { id: '30-min', label: '🕐 30 Min' },
+  { id: 'slow-cook', label: '🍲 Slow Cook' },
+];
+
+const SPICE_LEVEL_OPTIONS = [
+  { id: 'mild', label: '😌 Mild' },
+  { id: 'medium', label: '🌶️ Medium' },
+  { id: 'hot', label: '🔥 Hot' },
+  { id: 'extra-hot', label: '💀 Extra Hot' },
+];
+
 const DIETARY_OPTIONS = [
-  { id: 'low-carb', label: '🥗 Low Carb' },
+  { id: 'low-carb', label: '🥦 Low Carb' },
   { id: 'gluten-free', label: '🌾 Gluten Free' },
   { id: 'low-fat', label: '💧 Low Fat' },
-  { id: 'sugar-free', label: '🚫 Sugar Free' },
-  { id: 'keto', label: '🥑 Keto' },
+  { id: 'vegan', label: '🌱 Vegan' },
   { id: 'dairy-free', label: '🥛 Dairy Free' },
 ];
 
 const CUISINE_OPTIONS = [
   { id: 'indian', label: '🇮🇳 Indian' },
+  { id: 'thai', label: '🇹🇭 Thai' },
   { id: 'mediterranean', label: '🫒 Mediterranean' },
-  { id: 'asian', label: '🥢 Asian' },
-  { id: 'mexican', label: '🌮 Mexican' },
-  { id: 'italian', label: '🍝 Italian' },
+  { id: 'chinese', label: '🇨🇳 Chinese' },
+  { id: 'mexican', label: '🇲🇽 Mexican' },
+  { id: 'american', label: '🇺🇸 American' },
 ];
 
 async function callClaudeAPI(
   proteinId: string,
   proteinName: string,
-  dietary: string[],
-  cuisine: string,
+  params: {
+    meatType?: string;
+    proteinGoal?: string;
+    mealType?: string;
+    cookingTime?: string;
+    spiceLevel?: string;
+    dietary: string[];
+    cuisine: string;
+  },
 ) {
-  const dietaryText = dietary.length > 0 ? `Dietary requirements: ${dietary.join(', ')}.` : '';
-  const cuisineText = cuisine ? `Cuisine style: ${cuisine}.` : 'Cuisine style: Indian.';
+  const parts: string[] = [];
+  if (params.meatType) parts.push(`Meat cut/type: ${params.meatType}.`);
+  if (params.proteinGoal) parts.push(`Protein goal per serving: ${params.proteinGoal}.`);
+  if (params.mealType) parts.push(`Meal type: ${params.mealType}.`);
+  if (params.cookingTime) parts.push(`Cooking time: ${params.cookingTime}.`);
+  if (params.spiceLevel) parts.push(`Spice level: ${params.spiceLevel}.`);
+  if (params.dietary.length > 0) parts.push(`Dietary requirements: ${params.dietary.join(', ')}.`);
+  parts.push(`Cuisine style: ${params.cuisine || 'Indian'}.`);
+
+  const constraintsText = parts.join(' ');
 
   const systemPrompt = `You are a professional chef and nutritionist. Generate a complete high-protein recipe and return ONLY valid JSON.
 
@@ -89,10 +163,9 @@ Rules:
 - timerSeconds: use realistic times (300 = 5 min)
 - Return ONLY the JSON object, no other text
 - proteinId must match one of the options exactly
-${dietaryText}
-${cuisineText}`;
+${constraintsText}`;
 
-  const userMessage = `Generate a complete high-protein ${proteinName} recipe. ${dietaryText} ${cuisineText}`;
+  const userMessage = `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -175,6 +248,42 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
   return newRecipe;
 }
 
+// Chip row helper
+function ChipRow({
+  options,
+  selected,
+  onSelect,
+  multi = false,
+  disabled = false,
+}: {
+  options: { id: string; label: string }[];
+  selected: string | string[];
+  onSelect: (id: string) => void;
+  multi?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <View style={styles.chipsWrap}>
+      {options.map((opt) => {
+        const active = multi
+          ? (selected as string[]).includes(opt.id)
+          : selected === opt.id;
+        return (
+          <TouchableOpacity
+            key={opt.id}
+            style={[styles.chip, active && styles.chipActive]}
+            onPress={() => onSelect(opt.id)}
+            disabled={disabled}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 export default function AIRecipeBuilderScreen() {
   const router = useRouter();
   const { proteinId: paramProteinId, proteinName: paramProteinName, proteinEmoji } = useLocalSearchParams<{
@@ -182,22 +291,69 @@ export default function AIRecipeBuilderScreen() {
     proteinName?: string;
     proteinEmoji?: string;
   }>();
+
+  const [selectedMeatType, setSelectedMeatType] = useState<string>('');
+  const [selectedProteinGoal, setSelectedProteinGoal] = useState<string>('20-plus');
+  const [selectedMealType, setSelectedMealType] = useState<string>('lunch-dinner');
+  const [selectedCookingTime, setSelectedCookingTime] = useState<string>('');
+  const [selectedSpiceLevel, setSelectedSpiceLevel] = useState<string>('medium');
   const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
   const [selectedCuisine, setSelectedCuisine] = useState<string>('indian');
   const [loading, setLoading] = useState(false);
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
 
   const isVegProtein = VEG_PROTEIN_IDS.includes(paramProteinId ?? '');
+  const meatTypeOptions = MEAT_TYPE_MAP[paramProteinId ?? ''] ?? [];
+  const showMeatType = !isVegProtein && meatTypeOptions.length > 0;
 
-  const visibleDietary = DIETARY_OPTIONS.filter(
-    (d) => d.id !== 'dairy-free' || isVegProtein,
-  );
+  // Filter dietary options contextually
+  const visibleDietary = useMemo(() => {
+    if (isVegProtein) {
+      return DIETARY_OPTIONS;
+    }
+    // Non-veg: don't show vegan
+    return DIETARY_OPTIONS.filter((d) => d.id !== 'vegan');
+  }, [isVegProtein]);
 
   const toggleDietary = (id: string) => {
     setSelectedDietary((prev) =>
       prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id],
     );
   };
+
+  // Build selected keywords summary
+  const selectedKeywords = useMemo(() => {
+    const tags: string[] = [];
+    if (showMeatType && selectedMeatType) {
+      const mt = meatTypeOptions.find((o) => o.id === selectedMeatType);
+      if (mt) tags.push(mt.label);
+    }
+    if (selectedProteinGoal) {
+      const pg = PROTEIN_GOAL_OPTIONS.find((o) => o.id === selectedProteinGoal);
+      if (pg) tags.push(pg.label);
+    }
+    if (selectedMealType) {
+      const ml = MEAL_TYPE_OPTIONS.find((o) => o.id === selectedMealType);
+      if (ml) tags.push(ml.label);
+    }
+    if (selectedCookingTime) {
+      const ct = COOKING_TIME_OPTIONS.find((o) => o.id === selectedCookingTime);
+      if (ct) tags.push(ct.label);
+    }
+    if (selectedSpiceLevel) {
+      const sl = SPICE_LEVEL_OPTIONS.find((o) => o.id === selectedSpiceLevel);
+      if (sl) tags.push(sl.label);
+    }
+    selectedDietary.forEach((id) => {
+      const d = DIETARY_OPTIONS.find((o) => o.id === id);
+      if (d) tags.push(d.label);
+    });
+    if (selectedCuisine) {
+      const c = CUISINE_OPTIONS.find((o) => o.id === selectedCuisine);
+      if (c) tags.push(c.label);
+    }
+    return tags;
+  }, [showMeatType, selectedMeatType, selectedProteinGoal, selectedMealType, selectedCookingTime, selectedSpiceLevel, selectedDietary, selectedCuisine, meatTypeOptions]);
 
   const handleGenerate = async () => {
     if (!ANTHROPIC_KEY) {
@@ -207,16 +363,21 @@ export default function AIRecipeBuilderScreen() {
     setLoading(true);
     setGeneratedRecipe(null);
     try {
-      const dietaryLabels = selectedDietary.map(
-        (id) => DIETARY_OPTIONS.find((d) => d.id === id)?.label.replace(/^.\s/, '') ?? id,
-      );
-      const cuisineLabel =
-        CUISINE_OPTIONS.find((c) => c.id === selectedCuisine)?.label.replace(/^.\s/, '') ?? 'Indian';
+      const findLabel = (options: { id: string; label: string }[], id: string) =>
+        options.find((o) => o.id === id)?.label.replace(/^.\s/, '') ?? '';
+
       const result = await callClaudeAPI(
         paramProteinId ?? 'chicken',
         paramProteinName ?? 'Chicken',
-        dietaryLabels,
-        cuisineLabel,
+        {
+          meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
+          proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+          mealType: findLabel(MEAL_TYPE_OPTIONS, selectedMealType),
+          cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
+          spiceLevel: findLabel(SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
+          dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
+          cuisine: findLabel(CUISINE_OPTIONS, selectedCuisine),
+        },
       );
       setGeneratedRecipe(result);
     } catch (e) {
@@ -227,10 +388,6 @@ export default function AIRecipeBuilderScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleRegenerate = () => {
-    handleGenerate();
   };
 
   const handleSave = async () => {
@@ -282,53 +439,90 @@ export default function AIRecipeBuilderScreen() {
             </View>
           )}
 
-          {/* Dietary section */}
-          <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
-          <View style={styles.chipsWrap}>
-            {visibleDietary.map((opt) => {
-              const active = selectedDietary.includes(opt.id);
-              return (
-                <TouchableOpacity
-                  key={opt.id}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => toggleDietary(opt.id)}
-                  disabled={loading}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {/* Show filters only before generation */}
+          {!generatedRecipe && (
+            <>
+              {/* Meat Type — only for non-veg */}
+              {showMeatType && (
+                <>
+                  <Text style={styles.sectionLabel}>🥩 Meat Type</Text>
+                  <ChipRow
+                    options={meatTypeOptions}
+                    selected={selectedMeatType}
+                    onSelect={setSelectedMeatType}
+                    disabled={loading}
+                  />
+                </>
+              )}
 
-          {/* Cuisine section */}
-          <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
-          <View style={styles.chipsWrap}>
-            {CUISINE_OPTIONS.map((opt) => {
-              const active = selectedCuisine === opt.id;
-              return (
-                <TouchableOpacity
-                  key={opt.id}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => setSelectedCuisine(opt.id)}
-                  disabled={loading}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+              {/* Protein Goal */}
+              <Text style={styles.sectionLabel}>🎯 Protein Goal (per serving)</Text>
+              <ChipRow
+                options={PROTEIN_GOAL_OPTIONS}
+                selected={selectedProteinGoal}
+                onSelect={setSelectedProteinGoal}
+                disabled={loading}
+              />
+
+              {/* Meal Type */}
+              <Text style={styles.sectionLabel}>🍽️ Meal Type</Text>
+              <ChipRow
+                options={MEAL_TYPE_OPTIONS}
+                selected={selectedMealType}
+                onSelect={setSelectedMealType}
+                disabled={loading}
+              />
+
+              {/* Cooking Time */}
+              <Text style={styles.sectionLabel}>⏱️ Cooking Time</Text>
+              <ChipRow
+                options={COOKING_TIME_OPTIONS}
+                selected={selectedCookingTime}
+                onSelect={setSelectedCookingTime}
+                disabled={loading}
+              />
+
+              {/* Spice Level */}
+              <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
+              <ChipRow
+                options={SPICE_LEVEL_OPTIONS}
+                selected={selectedSpiceLevel}
+                onSelect={setSelectedSpiceLevel}
+                disabled={loading}
+              />
+
+              {/* Dietary Preference */}
+              <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
+              <ChipRow
+                options={visibleDietary}
+                selected={selectedDietary}
+                onSelect={toggleDietary}
+                multi
+                disabled={loading}
+              />
+
+              {/* Cuisine Style */}
+              <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
+              <ChipRow
+                options={CUISINE_OPTIONS}
+                selected={selectedCuisine}
+                onSelect={setSelectedCuisine}
+                disabled={loading}
+              />
+            </>
+          )}
 
           {/* Generate button */}
-          <TouchableOpacity
-            style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
-            onPress={handleGenerate}
-            disabled={loading}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryBtnText}>🤖 Generate Recipe with AI</Text>
-          </TouchableOpacity>
+          {!generatedRecipe && (
+            <TouchableOpacity
+              style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
+              onPress={handleGenerate}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.primaryBtnText}>🤖 Generate Recipe with AI</Text>
+            </TouchableOpacity>
+          )}
 
           {loading && (
             <View style={styles.loadingWrap}>
@@ -337,29 +531,55 @@ export default function AIRecipeBuilderScreen() {
             </View>
           )}
 
+          {/* After generation: show selected keywords + recipe card */}
           {generatedRecipe && !loading && (
-            <View style={styles.previewCard}>
-              <Text style={styles.previewName}>{String(generatedRecipe.name)}</Text>
-              <Text style={styles.previewDesc}>{String(generatedRecipe.description ?? '')}</Text>
-              <View style={styles.previewMeta}>
-                <Text style={styles.previewMetaText}>{String(generatedRecipe.cookTime ?? '')}</Text>
-                <Text style={styles.previewMetaDot}> · </Text>
-                <Text style={styles.previewMetaText}>{String(generatedRecipe.difficulty ?? '')}</Text>
-                <Text style={styles.previewMetaDot}> · </Text>
-                <Text style={styles.previewMetaText}>{String(generatedRecipe.protein ?? '')}</Text>
+            <>
+              {/* Selected keywords summary */}
+              <View style={styles.keywordsWrap}>
+                {selectedKeywords.map((tag, i) => (
+                  <View key={i} style={styles.keywordTag}>
+                    <Text style={styles.keywordTagText}>{tag}</Text>
+                  </View>
+                ))}
               </View>
-              <Text style={styles.previewCounts}>
-                {ingredientCount} ingredients · {stepCount} steps
-              </Text>
-              <View style={styles.previewActions}>
-                <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
-                  <Text style={styles.saveBtnText}>💾 Save Recipe</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.regenBtn} onPress={handleRegenerate} activeOpacity={0.85}>
-                  <Text style={styles.regenBtnText}>🔄 Regenerate</Text>
+
+              {/* Recipe preview card */}
+              <View style={styles.previewCard}>
+                <Text style={styles.previewName}>{String(generatedRecipe.name)}</Text>
+                <Text style={styles.previewDesc}>{String(generatedRecipe.description ?? '')}</Text>
+                <View style={styles.previewMeta}>
+                  <Text style={styles.previewMetaText}>{String(generatedRecipe.cookTime ?? '')}</Text>
+                  <Text style={styles.previewMetaDot}> · </Text>
+                  <Text style={styles.previewMetaText}>{String(generatedRecipe.difficulty ?? '')}</Text>
+                  <Text style={styles.previewMetaDot}> · </Text>
+                  <Text style={styles.previewMetaText}>{String(generatedRecipe.protein ?? '')}</Text>
+                </View>
+                <Text style={styles.previewCounts}>
+                  {ingredientCount} ingredients · {stepCount} steps
+                </Text>
+                <View style={styles.previewActions}>
+                  <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
+                    <Text style={styles.saveBtnText}>💾 Save Recipe</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.regenBtn}
+                    onPress={() => {
+                      setGeneratedRecipe(null);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.regenBtnText}>✏️ Edit Filters</Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={styles.regenFullBtn}
+                  onPress={handleGenerate}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.regenFullBtnText}>🔄 Regenerate</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </>
           )}
         </ScrollView>
       </View>
@@ -402,21 +622,21 @@ const styles = StyleSheet.create({
   proteinBannerText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   sectionLabel: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 24,
+    gap: 8,
+    marginBottom: 18,
   },
   chip: {
     backgroundColor: GLASS,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: BORDER_LIGHT,
   },
@@ -424,7 +644,7 @@ const styles = StyleSheet.create({
     backgroundColor: ACCENT,
     borderColor: ACCENT,
   },
-  chipText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, fontWeight: '500' },
+  chipText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '500' },
   chipTextActive: { color: '#fff', fontWeight: '700' },
   primaryBtn: {
     backgroundColor: ACCENT,
@@ -440,6 +660,25 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
   },
   loadingText: { color: '#fff', fontSize: 16, marginTop: 16, fontWeight: '600' },
+
+  // Keywords summary after generation
+  keywordsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 16,
+  },
+  keywordTag: {
+    backgroundColor: 'rgba(232,93,38,0.25)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.4)',
+  },
+  keywordTagText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+
+  // Preview card
   previewCard: {
     backgroundColor: GLASS,
     borderRadius: 16,
@@ -453,7 +692,7 @@ const styles = StyleSheet.create({
   previewMetaText: { color: 'rgba(255,255,255,0.9)', fontSize: 14 },
   previewMetaDot: { color: 'rgba(255,255,255,0.5)', fontSize: 14 },
   previewCounts: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginBottom: 20 },
-  previewActions: { flexDirection: 'row', gap: 12 },
+  previewActions: { flexDirection: 'row', gap: 12, marginBottom: 10 },
   saveBtn: {
     flex: 1,
     backgroundColor: ACCENT,
@@ -472,4 +711,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   regenBtnText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  regenFullBtn: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  regenFullBtnText: { color: 'rgba(255,255,255,0.8)', fontWeight: '600', fontSize: 14 },
 });
