@@ -121,12 +121,12 @@ export default function IngredientChecklistScreen() {
     (ingredientsByTier[tier]?.filter((i) => i.name.trim()).length ?? 0) > 0;
   const availableTiers = QUANTITY_TIERS.filter(tierHasIngredients);
   const effectiveTier = availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '2-3 servings';
-  const ingredientGroups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
-  const hasGroups = Boolean(ingredientGroups && ingredientGroups.length > 0);
+  // Always use tier-based ingredients so quantities update when switching servings
+  const flatIngredients = ingredientsByTier[effectiveTier]?.filter((i) => i.name.trim()) ?? [];
 
-  const flatIngredients = hasGroups
-    ? flattenGroups(ingredientGroups!)
-    : (ingredientsByTier[effectiveTier]?.filter((i) => i.name.trim()) ?? []);
+  // For the checklist, just use the flat tier-based list (no grouped sections)
+  // This ensures quantities always match the selected tier
+  const hasGroups = false;
 
   const totalCount = flatIngredients.length;
   const checkedCount = flatIngredients.reduce(

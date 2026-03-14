@@ -106,13 +106,11 @@ export function RecipeCard({
             {/* Glow circle behind emoji */}
             <View style={styles.heroEmojiGlow} pointerEvents="none" />
             {imageSource != null ? (
-              <View style={styles.heroContentFrame} pointerEvents="none">
-                <Image
-                  source={imageSource}
-                  style={styles.heroImage}
-                  resizeMode="cover"
-                />
-              </View>
+              <Image
+                source={imageSource}
+                style={styles.heroFullImage}
+                resizeMode="cover"
+              />
             ) : (
               <Text style={styles.heroEmoji}>{emoji}</Text>
             )}
@@ -256,6 +254,15 @@ const styles = StyleSheet.create({
     }),
   },
   heroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  heroFullImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
   },

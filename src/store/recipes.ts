@@ -118,21 +118,38 @@ export async function saveRecipe(recipe: SavedRecipe): Promise<void> {
   }
 }
 
-/** Built-in ingredient groups keyed by recipe ID. Currently empty — hero recipes will be added later. */
-export const BUILTIN_INGREDIENT_GROUPS: Partial<Record<string, IngredientGroup[]>> = {};
+// Re-export built-in data from the dedicated module.
+import {
+  BUILTIN_RECIPES,
+  BUILTIN_INGREDIENT_GROUPS as _BUILTIN_GROUPS,
+  getBuiltInRecipeById as _getBuiltIn,
+  getBuiltInRecipesForProtein,
+} from '../data/builtInRecipes';
 
-/** Built-in recipes array. Currently empty — hero recipes will be added later. */
-const BUILTIN_RECIPES: SavedRecipe[] = [];
+export const BUILTIN_INGREDIENT_GROUPS = _BUILTIN_GROUPS;
+export { getBuiltInRecipesForProtein };
 
 export function getBuiltInRecipeById(recipeId: string): SavedRecipe | null {
-  return BUILTIN_RECIPES.find((r) => r.id === recipeId) ?? null;
+  return _getBuiltIn(recipeId);
+}
+
+/** Get all recipes (saved + built-in) for a given protein. */
+export async function getAllRecipesForProtein(proteinId: string): Promise<SavedRecipe[]> {
+  const saved = await getRecipes();
+  const savedForProtein = saved.filter((r) => r.proteinId === proteinId);
+  const builtIn = getBuiltInRecipesForProtein(proteinId);
+  // Merge — built-in first, then user-saved (skip duplicates by id)
+  const ids = new Set(builtIn.map((r) => r.id));
+  const userOnly = savedForProtein.filter((r) => !ids.has(r.id));
+  return [...builtIn, ...userOnly];
 }
 
 export async function getRecipeById(recipeId: string): Promise<SavedRecipe | null> {
+  // Check built-in first
+  const builtIn = getBuiltInRecipeById(recipeId);
+  if (builtIn) return builtIn;
   const saved = await getRecipes();
-  const found = saved.find((r) => r.id === recipeId);
-  if (found) return found;
-  return getBuiltInRecipeById(recipeId);
+  return saved.find((r) => r.id === recipeId) ?? null;
 }
 
 /** Completion stats helper — used by CookingModeScreen. */

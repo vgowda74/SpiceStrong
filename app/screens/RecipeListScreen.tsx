@@ -17,7 +17,8 @@ import {
 const screenWidth = Dimensions.get('window').width;
 
 import RecipeCard, { type RecipeDifficulty } from './RecipeCard';
-import { getRecipes, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
+import { getAllRecipesForProtein, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
+import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { getRatings, getFavourites, toggleFavourite, type RatingsMap } from '../../src/store/ratingsFavourites';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -57,9 +58,9 @@ export default function RecipeListScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getRecipes(), getRatings(), getFavourites()]).then(([allRecipes, ratingsMap, favouritesList]) => {
+      Promise.all([getAllRecipesForProtein(proteinId), getRatings(), getFavourites()]).then(([allRecipes, ratingsMap, favouritesList]) => {
         if (cancelled) return;
-        const filtered = allRecipes.filter((r) => r.proteinId === proteinId);
+        const filtered = allRecipes;
         setRecipes(filtered);
         setRatings(ratingsMap);
         setFavourites(favouritesList);
@@ -110,6 +111,7 @@ export default function RecipeListScreen() {
     const cardDifficulty: RecipeDifficulty =
       difficultyRaw === 'Medium' ? 'Medium' : difficultyRaw === 'Hard' ? 'Hard' : 'Easy';
     const gradient: readonly [string, string] = (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
+    const cardImage = getRecipeCardImage(item.id);
     const ratingValue = ratings[item.id];
     const ratingString = ratingValue != null && ratingValue >= 1 ? Number(ratingValue).toFixed(1) : undefined;
     const description = item.chefTip ?? item.description ?? '';
@@ -123,6 +125,7 @@ export default function RecipeListScreen() {
         difficulty={cardDifficulty}
         rating={ratingString}
         emoji={item.proteinEmoji ?? '🍽️'}
+        imageSource={cardImage}
         isFavorite={favourites.includes(item.id)}
         onPress={() =>
           router.push({

@@ -8,6 +8,7 @@ import {
   Alert,
   Animated,
   AppState,
+  Image,
   ImageBackground,
   LayoutAnimation,
   Linking,
@@ -24,6 +25,7 @@ import { getRecipeById, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep
 import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
 import ShareableRecipeCard from '../../components/ShareableRecipeCard';
+import { getRecipeStepImage } from '../../src/data/recipeImages';
 
 const ENCOURAGEMENTS = [
   { emoji: '🎉', message: "Great start! You're on your way." },
@@ -773,9 +775,17 @@ export default function CookingModeScreen() {
           <Text style={styles.stepLabel}>{stepLabel}</Text>
           <Text style={styles.stepTitle}>{step.title}</Text>
           <View style={styles.imageAreaWrapper}>
-            <View style={styles.imageArea}>
-              <Text style={styles.stepEmoji}>{stepEmoji}</Text>
-            </View>
+            {getRecipeStepImage(recipe.id, currentStep) ? (
+              <Image
+                source={getRecipeStepImage(recipe.id, currentStep)!}
+                style={styles.stepImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.imageArea}>
+                <Text style={styles.stepEmoji}>{stepEmoji}</Text>
+              </View>
+            )}
           </View>
           <Text style={styles.stepDescription}>{step.description}</Text>
           {stepIngredients.length > 0 && (
@@ -940,9 +950,14 @@ const styles = StyleSheet.create({
   imageArea: {
     backgroundColor: IMAGE_BG,
     borderRadius: 12,
-    height: 120,
+    height: 200,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  stepImage: {
+    width: '100%',
+    height: 220,
+    borderRadius: 12,
   },
   stepEmoji: { fontSize: 72 },
   stepDescription: {

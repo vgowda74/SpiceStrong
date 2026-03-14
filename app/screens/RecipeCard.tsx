@@ -1,6 +1,8 @@
 import React from 'react'
 import {
   GestureResponderEvent,
+  Image,
+  type ImageSourcePropType,
   Platform,
   Pressable,
   StyleSheet,
@@ -19,6 +21,7 @@ type Props = {
   difficulty: RecipeDifficulty
   rating?: string
   emoji?: string
+  imageSource?: ImageSourcePropType
   isFavorite?: boolean
   onPress: () => void
   onFavoriteToggle?: (e: GestureResponderEvent) => void
@@ -34,6 +37,7 @@ export default function RecipeCard({
   difficulty,
   rating,
   emoji = '🍽️',
+  imageSource,
   isFavorite = false,
   onPress,
   onFavoriteToggle,
@@ -74,7 +78,11 @@ export default function RecipeCard({
             </View>
           )}
 
-          <Text style={styles.emoji}>{emoji}</Text>
+          {imageSource ? (
+            <Image source={imageSource} style={styles.heroImage} resizeMode="cover" />
+          ) : (
+            <Text style={styles.emoji}>{emoji}</Text>
+          )}
         </LinearGradient>
 
         {/* INFO */}
@@ -135,9 +143,19 @@ const styles = StyleSheet.create({
   },
 
   hero: {
-    height: 120,
+    height: 180,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  heroImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
   },
 
   emoji: {
