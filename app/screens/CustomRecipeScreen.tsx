@@ -4,10 +4,8 @@ import { Alert, ImageBackground, ScrollView, StyleSheet, Text, TextInput, Toucha
 import { saveRecipe, getRecipes, QUANTITY_TIERS, type QuantityTier, type IngredientsByTier } from '../../src/store/recipes';
 
 const defaultIngredientsByTier = (): IngredientsByTier => ({
-  '1lb': [{ name: '', quantity: '' }],
-  '2lb': [],
-  '4lb': [],
-  '8lb': [],
+  '2-3 servings': [{ name: '', quantity: '' }],
+  '4-6 servings': [],
 });
 
 export default function CustomRecipeScreen() {
@@ -23,7 +21,7 @@ export default function CustomRecipeScreen() {
 
   const [recipeName, setRecipeName] = useState('');
   const [ingredientsByTier, setIngredientsByTier] = useState<IngredientsByTier>(defaultIngredientsByTier);
-  const [selectedTier, setSelectedTier] = useState<QuantityTier>('1lb');
+  const [selectedTier, setSelectedTier] = useState<QuantityTier>('2-3 servings');
   const [steps, setSteps] = useState([{ title: '', description: '' }]);
   const [chefTip, setChefTip] = useState('');
   const [existingId, setExistingId] = useState<string | null>(null);
@@ -41,10 +39,8 @@ export default function CustomRecipeScreen() {
         setRecipeName(recipe.name);
         const ing = recipe.ingredients;
         setIngredientsByTier({
-          '1lb': ing['1lb']?.length ? ing['1lb'] : [{ name: '', quantity: '' }],
-          '2lb': ing['2lb']?.length ? ing['2lb'] : [],
-          '4lb': ing['4lb']?.length ? ing['4lb'] : [],
-          '8lb': ing['8lb']?.length ? ing['8lb'] : [],
+          '2-3 servings': ing['2-3 servings']?.length ? ing['2-3 servings'] : [{ name: '', quantity: '' }],
+          '4-6 servings': ing['4-6 servings']?.length ? ing['4-6 servings'] : [],
         });
         setSteps(recipe.steps.length > 0 ? recipe.steps : [{ title: '', description: '' }]);
         setChefTip(recipe.chefTip ?? '');
@@ -83,9 +79,9 @@ const handleSave = async () => {
       Alert.alert('Missing Info', 'Please enter a recipe name.');
       return;
     }
-    const oneLb = ingredientsByTier['1lb'].filter((i) => i.name.trim());
-    if (oneLb.length === 0) {
-      Alert.alert('Missing Info', 'Please add at least one ingredient for the 1lb tier.');
+    const mainTier = ingredientsByTier['2-3 servings'].filter((i) => i.name.trim());
+    if (mainTier.length === 0) {
+      Alert.alert('Missing Info', 'Please add at least one ingredient.');
       return;
     }
     if (!steps[0].description.trim()) {

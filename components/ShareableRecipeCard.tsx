@@ -16,9 +16,9 @@ interface ShareableRecipeCardProps {
 
 export default function ShareableRecipeCard({ recipe, stats }: ShareableRecipeCardProps) {
   // Get ingredients from first available tier
-  const tiers = ['1lb', '2lb', '4lb', '8lb'] as const;
-  const ingredientTier = tiers.find((t) => recipe.ingredients[t]?.length > 0) ?? '1lb';
-  const ingredients = recipe.ingredients[ingredientTier] ?? [];
+  const tiers = ['2-3 servings', '4-6 servings'] as const;
+  const ingredientTier = tiers.find((t) => recipe.ingredients[t]?.length > 0) ?? '2-3 servings';
+  const ingredients: { name: string; quantity: string }[] = recipe.ingredients[ingredientTier] ?? [];
 
   return (
     <View style={styles.cardOuter}>

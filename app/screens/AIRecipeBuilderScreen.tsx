@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe } from '../../src/store/recipes';
+import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType } from '../../src/store/recipes';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -158,20 +158,11 @@ async function callClaudeAPI(
 
   const constraintsText = parts.join(' ');
 
-  const systemPrompt = `You are a professional chef and nutritionist. Generate a complete high-protein recipe and return ONLY valid JSON.
+  // Determine if this is a dessert/snack — single serving mode
+  const isSnackDessert = params.mealType?.toLowerCase().includes('snack') || params.mealType?.toLowerCase().includes('dessert');
 
-Return this exact JSON structure:
-{
-  "name": "Recipe Name",
-  "proteinId": "chicken|lamb|fish|prawns|pork|goat|paneer|tofu|eggs|soy|beans",
-  "proteinName": "Chicken",
-  "proteinEmoji": "🍗",
-  "description": "One line description",
-  "cookTime": "25 min",
-  "difficulty": "Easy|Medium|Hard",
-  "protein": "32g",
-  "calories": "320 kcal",
-  "ingredients": {
+  const ingredientStructure = isSnackDessert
+    ? `"ingredients": {
     "2-3 servings": [
       {
         "category": "PROTEIN",
@@ -180,7 +171,45 @@ Return this exact JSON structure:
         "quantity": "1 cup"
       }
     ]
-  },
+  }`
+    : `"ingredients": {
+    "2-3 servings": [
+      {
+        "category": "PROTEIN",
+        "categoryEmoji": "🍗",
+        "name": "Ingredient name",
+        "quantity": "1 cup"
+      }
+    ],
+    "4-6 servings": [
+      {
+        "category": "PROTEIN",
+        "categoryEmoji": "🍗",
+        "name": "Ingredient name",
+        "quantity": "2 cups"
+      }
+    ]
+  }`;
+
+  const servingRule = isSnackDessert
+    ? '- This is a dessert/snack: provide ingredients for 1 SERVING only under "2-3 servings" key. User will multiply as needed.'
+    : '- Provide ingredients for BOTH "2-3 servings" and "4-6 servings" tiers. The 4-6 servings should be roughly 2x the 2-3 servings quantities.';
+
+  const systemPrompt = `You are a professional chef and nutritionist. Generate a complete high-protein recipe and return ONLY valid JSON.
+
+Return this exact JSON structure:
+{
+  "name": "Recipe Name",
+  "proteinId": "chicken|lamb|fish|prawns|pork|goat|paneer|tofu|eggs|soy|beans|milk|whey",
+  "proteinName": "Chicken",
+  "proteinEmoji": "🍗",
+  "description": "One line description",
+  "cookTime": "25 min",
+  "difficulty": "Easy|Medium|Hard",
+  "protein": "32g",
+  "calories": "320 kcal",
+  "mealType": "breakfast|lunch_dinner|snack_dessert",
+  ${ingredientStructure},
   "steps": [
     {
       "id": "step1",
@@ -199,6 +228,8 @@ Rules:
 - timerSeconds: use realistic times (300 = 5 min)
 - Return ONLY the JSON object, no other text
 - proteinId must match one of the options exactly
+- mealType must be one of: breakfast, lunch_dinner, snack_dessert
+${servingRule}
 ${constraintsText}`;
 
   const userMessage = `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;
@@ -270,6 +301,11 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
     timerMinutes: typeof s.timerSeconds === 'number' ? Math.round(s.timerSeconds / 60) : undefined,
   }));
 
+  // Determine mealType from AI response or default
+  const mealTypeRaw = String(recipe.mealType ?? 'lunch_dinner');
+  const validMealTypes: MealType[] = ['breakfast', 'lunch_dinner', 'snack_dessert'];
+  const mealType: MealType = validMealTypes.includes(mealTypeRaw as MealType) ? (mealTypeRaw as MealType) : 'lunch_dinner';
+
   const newRecipe: SavedRecipe = {
     id: Date.now().toString(),
     name: String(recipe.name ?? 'Untitled'),
@@ -281,6 +317,7 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
     steps: stepsNormalized,
     chefTip: String(recipe.description ?? steps[0]?.tip ?? ''),
     createdAt: Date.now(),
+    mealType,
   };
 
   const toStore = {

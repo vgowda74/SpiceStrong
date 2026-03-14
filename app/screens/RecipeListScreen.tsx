@@ -17,7 +17,7 @@ import {
 const screenWidth = Dimensions.get('window').width;
 
 import RecipeCard, { type RecipeDifficulty } from './RecipeCard';
-import { getRecipes, getBuiltInRecipeById, SavedRecipe, QUANTITY_TIERS, type QuantityTier } from '../../src/store/recipes';
+import { getRecipes, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
 import { getRatings, getFavourites, toggleFavourite, type RatingsMap } from '../../src/store/ratingsFavourites';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -30,40 +30,7 @@ const WARM_CREAM = '#FDF8F3';
 const TAB_INACTIVE = 'rgba(255,255,255,0.2)';
 const TAB_ACTIVE_BG = '#1A0A00';
 
-type MealType = 'breakfast' | 'lunch_dinner' | 'snack_dessert';
 type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites';
-
-interface BuiltInRecipeDisplay {
-  id: string;
-  proteinId: string;
-  name: string;
-  timeMinutes: number;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
-  proteinPer100g: number;
-  emoji: string;
-  gradient: [string, string];
-  mealType: MealType;
-}
-
-const builtInRecipes: BuiltInRecipeDisplay[] = [
-  { id: 'builtin-chicken-butter', proteinId: 'chicken', name: 'Butter Chicken (Murgh Makhani)', timeMinutes: 45, difficulty: 'Medium', proteinPer100g: 38, emoji: '🍛', gradient: ['#FF8C00', '#E85D26'], mealType: 'lunch_dinner' },
-  { id: 'builtin-chicken-pepper', proteinId: 'chicken', name: "Venky's Pepper Chicken", timeMinutes: 25, difficulty: 'Medium', proteinPer100g: 42, emoji: '🌶️', gradient: ['#8B0000', '#4A0000'], mealType: 'lunch_dinner' },
-  { id: 'builtin-chicken-tikka-bites', proteinId: 'chicken', name: 'Indian Tikka Bites', timeMinutes: 30, difficulty: 'Easy', proteinPer100g: 42, emoji: '🍢', gradient: ['#B45309', '#78350F'], mealType: 'snack_dessert' },
-  { id: 'builtin-paneer-stirfry', proteinId: 'paneer', name: 'Healthy Paneer Stir Fry', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 18, emoji: '🧀', gradient: ['#1B5E20', '#0A3D0A'], mealType: 'lunch_dinner' },
-  { id: 'builtin-prawns-pepper-fry', proteinId: 'prawns', name: 'Pepper Shrimp Fry', timeMinutes: 20, difficulty: 'Easy', proteinPer100g: 24, emoji: '🦐', gradient: ['#0D47A1', '#1A237E'], mealType: 'snack_dessert' },
-  { id: 'builtin-tofu-fried-masala', proteinId: 'tofu', name: 'Fried Masala Tofu', timeMinutes: 15, difficulty: 'Easy', proteinPer100g: 17, emoji: '🟫', gradient: ['#0F4C5C', '#0A3040'], mealType: 'snack_dessert' },
-  { id: 'builtin-soy-soya-masala', proteinId: 'soy', name: 'Soya Masala', timeMinutes: 20, difficulty: 'Easy', proteinPer100g: 36, emoji: '🫘', gradient: ['#1A4A1A', '#0A2A0A'], mealType: 'lunch_dinner' },
-  { id: 'builtin-beans-rajma-masala', proteinId: 'beans', name: 'Rajma Masala', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 20, emoji: '🫘', gradient: ['#7B1A1A', '#4A0A0A'], mealType: 'lunch_dinner' },
-  { id: 'builtin-beans-dry-chana-masala', proteinId: 'beans', name: 'Dry Chana Masala', timeMinutes: 15, difficulty: 'Easy', proteinPer100g: 19, emoji: '🫛', gradient: ['#7A5C00', '#4A3800'], mealType: 'snack_dessert' },
-  { id: 'builtin-beans-masoor-dal-curry', proteinId: 'beans', name: 'Masoor Dal Curry', timeMinutes: 12, difficulty: 'Easy', proteinPer100g: 18, emoji: '🍲', gradient: ['#8B3A0F', '#5A1A05'], mealType: 'lunch_dinner' },
-  { id: 'builtin-pork-vindaloo', proteinId: 'pork', name: 'Goan Pork Vindaloo', timeMinutes: 45, difficulty: 'Hard', proteinPer100g: 28, emoji: '🫕', gradient: ['#7B1D1D', '#4A0A0A'], mealType: 'lunch_dinner' },
-  { id: 'builtin-pork-pepper-fry', proteinId: 'pork', name: 'Pork Pepper Fry', timeMinutes: 30, difficulty: 'Medium', proteinPer100g: 29, emoji: '🥩', gradient: ['#3D1A0A', '#1A0A00'], mealType: 'lunch_dinner' },
-  { id: 'builtin-pork-indian-curry', proteinId: 'pork', name: 'Indian Pork Curry', timeMinutes: 40, difficulty: 'Medium', proteinPer100g: 31, emoji: '🫕', gradient: ['#6B1A1A', '#3D0A0A'], mealType: 'lunch_dinner' },
-  { id: 'builtin-lamb-healthy-curry', proteinId: 'lamb', name: 'Healthy Lamb Curry', timeMinutes: 45, difficulty: 'Medium', proteinPer100g: 28, emoji: '🥘', gradient: ['#3B4A1A', '#1E2A0A'], mealType: 'lunch_dinner' },
-  { id: 'builtin-goat-chops', proteinId: 'goat', name: 'Goat Chops (Mutton Chaap)', timeMinutes: 35, difficulty: 'Medium', proteinPer100g: 27, emoji: '🍖', gradient: ['#4A2010', '#2A0F05'], mealType: 'lunch_dinner' },
-  { id: 'builtin-eggs-healthy-curry', proteinId: 'eggs', name: 'Healthy Egg Curry', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 13, emoji: '🥚', gradient: ['#7A5C00', '#3D2E00'], mealType: 'breakfast' },
-  { id: 'builtin-fish-tandoori', proteinId: 'fish', name: 'Pan-Seared Tandoori Fish', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 32, emoji: '🐟', gradient: ['#0D3B5E', '#071E30'], mealType: 'lunch_dinner' },
-];
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -101,18 +68,7 @@ export default function RecipeListScreen() {
     }, [proteinId])
   );
 
-  const builtInForProtein = useMemo(
-    () => builtInRecipes.filter((r) => r.proteinId === proteinId),
-    [proteinId]
-  );
-  const totalCount = builtInForProtein.length + recipes.length;
-  const allProteinValues = useMemo(() => {
-    const fromBuiltIn = builtInForProtein.map((r) => r.proteinPer100g);
-    return fromBuiltIn;
-  }, [builtInForProtein]);
-  const minProtein = allProteinValues.length ? Math.min(...allProteinValues) : 0;
-  const maxProtein = allProteinValues.length ? Math.max(...allProteinValues) : 0;
-  const proteinRangeText = minProtein && maxProtein ? `${minProtein}g-${maxProtein}g` : '—';
+  const totalCount = recipes.length;
 
   const handleDelete = (recipe: SavedRecipe) => {
     Alert.alert(
@@ -147,23 +103,16 @@ export default function RecipeListScreen() {
     );
   }, []);
 
-  type RecipeItem = BuiltInRecipeDisplay | (SavedRecipe & { timeMinutes?: number; difficulty?: string; proteinPer100g?: number; emoji?: string; gradient?: [string, string] });
-
-  const renderRecipeCard = (item: RecipeItem, isBuiltIn: boolean) => {
-    const timeMinutes = isBuiltIn ? (item as BuiltInRecipeDisplay).timeMinutes : (item as SavedRecipe & { timeMinutes?: number }).timeMinutes ?? null;
-    const difficultyRaw = isBuiltIn ? (item as BuiltInRecipeDisplay).difficulty : (item as SavedRecipe & { difficulty?: string }).difficulty ?? '—';
-    const proteinPer100g = isBuiltIn ? (item as BuiltInRecipeDisplay).proteinPer100g : (item as SavedRecipe & { proteinPer100g?: number }).proteinPer100g ?? null;
+  const renderRecipeCard = (item: SavedRecipe) => {
+    const timeMinutes = (item as SavedRecipe & { timeMinutes?: number }).timeMinutes ?? null;
+    const difficultyRaw = (item as SavedRecipe & { difficulty?: string }).difficulty ?? '—';
+    const proteinPer100g = (item as SavedRecipe & { proteinPer100g?: number }).proteinPer100g ?? null;
     const cardDifficulty: RecipeDifficulty =
       difficultyRaw === 'Medium' ? 'Medium' : difficultyRaw === 'Hard' ? 'Hard' : 'Easy';
-    const gradient: readonly [string, string] = isBuiltIn
-      ? (item as BuiltInRecipeDisplay).gradient
-      : (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
+    const gradient: readonly [string, string] = (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
     const ratingValue = ratings[item.id];
     const ratingString = ratingValue != null && ratingValue >= 1 ? Number(ratingValue).toFixed(1) : undefined;
-
-    const description = isBuiltIn
-      ? (getBuiltInRecipeById(item.id)?.chefTip ?? '')
-      : (item as SavedRecipe).chefTip ?? '';
+    const description = item.chefTip ?? item.description ?? '';
 
     return (
       <RecipeCard
@@ -173,7 +122,7 @@ export default function RecipeListScreen() {
         protein={proteinPer100g != null ? `${proteinPer100g}g protein` : ''}
         difficulty={cardDifficulty}
         rating={ratingString}
-        emoji={isBuiltIn ? (item as BuiltInRecipeDisplay).emoji : (item as SavedRecipe & { emoji?: string }).emoji ?? '🍽️'}
+        emoji={item.proteinEmoji ?? '🍽️'}
         isFavorite={favourites.includes(item.id)}
         onPress={() =>
           router.push({
@@ -184,48 +133,39 @@ export default function RecipeListScreen() {
         onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
         accentColors={gradient}
         actionRow={
-          !isBuiltIn ? (
-            <View style={styles.actionRow}>
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleDelete(item as SavedRecipe);
-                }}
-              >
-                <Text style={styles.deleteBtnText}>🗑</Text>
-              </TouchableOpacity>
-            </View>
-          ) : undefined
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={styles.deleteBtn}
+              onPress={(e) => {
+                e.stopPropagation();
+                handleDelete(item);
+              }}
+            >
+              <Text style={styles.deleteBtnText}>🗑</Text>
+            </TouchableOpacity>
+          </View>
         }
       />
     );
   };
 
-  const listData: Array<{ type: 'builtin'; item: BuiltInRecipeDisplay } | { type: 'custom'; item: SavedRecipe }> = useMemo(() => {
-    const builtInItems = builtInForProtein.map((item) => ({ type: 'builtin' as const, item }));
-    const customItems = recipes.map((item) => ({ type: 'custom' as const, item }));
-    const allRecipeEntries = [...builtInItems, ...customItems];
-
-    let filtered: Array<{ type: 'builtin'; item: BuiltInRecipeDisplay } | { type: 'custom'; item: SavedRecipe }>;
+  const listData = useMemo(() => {
+    let filtered: SavedRecipe[];
     if (activeFilter === 'all') {
-      filtered = allRecipeEntries;
+      filtered = recipes;
     } else if (activeFilter === 'breakfast' || activeFilter === 'lunch_dinner' || activeFilter === 'snack_dessert') {
-      filtered = allRecipeEntries.filter((entry) => {
-        if (entry.type === 'builtin') return entry.item.mealType === activeFilter;
-        // Custom recipes default to lunch_dinner if no mealType set
+      filtered = recipes.filter((r) => {
+        const mt = (r as SavedRecipe & { mealType?: string }).mealType;
+        if (mt) return mt === activeFilter;
+        // Default to lunch_dinner if no mealType set
         return activeFilter === 'lunch_dinner';
       });
     } else {
       // favourites
-      filtered = allRecipeEntries.filter((entry) => {
-        const id = entry.type === 'builtin' ? entry.item.id : entry.item.id;
-        return favourites.includes(id);
-      });
+      filtered = recipes.filter((r) => favourites.includes(r.id));
     }
-
     return filtered;
-  }, [builtInForProtein, recipes, activeFilter, ratings, favourites]);
+  }, [recipes, activeFilter, ratings, favourites]);
 
   return (
     <ImageBackground
@@ -258,21 +198,11 @@ export default function RecipeListScreen() {
             </View>
             <Text style={styles.headerProteinName}>{proteinName}</Text>
           </View>
-          <Text style={styles.headerSubtitle}>High-protein · Non-Vegetarian</Text>
+          <Text style={styles.headerSubtitle}>High-protein recipes</Text>
           <View style={styles.statsRow}>
             <View style={styles.statCol}>
               <Text style={styles.statNumber}>{totalCount}</Text>
               <Text style={styles.statLabel}>RECIPES</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCol}>
-              <Text style={styles.statNumber}>{proteinRangeText}</Text>
-              <Text style={styles.statLabel}>PROTEIN/100G</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCol}>
-              <Text style={styles.statNumber}>4.8★</Text>
-              <Text style={styles.statLabel}>AVG RATING</Text>
             </View>
           </View>
         </View>
@@ -317,15 +247,16 @@ export default function RecipeListScreen() {
 
       <FlatList
         data={listData}
-        keyExtractor={(item) => (item.type === 'add' ? 'add' : item.type === 'builtin' ? item.item.id : item.item.id)}
+        keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
-        ListEmptyComponent={null}
-        renderItem={({ item }) => {
-          if (item.type === 'builtin') {
-            return renderRecipeCard(item.item, true);
-          }
-          return renderRecipeCard(item.item, false);
-        }}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyEmoji}>🍽️</Text>
+            <Text style={styles.emptyTitle}>No recipes yet</Text>
+            <Text style={styles.emptySub}>Use "Build with AI" to create your first {proteinName} recipe!</Text>
+          </View>
+        }
+        renderItem={({ item }) => renderRecipeCard(item)}
       />
       </View>
       </View>
@@ -416,15 +347,9 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-evenly',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 8,
-  },
-  statDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignSelf: 'center',
   },
   statCol: { alignItems: 'center', minWidth: 80 },
   statNumber: {
@@ -486,5 +411,13 @@ const styles = StyleSheet.create({
   },
   deleteBtnText: { fontSize: 14, color: '#fff' },
 
-  // Add card styles removed — replaced by compact pill buttons
+  // Empty state
+  emptyWrap: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+  },
+  emptyEmoji: { fontSize: 48, marginBottom: 12 },
+  emptyTitle: { color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  emptySub: { color: 'rgba(255,255,255,0.7)', fontSize: 14, textAlign: 'center', lineHeight: 20 },
 });

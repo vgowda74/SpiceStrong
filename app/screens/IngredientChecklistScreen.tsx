@@ -14,6 +14,7 @@ import {
   SavedRecipe,
   QUANTITY_TIERS,
   BUILTIN_INGREDIENT_GROUPS,
+  isDessertRecipe,
   type QuantityTier,
   type IngredientGroup,
 } from '../../src/store/recipes';
@@ -60,11 +61,11 @@ export default function IngredientChecklistScreen() {
 
   const handleStartCooking = () => {
     if (!recipe) return;
-    const params: Record<string, string> = { recipeId: recipe.id };
-    if (effectiveTier) params.quantityTier = effectiveTier;
+    const navParams: Record<string, string> = { recipeId: recipe.id };
+    if (effectiveTier) navParams.quantityTier = effectiveTier;
     router.replace({
       pathname: '/screens/CookingStartScreen',
-      params,
+      params: navParams,
     });
   };
 
@@ -111,6 +112,10 @@ export default function IngredientChecklistScreen() {
     );
   }
 
+  // Check if this is a dessert/snack recipe (single-serving mode)
+  const recipeMealType = (recipe as SavedRecipe & { mealType?: string }).mealType;
+  const isSingleServing = isDessertRecipe(recipeMealType);
+
   const ingredientsByTier = recipe.ingredients;
   const tierHasIngredients = (tier: QuantityTier) =>
     (ingredientsByTier[tier]?.filter((i) => i.name.trim()).length ?? 0) > 0;
@@ -136,8 +141,10 @@ export default function IngredientChecklistScreen() {
     setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const displayName = recipe.id === 'builtin-chicken-butter' ? 'Butter Chicken' : recipe.name;
-  const subtitle = `${displayName} · ${effectiveTier}`;
+  const displayName = recipe.name;
+  const subtitle = isSingleServing
+    ? `${displayName} · 1 Serving`
+    : `${displayName} · ${effectiveTier}`;
 
   const renderIngredientRow = (item: { name: string; quantity: string }, flatIndex: number) => {
     const isChecked = !!checked[`${effectiveTier}-${flatIndex}`];
@@ -176,23 +183,35 @@ export default function IngredientChecklistScreen() {
         <Text style={styles.headerTitle}>Gather Ingredients</Text>
         <View style={styles.headerSpacer} />
         <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
-        <Text style={styles.servingLabel}>🍽️ How many servings?</Text>
-        <View style={styles.tierSelector}>
-          {QUANTITY_TIERS.map((tier) => {
-            const isSelected = effectiveTier === tier;
-            return (
-              <TouchableOpacity
-                key={tier}
-                style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
-                onPress={() => setSelectedTier(tier)}
-              >
-                <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
-                  {tier === '2-3 servings' ? '👨‍👩‍👦 2-3 Servings' : '👨‍👩‍👦‍👦 4-6 Servings'}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+
+        {/* Serving selector — hide for dessert/snack (single-serving) */}
+        {isSingleServing ? (
+          <View style={styles.singleServingNote}>
+            <Text style={styles.singleServingIcon}>🍰</Text>
+            <Text style={styles.singleServingText}>Recipe for 1 serving. Multiply ingredients as needed.</Text>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.servingLabel}>🍽️ How many servings?</Text>
+            <View style={styles.tierSelector}>
+              {QUANTITY_TIERS.map((tier) => {
+                const isSelected = effectiveTier === tier;
+                return (
+                  <TouchableOpacity
+                    key={tier}
+                    style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
+                    onPress={() => setSelectedTier(tier)}
+                  >
+                    <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
+                      {tier === '2-3 servings' ? '👨‍👩‍👦 2-3 Servings' : '👨‍👩‍👦‍👦 4-6 Servings'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+
         <View style={styles.progressRow}>
           <Text style={styles.progressLeft}>{checkedCount} of {totalCount} gathered</Text>
           <Text style={styles.progressRight}>{progressPct}%</Text>
@@ -375,6 +394,28 @@ const styles = StyleSheet.create({
   },
   tierOptionTextSelected: {
     color: CARD_WHITE,
+  },
+  // Single-serving note for desserts
+  singleServingNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  singleServingIcon: {
+    fontSize: 20,
+    marginRight: 10,
+  },
+  singleServingText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
   },
   content: {
     flex: 1,
