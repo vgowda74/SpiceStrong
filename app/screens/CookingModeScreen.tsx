@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import * as Sharing from 'expo-sharing';
 import { speakTTS, stopTTS } from '../../src/utils/tts';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -19,9 +20,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import ViewShot from 'react-native-view-shot';
 import { getRecipeById, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep } from '../../src/store/recipes';
 import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
+import ShareableRecipeCard from '../../components/ShareableRecipeCard';
 
 const ENCOURAGEMENTS = [
   { emoji: '🎉', message: "Great start! You're on your way." },
@@ -58,7 +61,7 @@ function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[]
   const groups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
   const flat = groups
     ? groups.flatMap((g) => g.items.map((i) => i.name))
-    : (recipe.ingredients['1lb'] ?? []).filter((i) => i.name.trim()).map((i) => i.name);
+    : (recipe.ingredients['2-3 servings'] ?? recipe.ingredients['1lb' as keyof typeof recipe.ingredients] ?? []).filter((i) => i.name.trim()).map((i) => i.name);
   if (flat.length === 0) return [];
   const step = recipe.steps[stepIndex];
   const title = (step?.title ?? '').toLowerCase();
@@ -160,15 +163,15 @@ const SERIF_FONT = Platform.OS === 'ios' ? 'Georgia' : 'serif';
 function getCompletionStats(recipe: SavedRecipe) {
   const isButterChicken = recipe.name.toLowerCase().includes('butter chicken');
   if (isButterChicken) {
-    return { proteinG: 56, kcal: 480, cookTimeMin: 45 };
+    return { proteinG: 56, kcal: 480, cookTimeMin: 45, carbsG: 12, fatG: 22, fiberG: 2, servings: 3 };
   }
   const isIndianPorkCurry = recipe.id === 'builtin-pork-indian-curry';
   if (isIndianPorkCurry) {
-    return { proteinG: 31, kcal: 380, cookTimeMin: 40 };
+    return { proteinG: 31, kcal: 380, cookTimeMin: 40, carbsG: 18, fatG: 16, fiberG: 3, servings: 3 };
   }
   const isHealthyEggCurry = recipe.id === 'builtin-eggs-healthy-curry';
   if (isHealthyEggCurry) {
-    return { proteinG: 13, kcal: 280, cookTimeMin: 25 };
+    return { proteinG: 13, kcal: 280, cookTimeMin: 25, carbsG: 10, fatG: 14, fiberG: 2, servings: 2 };
   }
   const proteinById: Record<string, number> = {
     chicken: 45,
@@ -179,7 +182,7 @@ function getCompletionStats(recipe: SavedRecipe) {
   };
   const proteinG = proteinById[recipe.proteinId?.toLowerCase()] ?? 40;
   const cookTimeMin = recipe.steps.length * 8;
-  return { proteinG, kcal: 400, cookTimeMin };
+  return { proteinG, kcal: 400, cookTimeMin, carbsG: 15, fatG: 18, fiberG: 2, servings: 2 };
 }
 
 const TIMER_MAX_MINUTES = 30;
@@ -199,6 +202,7 @@ export default function CookingModeScreen() {
   const [initialTimerSeconds, setInitialTimerSeconds] = useState(0);
   const [done, setDone] = useState(false);
   const [starRating, setStarRating] = useState(5);
+  const [showNutritionDetails, setShowNutritionDetails] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [encouragement, setEncouragement] = useState<{ emoji: string; message: string } | null>(null);
   const encouragementSlide = useRef(new Animated.Value(300)).current;
@@ -210,6 +214,7 @@ export default function CookingModeScreen() {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const timerEndTimeRef = useRef<number | null>(null);
   const notificationIdRef = useRef<string | null>(null);
+  const shareCardRef = useRef<ViewShot>(null);
 
   const speakStep = (s: CookingStep | undefined, enabled: boolean) => {
     stopTTS();
@@ -277,6 +282,14 @@ export default function CookingModeScreen() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [timerRunning]);
+
+  // Cancel any scheduled notification
+  const cancelTimerNotification = async () => {
+    if (notificationIdRef.current) {
+      await Notifications.cancelScheduledNotificationAsync(notificationIdRef.current).catch(() => null);
+      notificationIdRef.current = null;
+    }
+  };
 
   // Sync timer when app returns from background
   // Extract alarm trigger into a reusable function
@@ -388,13 +401,6 @@ export default function CookingModeScreen() {
       });
     } catch (e) {
       console.log('Notification schedule error:', e);
-    }
-  };
-
-  const cancelTimerNotification = async () => {
-    if (notificationIdRef.current) {
-      await Notifications.cancelScheduledNotificationAsync(notificationIdRef.current).catch(() => null);
-      notificationIdRef.current = null;
     }
   };
 
@@ -517,8 +523,26 @@ export default function CookingModeScreen() {
     };
     const handleShare = async () => {
       try {
+        // Try to capture recipe card as image and share
+        if (shareCardRef.current?.capture) {
+          const uri = await shareCardRef.current.capture();
+          if (uri && (await Sharing.isAvailableAsync())) {
+            await Sharing.shareAsync(uri, {
+              mimeType: 'image/png',
+              dialogTitle: `Share ${recipe.name}`,
+              UTI: 'public.png',
+            });
+            return;
+          }
+        }
+        // Fallback to text share
         await Share.share({ message: recipe.name, title: recipe.name });
-      } catch (_) {}
+      } catch (_) {
+        // Final fallback
+        try {
+          await Share.share({ message: recipe.name, title: recipe.name });
+        } catch (__) {}
+      }
     };
     const handleSendFeedback = () => {
       router.push({
@@ -550,20 +574,71 @@ export default function CookingModeScreen() {
           <Text style={styles.completionTitle}>Well Done, Chef!</Text>
           <Text style={styles.completionRecipeName}>{recipe.name}</Text>
 
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.proteinG}g</Text>
-              <Text style={styles.statLabel}>PROTEIN</Text>
+          <TouchableOpacity
+            style={styles.nutritionBox}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setShowNutritionDetails(!showNutritionDetails);
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={styles.nutritionBoxHeader}>
+              <View style={styles.nutritionBoxSummary}>
+                <Text style={styles.nutritionBoxValue}>🔥 {stats.kcal} kcal</Text>
+                <Text style={styles.nutritionBoxDot}>•</Text>
+                <Text style={styles.nutritionBoxValue}>💪 {stats.proteinG}g protein</Text>
+              </View>
+              <Text style={styles.nutritionBoxArrow}>{showNutritionDetails ? '▲' : '▼'}</Text>
             </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.cookTimeMin}m</Text>
-              <Text style={styles.statLabel}>COOK TIME</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{totalSteps}</Text>
-              <Text style={styles.statLabel}>STEPS COMPLETED</Text>
-            </View>
-          </View>
+            <Text style={styles.nutritionBoxHint}>per serving  •  {showNutritionDetails ? 'tap to collapse' : 'tap for full nutrition'}</Text>
+
+            {showNutritionDetails && (
+              <View style={styles.nutritionDetailsGrid}>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Calories</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.kcal} kcal</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Protein</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.proteinG}g</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Carbs</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.carbsG}g</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Fat</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.fatG}g</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Fiber</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.fiberG}g</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Servings</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.servings}</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Total Calories</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.kcal * stats.servings} kcal</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Total Protein</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.proteinG * stats.servings}g</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Cook Time</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.cookTimeMin} min</Text>
+                </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Steps Completed</Text>
+                  <Text style={styles.nutritionDetailVal}>{totalSteps}</Text>
+                </View>
+              </View>
+            )}
+          </TouchableOpacity>
 
           <Text style={styles.rateLabel}>Rate this recipe</Text>
           <View style={styles.starRow}>
@@ -601,6 +676,13 @@ export default function CookingModeScreen() {
             <Text style={styles.btnOutlineText}>📤 Share Recipe</Text>
           </TouchableOpacity>
         </ScrollView>
+        </View>
+
+        {/* Hidden shareable card for image capture */}
+        <View style={{ position: 'absolute', left: -9999, top: 0 }}>
+          <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 1 }}>
+            <ShareableRecipeCard recipe={recipe} stats={stats} />
+          </ViewShot>
         </View>
       </ImageBackground>
     );
@@ -1152,6 +1234,70 @@ const styles = StyleSheet.create({
     fontSize: 24,
   },
   statLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 4, letterSpacing: 1 },
+  nutritionBox: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 24,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  nutritionBoxHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  nutritionBoxSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  nutritionBoxValue: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 18,
+  },
+  nutritionBoxDot: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 18,
+  },
+  nutritionBoxArrow: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+  },
+  nutritionBoxHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
+    marginTop: 6,
+    letterSpacing: 0.5,
+  },
+  nutritionDetailsGrid: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.12)',
+    paddingTop: 12,
+  },
+  nutritionDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  nutritionDetailLabel: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  nutritionDetailVal: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  nutritionDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginVertical: 6,
+  },
   rateLabel: {
     color: '#999999',
     fontSize: 14,

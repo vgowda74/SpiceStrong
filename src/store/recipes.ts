@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export const QUANTITY_TIERS = ['1lb', '2lb', '4lb', '8lb'] as const;
+export const QUANTITY_TIERS = ['2-3 servings', '4-6 servings'] as const;
 export type QuantityTier = (typeof QUANTITY_TIERS)[number];
 
 export type IngredientsByTier = Record<QuantityTier, { name: string; quantity: string }[]>;
@@ -34,13 +34,14 @@ export interface SavedRecipe {
 }
 
 function defaultIngredientsByTier(): IngredientsByTier {
-  return { '1lb': [], '2lb': [], '4lb': [], '8lb': [] };
+  return { '2-3 servings': [], '4-6 servings': [] };
 }
 
 function normalizeIngredients(ingredients: unknown): IngredientsByTier {
   const def = defaultIngredientsByTier();
   if (ingredients && typeof ingredients === 'object' && !Array.isArray(ingredients)) {
     const obj = ingredients as Record<string, unknown>;
+    // Handle new tier keys
     (QUANTITY_TIERS as readonly string[]).forEach((tier) => {
       if (Array.isArray(obj[tier])) {
         def[tier as QuantityTier] = (obj[tier] as { name: string; quantity: string }[]).map(
@@ -51,10 +52,19 @@ function normalizeIngredients(ingredients: unknown): IngredientsByTier {
         );
       }
     });
+    // Migrate legacy '1lb' data to '2-3 servings' if new tier is empty
+    if (def['2-3 servings'].length === 0 && Array.isArray(obj['1lb'])) {
+      def['2-3 servings'] = (obj['1lb'] as { name: string; quantity: string }[]).map(
+        (item) =>
+          item && typeof item === 'object' && 'name' in item
+            ? { name: String(item.name ?? ''), quantity: String(item.quantity ?? '') }
+            : { name: '', quantity: '' }
+      );
+    }
     return def;
   }
   if (Array.isArray(ingredients)) {
-    def['1lb'] = ingredients.map((item: unknown) =>
+    def['2-3 servings'] = ingredients.map((item: unknown) =>
       item && typeof item === 'object' && item !== null && 'name' in (item as object)
         ? {
             name: String((item as { name?: string }).name ?? ''),
@@ -1480,7 +1490,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🍗',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': butterChicken1lbFlat,
+      '2-3 servings': butterChicken1lbFlat,
+      '4-6 servings': [],
     },
     steps: BUTTER_CHICKEN_STEPS,
     chefTip: 'High-protein classic.',
@@ -1494,7 +1505,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🍗',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(PEPPER_CHICKEN_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(PEPPER_CHICKEN_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: PEPPER_CHICKEN_STEPS,
     chefTip: '42g protein, 380 kcal, 25m cook time. Adjust pepper to your taste.',
@@ -1541,7 +1553,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🍗',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(INDIAN_TIKKA_BITES_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(INDIAN_TIKKA_BITES_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: INDIAN_TIKKA_BITES_STEPS,
     chefTip: '42g protein, 320 kcal, 30m cook time. Tender, spice-marinated chicken bites cooked until juicy and lightly charred — a bold, high-protein Indian classic made quick and healthy.',
@@ -1555,7 +1568,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🧀',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(HEALTHY_PANEER_STIR_FRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(HEALTHY_PANEER_STIR_FRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: HEALTHY_PANEER_STIR_FRY_STEPS,
     chefTip: '18g protein, 320 kcal, 25m cook time.',
@@ -1569,7 +1583,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🦐',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(PEPPER_SHRIMP_FRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(PEPPER_SHRIMP_FRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: PEPPER_SHRIMP_FRY_STEPS,
     chefTip: '24g protein, 280 kcal, 20m cook time.',
@@ -1583,7 +1598,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🟫',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(FRIED_MASALA_TOFU_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(FRIED_MASALA_TOFU_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: FRIED_MASALA_TOFU_STEPS,
     chefTip: '17g protein, 220 kcal, 15m cook time.',
@@ -1597,7 +1613,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🥩',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(GOAN_PORK_VINDALOO_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(GOAN_PORK_VINDALOO_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: [{ title: 'Prepare', description: 'Follow the recipe for Goan Pork Vindaloo.' }],
     chefTip: '28g protein, 45 min cook time. Spicy Goan classic.',
@@ -1611,7 +1628,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🥩',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(PORK_PEPPER_FRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(PORK_PEPPER_FRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: [{ title: 'Prepare', description: 'Follow the recipe for Pork Pepper Fry.' }],
     chefTip: '29g protein, 30 min cook time.',
@@ -1625,7 +1643,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🥩',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(INDIAN_PORK_CURRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(INDIAN_PORK_CURRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: INDIAN_PORK_CURRY_STEPS,
     chefTip: '31g protein, 380 kcal, 40m cook time.',
@@ -1639,7 +1658,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🥩',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(HEALTHY_LAMB_CURRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(HEALTHY_LAMB_CURRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: HEALTHY_LAMB_CURRY_STEPS,
     chefTip: '28g protein, 45 min cook time. Aromatic, medium-spice lamb curry with tomato base.',
@@ -1653,7 +1673,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🐐',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(GOAT_CHOPS_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(GOAT_CHOPS_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: GOAT_CHOPS_STEPS,
     chefTip: '27g protein, 340 kcal, 35m cook time.',
@@ -1667,7 +1688,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🥚',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(HEALTHY_EGG_CURRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(HEALTHY_EGG_CURRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: HEALTHY_EGG_CURRY_STEPS,
     chefTip: '13g protein, 280 kcal, 25m cook time.',
@@ -1681,7 +1703,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🐟',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(TANDOORI_FISH_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(TANDOORI_FISH_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: PAN_SEARED_TANDOORI_FISH_STEPS,
     chefTip: '32g protein, 260 kcal, 25m cook time.',
@@ -1695,7 +1718,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🫘',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(SOYA_MASALA_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(SOYA_MASALA_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: SOYA_MASALA_STEPS,
     chefTip: 'High-protein soya chunks in rich onion tomato masala. 36g protein, 280 kcal, 20m cook time.',
@@ -1709,7 +1733,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🫘',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(RAJMA_MASALA_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(RAJMA_MASALA_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: RAJMA_MASALA_STEPS,
     chefTip: 'Creamy red kidney bean curry — complete protein, one pot, zero fuss. 20g protein, 320 kcal, 25m cook time.',
@@ -1723,7 +1748,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🫘',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(DRY_CHANA_MASALA_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(DRY_CHANA_MASALA_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: DRY_CHANA_MASALA_STEPS,
     chefTip: 'Crispy spiced chickpeas with bold Pindi-style dry masala — ready in 15 minutes. 19g protein, 290 kcal, 15m cook time.',
@@ -1737,7 +1763,8 @@ const BUILTIN_RECIPES: SavedRecipe[] = [
     proteinEmoji: '🫘',
     ingredients: {
       ...defaultIngredientsByTier(),
-      '1lb': flattenIngredientGroups(MASOOR_DAL_CURRY_1LB_GROUPS),
+      '2-3 servings': flattenIngredientGroups(MASOOR_DAL_CURRY_1LB_GROUPS),
+      '4-6 servings': [],
     },
     steps: MASOOR_DAL_CURRY_STEPS,
     chefTip: 'Silky red lentil curry — fast, nutritious and packed with plant protein. 18g protein, 260 kcal, 12m cook time.',

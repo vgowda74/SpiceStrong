@@ -28,7 +28,10 @@
       "Bash(mv \"screenshot-splash.png.jpeg\" \"screenshot-splash.png\")",
       "Bash(find /c/Users/v_gow/SpiceStrong/app -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
       "Bash(npx tsc:*)",
-      "Bash(grep -r EXPO_PUBLIC C:Usersv_gowSpiceStrong --include=*.tsx --include=*.ts --include=*.js)"
+      "Bash(grep -r EXPO_PUBLIC C:Usersv_gowSpiceStrong --include=*.tsx --include=*.ts --include=*.js)",
+      "Bash(eas submit:*)",
+      "Bash(grep -r \"view-shot\\\\|image-library\\\\|media-library\\\\|canvas\\\\|rn-fetch\\\\|expo-sharing\\\\|expo-media\" C:Usersv_gowSpiceStrong --include=*.json --include=*.ts --include=*.tsx)",
+      "Bash(grep -r \"expo-sharing\\\\|Share\\\\.\\\\|toDataURL\\\\|captureRef\\\\|snapshot\" C:Usersv_gowSpiceStrongappscreens --include=*.tsx --include=*.ts)"
     ]
   }
 }

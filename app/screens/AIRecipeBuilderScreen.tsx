@@ -20,7 +20,8 @@ const ACCENT = '#E85D26';
 const GLASS = 'rgba(255,255,255,0.1)';
 const BORDER_LIGHT = 'rgba(255,255,255,0.2)';
 
-const VEG_PROTEIN_IDS = ['paneer', 'tofu', 'soy', 'beans', 'eggs'];
+const VEG_PROTEIN_IDS = ['paneer', 'tofu', 'soy', 'beans', 'eggs', 'milk', 'whey'];
+const DRINK_PROTEIN_IDS = ['milk', 'whey'];
 
 // Meat type options per protein
 const MEAT_TYPE_MAP: Record<string, { id: string; label: string }[]> = {
@@ -98,6 +99,32 @@ const CUISINE_OPTIONS = [
   { id: 'american', label: '🇺🇸 American' },
 ];
 
+// Drink/shake-specific options for milk & whey
+const DRINK_MEAL_OPTIONS = [
+  { id: 'pre-workout', label: '💪 Pre-Workout' },
+  { id: 'post-workout', label: '🏋️ Post-Workout' },
+  { id: 'breakfast', label: '🌅 Breakfast' },
+  { id: 'snack', label: '🥜 Snack' },
+];
+
+const DRINK_TYPE_OPTIONS = [
+  { id: 'smoothie', label: '🥤 Smoothie' },
+  { id: 'shake', label: '🥛 Protein Shake' },
+  { id: 'lassi', label: '🫗 Lassi' },
+  { id: 'overnight-oats', label: '🥣 Overnight Oats' },
+  { id: 'paneer-dish', label: '🧀 Paneer Dish' },
+];
+
+const DRINK_FLAVOR_OPTIONS = [
+  { id: 'chocolate', label: '🍫 Chocolate' },
+  { id: 'vanilla', label: '🍦 Vanilla' },
+  { id: 'mango', label: '🥭 Mango' },
+  { id: 'banana', label: '🍌 Banana' },
+  { id: 'berry', label: '🫐 Berry' },
+  { id: 'coffee', label: '☕ Coffee' },
+  { id: 'traditional', label: '🇮🇳 Traditional' },
+];
+
 async function callClaudeAPI(
   proteinId: string,
   proteinName: string,
@@ -112,13 +139,22 @@ async function callClaudeAPI(
   },
 ) {
   const parts: string[] = [];
-  if (params.meatType) parts.push(`Meat cut/type: ${params.meatType}.`);
-  if (params.proteinGoal) parts.push(`Protein goal per serving: ${params.proteinGoal}.`);
-  if (params.mealType) parts.push(`Meal type: ${params.mealType}.`);
-  if (params.cookingTime) parts.push(`Cooking time: ${params.cookingTime}.`);
-  if (params.spiceLevel) parts.push(`Spice level: ${params.spiceLevel}.`);
-  if (params.dietary.length > 0) parts.push(`Dietary requirements: ${params.dietary.join(', ')}.`);
-  parts.push(`Cuisine style: ${params.cuisine || 'Indian'}.`);
+  const isDrink = ['milk', 'whey'].includes(proteinId);
+  if (isDrink) {
+    if (params.meatType) parts.push(`Drink/recipe type: ${params.meatType}.`);
+    if (params.proteinGoal) parts.push(`Protein goal per serving: ${params.proteinGoal}.`);
+    if (params.mealType) parts.push(`Intended for: ${params.mealType}.`);
+    if (params.spiceLevel) parts.push(`Flavor: ${params.spiceLevel}.`);
+    if (params.dietary.length > 0) parts.push(`Dietary requirements: ${params.dietary.join(', ')}.`);
+  } else {
+    if (params.meatType) parts.push(`Meat cut/type: ${params.meatType}.`);
+    if (params.proteinGoal) parts.push(`Protein goal per serving: ${params.proteinGoal}.`);
+    if (params.mealType) parts.push(`Meal type: ${params.mealType}.`);
+    if (params.cookingTime) parts.push(`Cooking time: ${params.cookingTime}.`);
+    if (params.spiceLevel) parts.push(`Spice level: ${params.spiceLevel}.`);
+    if (params.dietary.length > 0) parts.push(`Dietary requirements: ${params.dietary.join(', ')}.`);
+    parts.push(`Cuisine style: ${params.cuisine || 'Indian'}.`);
+  }
 
   const constraintsText = parts.join(' ');
 
@@ -136,7 +172,7 @@ Return this exact JSON structure:
   "protein": "32g",
   "calories": "320 kcal",
   "ingredients": {
-    "1lb": [
+    "2-3 servings": [
       {
         "category": "PROTEIN",
         "categoryEmoji": "🍗",
@@ -208,6 +244,14 @@ function normalizeAIIngredients(ingredients: unknown): SavedRecipe['ingredients'
             : { name: '', quantity: '' }
         );
       }
+    }
+    // Fallback: if AI returns '1lb' key, map to '2-3 servings'
+    if (result['2-3 servings'].length === 0 && Array.isArray(obj['1lb'])) {
+      result['2-3 servings'] = (obj['1lb'] as { name?: string; quantity?: string }[]).map((item) =>
+        item && typeof item === 'object'
+          ? { name: String(item.name ?? ''), quantity: String(item.quantity ?? '') }
+          : { name: '', quantity: '' }
+      );
     }
   }
   return result as SavedRecipe['ingredients'];
@@ -303,17 +347,26 @@ export default function AIRecipeBuilderScreen() {
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
 
   const isVegProtein = VEG_PROTEIN_IDS.includes(paramProteinId ?? '');
+  const isDrinkProtein = DRINK_PROTEIN_IDS.includes(paramProteinId ?? '');
   const meatTypeOptions = MEAT_TYPE_MAP[paramProteinId ?? ''] ?? [];
   const showMeatType = !isVegProtein && meatTypeOptions.length > 0;
 
+  // Drink proteins (milk/whey) have different state
+  const [selectedDrinkType, setSelectedDrinkType] = useState<string>('smoothie');
+  const [selectedDrinkFlavor, setSelectedDrinkFlavor] = useState<string>('');
+
   // Filter dietary options contextually
   const visibleDietary = useMemo(() => {
+    if (isDrinkProtein) {
+      // For milk/whey: only show relevant dietary options
+      return DIETARY_OPTIONS.filter((d) => ['low-carb', 'low-fat', 'dairy-free'].includes(d.id));
+    }
     if (isVegProtein) {
       return DIETARY_OPTIONS;
     }
     // Non-veg: don't show vegan
     return DIETARY_OPTIONS.filter((d) => d.id !== 'vegan');
-  }, [isVegProtein]);
+  }, [isVegProtein, isDrinkProtein]);
 
   const toggleDietary = (id: string) => {
     setSelectedDietary((prev) =>
@@ -324,36 +377,55 @@ export default function AIRecipeBuilderScreen() {
   // Build selected keywords summary
   const selectedKeywords = useMemo(() => {
     const tags: string[] = [];
-    if (showMeatType && selectedMeatType) {
-      const mt = meatTypeOptions.find((o) => o.id === selectedMeatType);
-      if (mt) tags.push(mt.label);
-    }
-    if (selectedProteinGoal) {
-      const pg = PROTEIN_GOAL_OPTIONS.find((o) => o.id === selectedProteinGoal);
-      if (pg) tags.push(pg.label);
-    }
-    if (selectedMealType) {
-      const ml = MEAL_TYPE_OPTIONS.find((o) => o.id === selectedMealType);
-      if (ml) tags.push(ml.label);
-    }
-    if (selectedCookingTime) {
-      const ct = COOKING_TIME_OPTIONS.find((o) => o.id === selectedCookingTime);
-      if (ct) tags.push(ct.label);
-    }
-    if (selectedSpiceLevel) {
-      const sl = SPICE_LEVEL_OPTIONS.find((o) => o.id === selectedSpiceLevel);
-      if (sl) tags.push(sl.label);
+    if (isDrinkProtein) {
+      if (selectedDrinkType) {
+        const dt = DRINK_TYPE_OPTIONS.find((o) => o.id === selectedDrinkType);
+        if (dt) tags.push(dt.label);
+      }
+      if (selectedDrinkFlavor) {
+        const df = DRINK_FLAVOR_OPTIONS.find((o) => o.id === selectedDrinkFlavor);
+        if (df) tags.push(df.label);
+      }
+      if (selectedProteinGoal) {
+        const pg = PROTEIN_GOAL_OPTIONS.find((o) => o.id === selectedProteinGoal);
+        if (pg) tags.push(pg.label);
+      }
+      if (selectedMealType) {
+        const ml = DRINK_MEAL_OPTIONS.find((o) => o.id === selectedMealType);
+        if (ml) tags.push(ml.label);
+      }
+    } else {
+      if (showMeatType && selectedMeatType) {
+        const mt = meatTypeOptions.find((o) => o.id === selectedMeatType);
+        if (mt) tags.push(mt.label);
+      }
+      if (selectedProteinGoal) {
+        const pg = PROTEIN_GOAL_OPTIONS.find((o) => o.id === selectedProteinGoal);
+        if (pg) tags.push(pg.label);
+      }
+      if (selectedMealType) {
+        const ml = MEAL_TYPE_OPTIONS.find((o) => o.id === selectedMealType);
+        if (ml) tags.push(ml.label);
+      }
+      if (selectedCookingTime) {
+        const ct = COOKING_TIME_OPTIONS.find((o) => o.id === selectedCookingTime);
+        if (ct) tags.push(ct.label);
+      }
+      if (selectedSpiceLevel) {
+        const sl = SPICE_LEVEL_OPTIONS.find((o) => o.id === selectedSpiceLevel);
+        if (sl) tags.push(sl.label);
+      }
+      if (selectedCuisine) {
+        const c = CUISINE_OPTIONS.find((o) => o.id === selectedCuisine);
+        if (c) tags.push(c.label);
+      }
     }
     selectedDietary.forEach((id) => {
       const d = DIETARY_OPTIONS.find((o) => o.id === id);
       if (d) tags.push(d.label);
     });
-    if (selectedCuisine) {
-      const c = CUISINE_OPTIONS.find((o) => o.id === selectedCuisine);
-      if (c) tags.push(c.label);
-    }
     return tags;
-  }, [showMeatType, selectedMeatType, selectedProteinGoal, selectedMealType, selectedCookingTime, selectedSpiceLevel, selectedDietary, selectedCuisine, meatTypeOptions]);
+  }, [isDrinkProtein, showMeatType, selectedMeatType, selectedDrinkType, selectedDrinkFlavor, selectedProteinGoal, selectedMealType, selectedCookingTime, selectedSpiceLevel, selectedDietary, selectedCuisine, meatTypeOptions]);
 
   const handleGenerate = async () => {
     if (!ANTHROPIC_KEY) {
@@ -369,15 +441,25 @@ export default function AIRecipeBuilderScreen() {
       const result = await callClaudeAPI(
         paramProteinId ?? 'chicken',
         paramProteinName ?? 'Chicken',
-        {
-          meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
-          proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
-          mealType: findLabel(MEAL_TYPE_OPTIONS, selectedMealType),
-          cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
-          spiceLevel: findLabel(SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
-          dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
-          cuisine: findLabel(CUISINE_OPTIONS, selectedCuisine),
-        },
+        isDrinkProtein
+          ? {
+              meatType: findLabel(DRINK_TYPE_OPTIONS, selectedDrinkType),
+              proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+              mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
+              cookingTime: undefined,
+              spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
+              dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
+              cuisine: '',
+            }
+          : {
+              meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
+              proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+              mealType: findLabel(MEAL_TYPE_OPTIONS, selectedMealType),
+              cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
+              spiceLevel: findLabel(SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
+              dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
+              cuisine: findLabel(CUISINE_OPTIONS, selectedCuisine),
+            },
       );
       setGeneratedRecipe(result);
     } catch (e) {
@@ -442,73 +524,125 @@ export default function AIRecipeBuilderScreen() {
           {/* Show filters only before generation */}
           {!generatedRecipe && (
             <>
-              {/* Meat Type — only for non-veg */}
-              {showMeatType && (
+              {isDrinkProtein ? (
                 <>
-                  <Text style={styles.sectionLabel}>🥩 Meat Type</Text>
+                  {/* Drink Type */}
+                  <Text style={styles.sectionLabel}>🥤 Type</Text>
                   <ChipRow
-                    options={meatTypeOptions}
-                    selected={selectedMeatType}
-                    onSelect={setSelectedMeatType}
+                    options={DRINK_TYPE_OPTIONS}
+                    selected={selectedDrinkType}
+                    onSelect={setSelectedDrinkType}
+                    disabled={loading}
+                  />
+
+                  {/* Flavor */}
+                  <Text style={styles.sectionLabel}>🎨 Flavor</Text>
+                  <ChipRow
+                    options={DRINK_FLAVOR_OPTIONS}
+                    selected={selectedDrinkFlavor}
+                    onSelect={setSelectedDrinkFlavor}
+                    disabled={loading}
+                  />
+
+                  {/* Protein Goal */}
+                  <Text style={styles.sectionLabel}>🎯 Protein Goal (per serving)</Text>
+                  <ChipRow
+                    options={PROTEIN_GOAL_OPTIONS}
+                    selected={selectedProteinGoal}
+                    onSelect={setSelectedProteinGoal}
+                    disabled={loading}
+                  />
+
+                  {/* Meal Type — drink-specific */}
+                  <Text style={styles.sectionLabel}>🍽️ When</Text>
+                  <ChipRow
+                    options={DRINK_MEAL_OPTIONS}
+                    selected={selectedMealType}
+                    onSelect={setSelectedMealType}
+                    disabled={loading}
+                  />
+
+                  {/* Dietary Preference */}
+                  <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
+                  <ChipRow
+                    options={visibleDietary}
+                    selected={selectedDietary}
+                    onSelect={toggleDietary}
+                    multi
+                    disabled={loading}
+                  />
+                </>
+              ) : (
+                <>
+                  {/* Meat Type — only for non-veg */}
+                  {showMeatType && (
+                    <>
+                      <Text style={styles.sectionLabel}>🥩 Meat Type</Text>
+                      <ChipRow
+                        options={meatTypeOptions}
+                        selected={selectedMeatType}
+                        onSelect={setSelectedMeatType}
+                        disabled={loading}
+                      />
+                    </>
+                  )}
+
+                  {/* Protein Goal */}
+                  <Text style={styles.sectionLabel}>🎯 Protein Goal (per serving)</Text>
+                  <ChipRow
+                    options={PROTEIN_GOAL_OPTIONS}
+                    selected={selectedProteinGoal}
+                    onSelect={setSelectedProteinGoal}
+                    disabled={loading}
+                  />
+
+                  {/* Meal Type */}
+                  <Text style={styles.sectionLabel}>🍽️ Meal Type</Text>
+                  <ChipRow
+                    options={MEAL_TYPE_OPTIONS}
+                    selected={selectedMealType}
+                    onSelect={setSelectedMealType}
+                    disabled={loading}
+                  />
+
+                  {/* Cooking Time */}
+                  <Text style={styles.sectionLabel}>⏱️ Cooking Time</Text>
+                  <ChipRow
+                    options={COOKING_TIME_OPTIONS}
+                    selected={selectedCookingTime}
+                    onSelect={setSelectedCookingTime}
+                    disabled={loading}
+                  />
+
+                  {/* Spice Level */}
+                  <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
+                  <ChipRow
+                    options={SPICE_LEVEL_OPTIONS}
+                    selected={selectedSpiceLevel}
+                    onSelect={setSelectedSpiceLevel}
+                    disabled={loading}
+                  />
+
+                  {/* Dietary Preference */}
+                  <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
+                  <ChipRow
+                    options={visibleDietary}
+                    selected={selectedDietary}
+                    onSelect={toggleDietary}
+                    multi
+                    disabled={loading}
+                  />
+
+                  {/* Cuisine Style */}
+                  <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
+                  <ChipRow
+                    options={CUISINE_OPTIONS}
+                    selected={selectedCuisine}
+                    onSelect={setSelectedCuisine}
                     disabled={loading}
                   />
                 </>
               )}
-
-              {/* Protein Goal */}
-              <Text style={styles.sectionLabel}>🎯 Protein Goal (per serving)</Text>
-              <ChipRow
-                options={PROTEIN_GOAL_OPTIONS}
-                selected={selectedProteinGoal}
-                onSelect={setSelectedProteinGoal}
-                disabled={loading}
-              />
-
-              {/* Meal Type */}
-              <Text style={styles.sectionLabel}>🍽️ Meal Type</Text>
-              <ChipRow
-                options={MEAL_TYPE_OPTIONS}
-                selected={selectedMealType}
-                onSelect={setSelectedMealType}
-                disabled={loading}
-              />
-
-              {/* Cooking Time */}
-              <Text style={styles.sectionLabel}>⏱️ Cooking Time</Text>
-              <ChipRow
-                options={COOKING_TIME_OPTIONS}
-                selected={selectedCookingTime}
-                onSelect={setSelectedCookingTime}
-                disabled={loading}
-              />
-
-              {/* Spice Level */}
-              <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
-              <ChipRow
-                options={SPICE_LEVEL_OPTIONS}
-                selected={selectedSpiceLevel}
-                onSelect={setSelectedSpiceLevel}
-                disabled={loading}
-              />
-
-              {/* Dietary Preference */}
-              <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
-              <ChipRow
-                options={visibleDietary}
-                selected={selectedDietary}
-                onSelect={toggleDietary}
-                multi
-                disabled={loading}
-              />
-
-              {/* Cuisine Style */}
-              <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
-              <ChipRow
-                options={CUISINE_OPTIONS}
-                selected={selectedCuisine}
-                onSelect={setSelectedCuisine}
-                disabled={loading}
-              />
             </>
           )}
 

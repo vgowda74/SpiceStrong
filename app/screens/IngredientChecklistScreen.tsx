@@ -35,7 +35,7 @@ export default function IngredientChecklistScreen() {
   const params = useLocalSearchParams<{ recipeId: string; quantityTier?: string }>();
   const recipeId = typeof params.recipeId === 'string' ? params.recipeId : Array.isArray(params.recipeId) ? params.recipeId[0] : undefined;
   const quantityTierParam = typeof params.quantityTier === 'string' ? params.quantityTier : Array.isArray(params.quantityTier) ? params.quantityTier[0] : undefined;
-  const initialTier = (quantityTierParam && (QUANTITY_TIERS as readonly string[]).includes(quantityTierParam)) ? quantityTierParam as QuantityTier : '1lb';
+  const initialTier = (quantityTierParam && (QUANTITY_TIERS as readonly string[]).includes(quantityTierParam)) ? quantityTierParam as QuantityTier : '2-3 servings';
 
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,7 +115,7 @@ export default function IngredientChecklistScreen() {
   const tierHasIngredients = (tier: QuantityTier) =>
     (ingredientsByTier[tier]?.filter((i) => i.name.trim()).length ?? 0) > 0;
   const availableTiers = QUANTITY_TIERS.filter(tierHasIngredients);
-  const effectiveTier = availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '1lb';
+  const effectiveTier = availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '2-3 servings';
   const ingredientGroups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
   const hasGroups = Boolean(ingredientGroups && ingredientGroups.length > 0);
 
@@ -137,10 +137,7 @@ export default function IngredientChecklistScreen() {
   };
 
   const displayName = recipe.id === 'builtin-chicken-butter' ? 'Butter Chicken' : recipe.name;
-  const subtitleSuffix = recipe.id === 'builtin-chicken-butter' && effectiveTier === '1lb'
-    ? ' · 2 servings'
-    : '';
-  const subtitle = `${displayName} · ${effectiveTier}${subtitleSuffix}`;
+  const subtitle = `${displayName} · ${effectiveTier}`;
 
   const renderIngredientRow = (item: { name: string; quantity: string }, flatIndex: number) => {
     const isChecked = !!checked[`${effectiveTier}-${flatIndex}`];
@@ -179,22 +176,23 @@ export default function IngredientChecklistScreen() {
         <Text style={styles.headerTitle}>Gather Ingredients</Text>
         <View style={styles.headerSpacer} />
         <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
-        {availableTiers.length > 1 && (
-          <View style={styles.tierSelector}>
-            {availableTiers.map((tier) => {
-              const isSelected = effectiveTier === tier;
-              return (
-                <TouchableOpacity
-                  key={tier}
-                  style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
-                  onPress={() => setSelectedTier(tier)}
-                >
-                  <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>{tier}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
+        <Text style={styles.servingLabel}>🍽️ How many servings?</Text>
+        <View style={styles.tierSelector}>
+          {QUANTITY_TIERS.map((tier) => {
+            const isSelected = effectiveTier === tier;
+            return (
+              <TouchableOpacity
+                key={tier}
+                style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
+                onPress={() => setSelectedTier(tier)}
+              >
+                <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
+                  {tier === '2-3 servings' ? '👨‍👩‍👦 2-3 Servings' : '👨‍👩‍👦‍👦 4-6 Servings'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
         <View style={styles.progressRow}>
           <Text style={styles.progressLeft}>{checkedCount} of {totalCount} gathered</Text>
           <Text style={styles.progressRight}>{progressPct}%</Text>
@@ -344,24 +342,36 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: ORANGE,
   },
+  servingLabel: {
+    color: CARD_WHITE,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
   tierSelector: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
+    gap: 10,
+    marginBottom: 14,
   },
   tierOption: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#E8E4DE',
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
   },
   tierOptionSelected: {
     backgroundColor: ORANGE,
+    borderColor: ORANGE,
   },
   tierOptionText: {
-    fontSize: 13,
-    color: GREY_TEXT,
-    fontWeight: '600',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '700',
   },
   tierOptionTextSelected: {
     color: CARD_WHITE,

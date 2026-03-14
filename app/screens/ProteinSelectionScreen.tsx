@@ -18,7 +18,7 @@ const screenWidth = Dimensions.get('window').width;
 const CARD_WIDTH = (screenWidth - 56) / 2;
 const CARD_HEIGHT = 150;
 
-const FILTERS = ['All', 'Non-Veg', 'Vegetarian', 'Vegan'] as const;
+const FILTERS = ['All', 'Non-Veg', 'Vegetarian'] as const;
 type Filter = (typeof FILTERS)[number];
 
 const HEADER_BG = '#2A1005';
@@ -36,7 +36,7 @@ function getGreeting(): string {
 function filterMatches(filter: Filter, category: 'NON-VEG' | 'VEG'): boolean {
   if (filter === 'All') return true;
   if (filter === 'Non-Veg') return category === 'NON-VEG';
-  if (filter === 'Vegetarian' || filter === 'Vegan') return category === 'VEG';
+  if (filter === 'Vegetarian') return category === 'VEG';
   return true;
 }
 
@@ -176,7 +176,7 @@ export default function ProteinSelectionScreen() {
 
           {veg.length > 0 && (
             <>
-              <Text style={styles.sectionHeader}>VEGETARIAN & VEGAN</Text>
+              <Text style={styles.sectionHeader}>VEGETARIAN</Text>
               <View style={styles.gridWrap}>
                 <FlatList
                   key="two-col"

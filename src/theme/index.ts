@@ -32,4 +32,6 @@ export const PROTEINS = [
   { id: 'soy', name: 'Soy', emoji: '🫘', proteinPer100g: 36, category: 'VEG' as ProteinCategory },
   { id: 'beans', name: 'Beans', emoji: '🫘', proteinPer100g: 22, category: 'VEG' as ProteinCategory },
   { id: 'eggs', name: 'Eggs', emoji: '🥚', proteinPer100g: 13, category: 'VEG' as ProteinCategory },
+  { id: 'milk', name: 'Milk', emoji: '🥛', proteinPer100g: 3, category: 'VEG' as ProteinCategory },
+  { id: 'whey', name: 'Whey Protein', emoji: '🏋️', proteinPer100g: 80, category: 'VEG' as ProteinCategory },
 ];

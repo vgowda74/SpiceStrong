@@ -30,7 +30,8 @@ const WARM_CREAM = '#FDF8F3';
 const TAB_INACTIVE = 'rgba(255,255,255,0.2)';
 const TAB_ACTIVE_BG = '#1A0A00';
 
-type FilterTab = 'all' | 'topRated' | 'new' | 'favourites';
+type MealType = 'breakfast' | 'lunch_dinner' | 'snack_dessert';
+type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites';
 
 interface BuiltInRecipeDisplay {
   id: string;
@@ -41,32 +42,34 @@ interface BuiltInRecipeDisplay {
   proteinPer100g: number;
   emoji: string;
   gradient: [string, string];
+  mealType: MealType;
 }
 
 const builtInRecipes: BuiltInRecipeDisplay[] = [
-  { id: 'builtin-chicken-butter', proteinId: 'chicken', name: 'Butter Chicken (Murgh Makhani)', timeMinutes: 45, difficulty: 'Medium', proteinPer100g: 38, emoji: '🍛', gradient: ['#FF8C00', '#E85D26'] },
-  { id: 'builtin-chicken-pepper', proteinId: 'chicken', name: "Venky's Pepper Chicken", timeMinutes: 25, difficulty: 'Medium', proteinPer100g: 42, emoji: '🌶️', gradient: ['#8B0000', '#4A0000'] },
-  { id: 'builtin-chicken-tikka-bites', proteinId: 'chicken', name: 'Indian Tikka Bites', timeMinutes: 30, difficulty: 'Easy', proteinPer100g: 42, emoji: '🍢', gradient: ['#B45309', '#78350F'] },
-  { id: 'builtin-paneer-stirfry', proteinId: 'paneer', name: 'Healthy Paneer Stir Fry', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 18, emoji: '🧀', gradient: ['#1B5E20', '#0A3D0A'] },
-  { id: 'builtin-prawns-pepper-fry', proteinId: 'prawns', name: 'Pepper Shrimp Fry', timeMinutes: 20, difficulty: 'Easy', proteinPer100g: 24, emoji: '🦐', gradient: ['#0D47A1', '#1A237E'] },
-  { id: 'builtin-tofu-fried-masala', proteinId: 'tofu', name: 'Fried Masala Tofu', timeMinutes: 15, difficulty: 'Easy', proteinPer100g: 17, emoji: '🟫', gradient: ['#0F4C5C', '#0A3040'] },
-  { id: 'builtin-soy-soya-masala', proteinId: 'soy', name: 'Soya Masala', timeMinutes: 20, difficulty: 'Easy', proteinPer100g: 36, emoji: '🫘', gradient: ['#1A4A1A', '#0A2A0A'] },
-  { id: 'builtin-beans-rajma-masala', proteinId: 'beans', name: 'Rajma Masala', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 20, emoji: '🫘', gradient: ['#7B1A1A', '#4A0A0A'] },
-  { id: 'builtin-beans-dry-chana-masala', proteinId: 'beans', name: 'Dry Chana Masala', timeMinutes: 15, difficulty: 'Easy', proteinPer100g: 19, emoji: '🫛', gradient: ['#7A5C00', '#4A3800'] },
-  { id: 'builtin-beans-masoor-dal-curry', proteinId: 'beans', name: 'Masoor Dal Curry', timeMinutes: 12, difficulty: 'Easy', proteinPer100g: 18, emoji: '🍲', gradient: ['#8B3A0F', '#5A1A05'] },
-  { id: 'builtin-pork-vindaloo', proteinId: 'pork', name: 'Goan Pork Vindaloo', timeMinutes: 45, difficulty: 'Hard', proteinPer100g: 28, emoji: '🫕', gradient: ['#7B1D1D', '#4A0A0A'] },
-  { id: 'builtin-pork-pepper-fry', proteinId: 'pork', name: 'Pork Pepper Fry', timeMinutes: 30, difficulty: 'Medium', proteinPer100g: 29, emoji: '🥩', gradient: ['#3D1A0A', '#1A0A00'] },
-  { id: 'builtin-pork-indian-curry', proteinId: 'pork', name: 'Indian Pork Curry', timeMinutes: 40, difficulty: 'Medium', proteinPer100g: 31, emoji: '🫕', gradient: ['#6B1A1A', '#3D0A0A'] },
-  { id: 'builtin-lamb-healthy-curry', proteinId: 'lamb', name: 'Healthy Lamb Curry', timeMinutes: 45, difficulty: 'Medium', proteinPer100g: 28, emoji: '🥘', gradient: ['#3B4A1A', '#1E2A0A'] },
-  { id: 'builtin-goat-chops', proteinId: 'goat', name: 'Goat Chops (Mutton Chaap)', timeMinutes: 35, difficulty: 'Medium', proteinPer100g: 27, emoji: '🍖', gradient: ['#4A2010', '#2A0F05'] },
-  { id: 'builtin-eggs-healthy-curry', proteinId: 'eggs', name: 'Healthy Egg Curry', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 13, emoji: '🥚', gradient: ['#7A5C00', '#3D2E00'] },
-  { id: 'builtin-fish-tandoori', proteinId: 'fish', name: 'Pan-Seared Tandoori Fish', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 32, emoji: '🐟', gradient: ['#0D3B5E', '#071E30'] },
+  { id: 'builtin-chicken-butter', proteinId: 'chicken', name: 'Butter Chicken (Murgh Makhani)', timeMinutes: 45, difficulty: 'Medium', proteinPer100g: 38, emoji: '🍛', gradient: ['#FF8C00', '#E85D26'], mealType: 'lunch_dinner' },
+  { id: 'builtin-chicken-pepper', proteinId: 'chicken', name: "Venky's Pepper Chicken", timeMinutes: 25, difficulty: 'Medium', proteinPer100g: 42, emoji: '🌶️', gradient: ['#8B0000', '#4A0000'], mealType: 'lunch_dinner' },
+  { id: 'builtin-chicken-tikka-bites', proteinId: 'chicken', name: 'Indian Tikka Bites', timeMinutes: 30, difficulty: 'Easy', proteinPer100g: 42, emoji: '🍢', gradient: ['#B45309', '#78350F'], mealType: 'snack_dessert' },
+  { id: 'builtin-paneer-stirfry', proteinId: 'paneer', name: 'Healthy Paneer Stir Fry', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 18, emoji: '🧀', gradient: ['#1B5E20', '#0A3D0A'], mealType: 'lunch_dinner' },
+  { id: 'builtin-prawns-pepper-fry', proteinId: 'prawns', name: 'Pepper Shrimp Fry', timeMinutes: 20, difficulty: 'Easy', proteinPer100g: 24, emoji: '🦐', gradient: ['#0D47A1', '#1A237E'], mealType: 'snack_dessert' },
+  { id: 'builtin-tofu-fried-masala', proteinId: 'tofu', name: 'Fried Masala Tofu', timeMinutes: 15, difficulty: 'Easy', proteinPer100g: 17, emoji: '🟫', gradient: ['#0F4C5C', '#0A3040'], mealType: 'snack_dessert' },
+  { id: 'builtin-soy-soya-masala', proteinId: 'soy', name: 'Soya Masala', timeMinutes: 20, difficulty: 'Easy', proteinPer100g: 36, emoji: '🫘', gradient: ['#1A4A1A', '#0A2A0A'], mealType: 'lunch_dinner' },
+  { id: 'builtin-beans-rajma-masala', proteinId: 'beans', name: 'Rajma Masala', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 20, emoji: '🫘', gradient: ['#7B1A1A', '#4A0A0A'], mealType: 'lunch_dinner' },
+  { id: 'builtin-beans-dry-chana-masala', proteinId: 'beans', name: 'Dry Chana Masala', timeMinutes: 15, difficulty: 'Easy', proteinPer100g: 19, emoji: '🫛', gradient: ['#7A5C00', '#4A3800'], mealType: 'snack_dessert' },
+  { id: 'builtin-beans-masoor-dal-curry', proteinId: 'beans', name: 'Masoor Dal Curry', timeMinutes: 12, difficulty: 'Easy', proteinPer100g: 18, emoji: '🍲', gradient: ['#8B3A0F', '#5A1A05'], mealType: 'lunch_dinner' },
+  { id: 'builtin-pork-vindaloo', proteinId: 'pork', name: 'Goan Pork Vindaloo', timeMinutes: 45, difficulty: 'Hard', proteinPer100g: 28, emoji: '🫕', gradient: ['#7B1D1D', '#4A0A0A'], mealType: 'lunch_dinner' },
+  { id: 'builtin-pork-pepper-fry', proteinId: 'pork', name: 'Pork Pepper Fry', timeMinutes: 30, difficulty: 'Medium', proteinPer100g: 29, emoji: '🥩', gradient: ['#3D1A0A', '#1A0A00'], mealType: 'lunch_dinner' },
+  { id: 'builtin-pork-indian-curry', proteinId: 'pork', name: 'Indian Pork Curry', timeMinutes: 40, difficulty: 'Medium', proteinPer100g: 31, emoji: '🫕', gradient: ['#6B1A1A', '#3D0A0A'], mealType: 'lunch_dinner' },
+  { id: 'builtin-lamb-healthy-curry', proteinId: 'lamb', name: 'Healthy Lamb Curry', timeMinutes: 45, difficulty: 'Medium', proteinPer100g: 28, emoji: '🥘', gradient: ['#3B4A1A', '#1E2A0A'], mealType: 'lunch_dinner' },
+  { id: 'builtin-goat-chops', proteinId: 'goat', name: 'Goat Chops (Mutton Chaap)', timeMinutes: 35, difficulty: 'Medium', proteinPer100g: 27, emoji: '🍖', gradient: ['#4A2010', '#2A0F05'], mealType: 'lunch_dinner' },
+  { id: 'builtin-eggs-healthy-curry', proteinId: 'eggs', name: 'Healthy Egg Curry', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 13, emoji: '🥚', gradient: ['#7A5C00', '#3D2E00'], mealType: 'breakfast' },
+  { id: 'builtin-fish-tandoori', proteinId: 'fish', name: 'Pan-Seared Tandoori Fish', timeMinutes: 25, difficulty: 'Easy', proteinPer100g: 32, emoji: '🐟', gradient: ['#0D3B5E', '#071E30'], mealType: 'lunch_dinner' },
 ];
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'topRated', label: '⭐ Top Rated' },
-  { key: 'new', label: '✨ New' },
+  { key: 'breakfast', label: '🌅 Breakfast' },
+  { key: 'lunch_dinner', label: '🍽️ Lunch/Dinner' },
+  { key: 'snack_dessert', label: '🥜 Snack/Dessert' },
   { key: 'favourites', label: '★ Favourites' },
 ];
 
@@ -175,7 +178,7 @@ export default function RecipeListScreen() {
         onPress={() =>
           router.push({
             pathname: '/screens/IngredientChecklistScreen',
-            params: { recipeId: item.id, quantityTier: (selectedTierByRecipeId[item.id] ?? '1lb') },
+            params: { recipeId: item.id, quantityTier: (selectedTierByRecipeId[item.id] ?? '2-3 servings') },
           })
         }
         onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
@@ -207,23 +210,14 @@ export default function RecipeListScreen() {
     let filtered: Array<{ type: 'builtin'; item: BuiltInRecipeDisplay } | { type: 'custom'; item: SavedRecipe }>;
     if (activeFilter === 'all') {
       filtered = allRecipeEntries;
-    } else if (activeFilter === 'topRated') {
-      filtered = allRecipeEntries
-        .filter((entry) => {
-          const id = entry.type === 'builtin' ? entry.item.id : entry.item.id;
-          return (ratings[id] ?? 0) >= 4;
-        })
-        .sort((a, b) => {
-          const idA = a.type === 'builtin' ? a.item.id : a.item.id;
-          const idB = b.type === 'builtin' ? b.item.id : b.item.id;
-          return (ratings[idB] ?? 0) - (ratings[idA] ?? 0);
-        });
-    } else if (activeFilter === 'new') {
+    } else if (activeFilter === 'breakfast' || activeFilter === 'lunch_dinner' || activeFilter === 'snack_dessert') {
       filtered = allRecipeEntries.filter((entry) => {
-        const id = entry.type === 'builtin' ? entry.item.id : entry.item.id;
-        return ratings[id] == null || ratings[id] < 1;
+        if (entry.type === 'builtin') return entry.item.mealType === activeFilter;
+        // Custom recipes default to lunch_dinner if no mealType set
+        return activeFilter === 'lunch_dinner';
       });
     } else {
+      // favourites
       filtered = allRecipeEntries.filter((entry) => {
         const id = entry.type === 'builtin' ? entry.item.id : entry.item.id;
         return favourites.includes(id);
@@ -306,7 +300,7 @@ export default function RecipeListScreen() {
 
         <View style={styles.actionBtnRow}>
           <TouchableOpacity
-            style={styles.actionPill}
+            style={styles.actionCard}
             onPress={() =>
               router.push({
                 pathname: '/screens/AIRecipeBuilderScreen',
@@ -315,19 +309,9 @@ export default function RecipeListScreen() {
             }
             activeOpacity={0.85}
           >
-            <Text style={styles.actionPillText}>+ 🤖 Build with AI</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionPill}
-            onPress={() =>
-              router.push({
-                pathname: '/screens/AddRecipeScreen',
-                params: { proteinId, proteinName, proteinEmoji },
-              })
-            }
-            activeOpacity={0.85}
-          >
-            <Text style={styles.actionPillText}>+ 📝 Add Recipe</Text>
+            <Text style={styles.actionCardEmoji}>🤖</Text>
+            <Text style={styles.actionCardTitle}>Build with AI</Text>
+            <Text style={styles.actionCardSub}>Generate a custom recipe</Text>
           </TouchableOpacity>
         </View>
 
@@ -455,22 +439,28 @@ const styles = StyleSheet.create({
   tabsContent: { flexDirection: 'row', gap: 10 },
   actionBtnRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginHorizontal: 18,
-    marginBottom: 4,
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    marginTop: 2,
   },
-  actionPill: {
+  actionCard: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 18,
-    height: 34,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 16,
+    height: 88,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    ...Platform.select({
+      ios: { shadowColor: 'rgba(100,40,0,0.9)', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+      android: { elevation: 8 },
+    }),
   },
-  actionPillText: { color: CARD_WHITE, fontWeight: '600', fontSize: 12 },
+  actionCardEmoji: { fontSize: 28, marginBottom: 4 },
+  actionCardTitle: { color: '#1a1a1a', fontWeight: '800', fontSize: 14, textAlign: 'center' },
+  actionCardSub: { color: '#888', fontWeight: '500', fontSize: 11, textAlign: 'center', marginTop: 1 },
   tabPill: {
     paddingHorizontal: 16,
     paddingVertical: 12,
