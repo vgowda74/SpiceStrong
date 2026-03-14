@@ -3,7 +3,6 @@ import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
-import { speakTTS, stopTTS } from '../../src/utils/tts';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -211,18 +210,9 @@ export default function CookingModeScreen() {
   const [showTimerCompleteAlert, setShowTimerCompleteAlert] = useState(false);
   const timerCompleteSlide = useRef(new Animated.Value(300)).current;
   const timerCompleteAutoDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [audioEnabled, setAudioEnabled] = useState(true);
   const timerEndTimeRef = useRef<number | null>(null);
   const notificationIdRef = useRef<string | null>(null);
   const shareCardRef = useRef<ViewShot>(null);
-
-  const speakStep = (s: CookingStep | undefined, enabled: boolean) => {
-    stopTTS();
-    if (!enabled || !s) return;
-    const parts = [s.title, s.description];
-    if (s.tip) parts.push(`Tip: ${s.tip}`);
-    speakTTS(parts.join('. '));
-  };
 
   useEffect(() => {
     if (!recipeId) return;
@@ -252,12 +242,6 @@ export default function CookingModeScreen() {
       setTimerRunning(false);
     }
   }, [currentStep, recipe?.id]);
-
-  // Speak step aloud when step changes
-  useEffect(() => {
-    if (!recipe || currentStep >= recipe.steps.length) return;
-    speakStep(recipe.steps[currentStep], audioEnabled);
-  }, [currentStep, recipe?.id, audioEnabled]);
 
   // Use end-time approach so timer survives background
   useEffect(() => {
@@ -297,9 +281,6 @@ export default function CookingModeScreen() {
     Linking.openURL('clock-timer://stop').catch(() => null);
     playAlarmSound();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    if (audioEnabled) {
-      setTimeout(() => speakTTS('Timer complete. Move to next step.'), 4500);
-    }
     setShowTimerCompleteAlert(true);
     timerCompleteSlide.setValue(300);
     Animated.spring(timerCompleteSlide, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
@@ -330,11 +311,10 @@ export default function CookingModeScreen() {
       }
     });
     return () => sub.remove();
-  }, [audioEnabled]);
+  }, []);
 
   useEffect(() => {
     return () => {
-      stopTTS();
       cancelTimerNotification();
       if (encouragementTimeoutRef.current) clearTimeout(encouragementTimeoutRef.current);
       if (timerCompleteAutoDismissRef.current) clearTimeout(timerCompleteAutoDismissRef.current);
@@ -479,7 +459,6 @@ export default function CookingModeScreen() {
         text: 'Exit',
         style: 'destructive',
         onPress: () => {
-          stopTTS();
           Linking.openURL('clock-timer://stop').catch(() => null);
           router.back();
         },
@@ -797,20 +776,6 @@ export default function CookingModeScreen() {
             <View style={styles.imageArea}>
               <Text style={styles.stepEmoji}>{stepEmoji}</Text>
             </View>
-            <TouchableOpacity
-              onPress={() => {
-                const next = !audioEnabled;
-                setAudioEnabled(next);
-                if (!next) stopTTS();
-              }}
-              style={[styles.audioToggleBtn, audioEnabled ? styles.audioToggleBtnOn : styles.audioToggleBtnOff]}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.audioToggleIcon}>{audioEnabled ? '🎙️' : '🔇'}</Text>
-              <Text style={[styles.audioToggleLabel, audioEnabled ? styles.audioToggleLabelOn : styles.audioToggleLabelOff]}>
-                {audioEnabled ? 'Voice On' : 'Voice Off'}
-              </Text>
-            </TouchableOpacity>
           </View>
           <Text style={styles.stepDescription}>{step.description}</Text>
           {stepIngredients.length > 0 && (
@@ -930,30 +895,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginBottom: 16,
   },
-  audioToggleBtn: {
-    position: 'absolute',
-    bottom: 8,
-    right: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    gap: 6,
-  },
-  audioToggleBtnOn: {
-    backgroundColor: 'rgba(232, 93, 38, 0.9)',
-  },
-  audioToggleBtnOff: {
-    backgroundColor: 'rgba(80, 80, 80, 0.9)',
-  },
-  audioToggleIcon: { fontSize: 16 },
-  audioToggleLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  audioToggleLabelOn: { color: '#FFFFFF' },
-  audioToggleLabelOff: { color: '#CCCCCC' },
   progressRow: {
     flexDirection: 'row',
     gap: 4,
