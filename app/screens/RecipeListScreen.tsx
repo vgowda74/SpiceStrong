@@ -1,6 +1,6 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -16,10 +16,12 @@ import {
 
 const screenWidth = Dimensions.get('window').width;
 
-import RecipeCard, { type RecipeDifficulty } from './RecipeCard';
+import RecipeCard, { type RecipeDifficulty } from '../../components/RecipeCard';
+import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProtein, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { getRatings, getFavourites, toggleFavourite, type RatingsMap } from '../../src/store/ratingsFavourites';
+import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const HEADER_ORANGE = '#E85D26';
@@ -55,6 +57,16 @@ export default function RecipeListScreen() {
   const [ratings, setRatings] = useState<RatingsMap>({});
   const [favourites, setFavourites] = useState<string[]>([]);
 
+  // Community ratings cache (persists across re-renders, fetched once per recipeId)
+  const communityRatingsCache = useRef<Record<string, RecipeRatings>>({});
+  const [communityRatings, setCommunityRatings] = useState<Record<string, RecipeRatings>>({});
+  const [communityLoading, setCommunityLoading] = useState<Record<string, boolean>>({});
+
+  // Modal state
+  const [reviewModalVisible, setReviewModalVisible] = useState(false);
+  const [reviewModalRecipeId, setReviewModalRecipeId] = useState<string>('');
+  const [reviewModalRecipeName, setReviewModalRecipeName] = useState<string>('');
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -68,6 +80,37 @@ export default function RecipeListScreen() {
       return () => { cancelled = true; };
     }, [proteinId])
   );
+
+  // Fetch community ratings for visible recipes (cached per recipeId)
+  const fetchCommunityRating = useCallback(async (recipeId: string) => {
+    if (communityRatingsCache.current[recipeId]) return; // already cached
+    setCommunityLoading((prev) => ({ ...prev, [recipeId]: true }));
+    try {
+      const data = await getRecipeRatings(recipeId);
+      communityRatingsCache.current[recipeId] = data;
+      setCommunityRatings((prev) => ({ ...prev, [recipeId]: data }));
+    } catch {
+      // silently fail
+    } finally {
+      setCommunityLoading((prev) => ({ ...prev, [recipeId]: false }));
+    }
+  }, []);
+
+  // Fetch ratings for all loaded recipes
+  useFocusEffect(
+    useCallback(() => {
+      recipes.forEach((r) => fetchCommunityRating(r.id));
+    }, [recipes, fetchCommunityRating])
+  );
+
+  const handleRatingPress = useCallback((recipeId: string, recipeName: string) => {
+    const data = communityRatings[recipeId];
+    if (data) {
+      setReviewModalRecipeId(recipeId);
+      setReviewModalRecipeName(recipeName);
+      setReviewModalVisible(true);
+    }
+  }, [communityRatings]);
 
   const totalCount = recipes.length;
 
@@ -112,8 +155,12 @@ export default function RecipeListScreen() {
       difficultyRaw === 'Medium' ? 'Medium' : difficultyRaw === 'Hard' ? 'Hard' : 'Easy';
     const gradient: readonly [string, string] = (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
     const cardImage = getRecipeCardImage(item.id);
-    const ratingValue = ratings[item.id];
+    // Use community rating if available, fall back to personal rating
+    const community = communityRatings[item.id];
+    const ratingValue = community?.averageRating ?? ratings[item.id];
     const ratingString = ratingValue != null && ratingValue >= 1 ? Number(ratingValue).toFixed(1) : undefined;
+    const ratingCount = community?.totalCount;
+    const isLoading = communityLoading[item.id] ?? false;
     const description = item.chefTip ?? item.description ?? '';
 
     return (
@@ -124,6 +171,8 @@ export default function RecipeListScreen() {
         protein={proteinPer100g != null ? `${proteinPer100g}g protein` : ''}
         difficulty={cardDifficulty}
         rating={ratingString}
+        communityCount={ratingCount}
+        communityLoading={isLoading}
         emoji={item.proteinEmoji ?? '🍽️'}
         imageSource={cardImage}
         isFavorite={favourites.includes(item.id)}
@@ -134,6 +183,7 @@ export default function RecipeListScreen() {
           })
         }
         onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
+        onRatingPress={() => handleRatingPress(item.id, item.name)}
         accentColors={gradient}
         actionRow={
           <View style={styles.actionRow}>
@@ -263,6 +313,18 @@ export default function RecipeListScreen() {
       />
       </View>
       </View>
+      {/* Community Reviews Modal */}
+      <CommunityReviewsModal
+        visible={reviewModalVisible}
+        onClose={() => setReviewModalVisible(false)}
+        recipeName={reviewModalRecipeName}
+        ratings={communityRatings[reviewModalRecipeId] ?? {
+          averageRating: 0,
+          totalCount: 0,
+          distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+          reviews: [],
+        }}
+      />
     </ImageBackground>
   );
 }

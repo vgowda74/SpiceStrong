@@ -79,7 +79,9 @@
       "Bash(node -e \":*)",
       "Bash(node extract-images.js)",
       "Bash(node extract-recipe-images.js)",
-      "Bash(ls C:/Users/v_gow/SpiceStrong/app/screens/RecipeCard*)"
+      "Bash(ls C:/Users/v_gow/SpiceStrong/app/screens/RecipeCard*)",
+      "Bash(find /c/Users/v_gow/SpiceStrong/app/screens -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(find /c/Users/v_gow/SpiceStrong/components -type f \\\\\\(-name *ecipe* -o -name *ecipeCard* \\\\\\))"
     ]
   }
 }

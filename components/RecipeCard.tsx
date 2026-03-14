@@ -36,6 +36,10 @@ export interface RecipeCardProps {
   difficulty: RecipeDifficulty;
   /** If undefined, "✨ New" badge is shown. */
   rating: string | undefined;
+  /** Community rating count (e.g. 127). If provided, shown as "⭐ 4.6 (127)" */
+  communityCount?: number;
+  /** Whether community ratings are still loading */
+  communityLoading?: boolean;
   /** Placeholder emoji when no image; hero content frame is sized for <Image /> (e.g. expo-image) when provided. */
   emoji: string;
   /** Optional image source for hero; when set, render image inside heroContentFrame instead of emoji. */
@@ -43,6 +47,8 @@ export interface RecipeCardProps {
   isFavorite: boolean;
   onPress: () => void;
   onFavoriteToggle: (e: GestureResponderEvent) => void;
+  /** Called when the rating pill is tapped */
+  onRatingPress?: () => void;
   /** Gradient [start, end] for hero background. */
   accentColors: readonly [string, string];
   /** Optional row below stats (e.g. Edit/Delete for custom recipes). */
@@ -62,10 +68,13 @@ export function RecipeCard({
   protein,
   difficulty,
   rating,
+  communityCount,
+  communityLoading,
   emoji,
   isFavorite,
   onPress,
   onFavoriteToggle,
+  onRatingPress,
   accentColors,
   actionRow,
   imageSource,
@@ -149,14 +158,36 @@ export function RecipeCard({
                 {protein ? (
                   <Text style={styles.proteinText}>{protein}</Text>
                 ) : null}
-                {rating != null && rating !== '' ? (
+                {communityLoading ? (
                   <View style={styles.ratingPill}>
-                    <Text style={styles.ratingPillText}>⭐ {rating}</Text>
+                    <Text style={styles.ratingPillText}>⭐ ···</Text>
                   </View>
+                ) : rating != null && rating !== '' ? (
+                  <TouchableOpacity
+                    style={styles.ratingPill}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onRatingPress?.();
+                    }}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.ratingPillText}>
+                      ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
+                    </Text>
+                  </TouchableOpacity>
                 ) : (
-                  <View style={styles.newPill}>
-                    <Text style={styles.newPillText}>✨ New</Text>
-                  </View>
+                  <TouchableOpacity
+                    style={styles.newPill}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      onRatingPress?.();
+                    }}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.newPillText}>⭐ New</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             </View>
