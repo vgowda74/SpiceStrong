@@ -21,7 +21,7 @@ import {
 /** Base unit for spacing scale (4px grid). */
 const SPACE = 4;
 const CARD_RADIUS = 24;
-const HERO_HEIGHT = 260;
+const HERO_HEIGHT = 180;
 /** Hero content area for Image only; emoji is rendered full-area without a frame. */
 const HERO_CONTENT_WIDTH = 140;
 const HERO_CONTENT_HEIGHT = 140;
@@ -135,9 +135,7 @@ export function RecipeCard({
               </Text>
             </TouchableOpacity>
 
-            <View style={styles.difficultyBadge}>
-              <Text style={styles.difficultyBadgeText}>{difficultyLabel}</Text>
-            </View>
+            {/* Difficulty badge removed */}
           </LinearGradient>
         </View>
 
@@ -152,7 +150,6 @@ export function RecipeCard({
             <View style={styles.statsRow}>
               <View style={styles.statsLeft}>
                 <Text style={styles.statsMeta}>⏱ {time}</Text>
-                <Text style={styles.statsMeta}>{difficultyLabel}</Text>
               </View>
               <View style={styles.statsRight}>
                 {protein ? (
@@ -192,7 +189,7 @@ export function RecipeCard({
               </View>
             </View>
 
-            {actionRow != null ? <View style={styles.actionRowWrap}>{actionRow}</View> : null}
+            {/* Action row removed */}
           </View>
         </View>
       </View>

@@ -96,9 +96,12 @@ export default function RecipeListScreen() {
     }
   }, []);
 
-  // Fetch ratings for all loaded recipes
+  // Clear cache and re-fetch community ratings every time screen gains focus
   useFocusEffect(
     useCallback(() => {
+      // Clear cache so fresh data is fetched (e.g., after user submits a review)
+      communityRatingsCache.current = {};
+      setCommunityRatings({});
       recipes.forEach((r) => fetchCommunityRating(r.id));
     }, [recipes, fetchCommunityRating])
   );

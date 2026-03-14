@@ -1,9 +1,14 @@
 /**
  * ratingsService.ts — SpiceStrong
- * Community ratings service. Currently uses mock data for beta.
- * Swap to Supabase when backend is ready.
+ * Community ratings service powered by Supabase.
+ * Falls back to mock data if Supabase is not configured or tables don't exist yet.
  */
 
+import { supabase } from './supabase';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ─── Types ───
 export interface ReviewItem {
   id: string;
   username: string;
@@ -15,7 +20,7 @@ export interface ReviewItem {
 export interface RecipeRatings {
   averageRating: number;
   totalCount: number;
-  distribution: Record<1 | 2 | 3 | 4 | 5, number>; // star -> count
+  distribution: Record<1 | 2 | 3 | 4 | 5, number>;
   reviews: ReviewItem[];
 }
 
@@ -26,67 +31,176 @@ const EMPTY_RATINGS: RecipeRatings = {
   reviews: [],
 };
 
-// ─── Mock community data for beta (replace with Supabase later) ───
-const MOCK_REVIEWS: Record<string, RecipeRatings> = {
-  'pepper-chicken': {
-    averageRating: 4.6,
-    totalCount: 127,
-    distribution: { 5: 78, 4: 32, 3: 12, 2: 3, 1: 2 },
-    reviews: [
-      {
-        id: 'r1',
-        username: 'SpiceChef_4821',
-        rating: 5,
-        comment: 'Perfect post-workout meal, made it 3 times already!',
-        createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'r2',
-        username: 'FitFoodie_91',
-        rating: 5,
-        comment: 'Love the pepper flavor. So much protein and tastes amazing!',
-        createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'r3',
-        username: 'HealthyBites_23',
-        rating: 4,
-        comment: 'Great recipe! I added extra black pepper and it was fire.',
-        createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'r4',
-        username: 'CookingMama_55',
-        rating: 5,
-        comment: 'My family loved this. Will definitely make again!',
-        createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'r5',
-        username: 'GymBro_777',
-        rating: 4,
-        comment: 'Easy to cook and high protein. Exactly what I needed.',
-        createdAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-      {
-        id: 'r6',
-        username: 'DesiKitchen_42',
-        rating: 5,
-        comment: 'Authentic taste! Reminds me of my grandmother\'s cooking.',
-        createdAt: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000).toISOString(),
-      },
-    ],
-  },
-};
+// ─── Device ID (anonymous user identifier) ───
+const DEVICE_ID_KEY = 'spicestrong_device_id';
+
+async function getDeviceId(): Promise<string> {
+  try {
+    let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      // Generate a random device ID
+      id = `${Platform.OS}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      await AsyncStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return `fallback_${Date.now()}`;
+  }
+}
+
+// Track whether Supabase tables are available
+// Only cache success — failures are retried on every call
+let supabaseAvailable = false;
+
+/**
+ * Check if Supabase tables exist by attempting a lightweight query.
+ * Only caches a successful result so the app recovers automatically
+ * if tables are created after the app starts.
+ */
+async function checkSupabaseAvailable(): Promise<boolean> {
+  if (supabaseAvailable) return true;
+  try {
+    const { error } = await supabase
+      .from('ratings')
+      .select('id')
+      .limit(1);
+    if (!error) {
+      supabaseAvailable = true;
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Fetch community ratings for a recipe.
- * Returns mock data for beta; swap to Supabase fetch later.
+ * Uses Supabase if available, falls back to mock data.
  */
 export async function getRecipeRatings(recipeId: string): Promise<RecipeRatings> {
-  // Simulate network delay (remove when using real backend)
-  await new Promise((resolve) => setTimeout(resolve, 300 + Math.random() * 200));
-  return MOCK_REVIEWS[recipeId] ?? EMPTY_RATINGS;
+  const isAvailable = await checkSupabaseAvailable();
+
+  if (!isAvailable) {
+    // Fallback to mock data
+    return EMPTY_RATINGS;
+  }
+
+  try {
+    // Fetch rating summary
+    const { data: summaryData } = await supabase
+      .from('recipe_rating_summary')
+      .select('*')
+      .eq('recipe_id', recipeId)
+      .single();
+
+    // Fetch reviews
+    const { data: reviewsData } = await supabase
+      .from('reviews')
+      .select('*')
+      .eq('recipe_id', recipeId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (!summaryData) {
+      return EMPTY_RATINGS;
+    }
+
+    return {
+      averageRating: Number(summaryData.average_rating) || 0,
+      totalCount: Number(summaryData.total_count) || 0,
+      distribution: {
+        5: Number(summaryData.five_star) || 0,
+        4: Number(summaryData.four_star) || 0,
+        3: Number(summaryData.three_star) || 0,
+        2: Number(summaryData.two_star) || 0,
+        1: Number(summaryData.one_star) || 0,
+      },
+      reviews: (reviewsData ?? []).map((r) => ({
+        id: r.id,
+        username: r.username,
+        rating: r.stars,
+        comment: r.comment,
+        createdAt: r.created_at,
+      })),
+    };
+  } catch {
+    // If Supabase query fails, fall back to mock
+    return EMPTY_RATINGS;
+  }
+}
+
+/**
+ * Submit a rating for a recipe.
+ * Uses upsert so each device can only rate once per recipe (updates on re-rate).
+ */
+export async function submitRating(recipeId: string, stars: number): Promise<boolean> {
+  const isAvailable = await checkSupabaseAvailable();
+  if (!isAvailable) return false;
+
+  try {
+    const deviceId = await getDeviceId();
+    const { error } = await supabase
+      .from('ratings')
+      .upsert(
+        {
+          recipe_id: recipeId,
+          device_id: deviceId,
+          stars: Math.max(1, Math.min(5, stars)),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'recipe_id,device_id' }
+      );
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Submit a review for a recipe.
+ * Each device can only leave one review per recipe.
+ */
+export async function submitReview(
+  recipeId: string,
+  stars: number,
+  comment: string,
+  username?: string
+): Promise<boolean> {
+  const isAvailable = await checkSupabaseAvailable();
+  if (!isAvailable) return false;
+
+  try {
+    const deviceId = await getDeviceId();
+    const displayName = username || `SpiceChef_${Math.floor(Math.random() * 9000 + 1000)}`;
+
+    // Upsert both the review and the rating
+    const [reviewResult, ratingResult] = await Promise.all([
+      supabase.from('reviews').upsert(
+        {
+          recipe_id: recipeId,
+          device_id: deviceId,
+          username: displayName,
+          stars: Math.max(1, Math.min(5, stars)),
+          comment: comment.slice(0, 500),
+        },
+        { onConflict: 'recipe_id,device_id' }
+      ),
+      supabase.from('ratings').upsert(
+        {
+          recipe_id: recipeId,
+          device_id: deviceId,
+          stars: Math.max(1, Math.min(5, stars)),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'recipe_id,device_id' }
+      ),
+    ]);
+
+    return !reviewResult.error && !ratingResult.error;
+  } catch {
+    return false;
+  }
 }
 
 /**

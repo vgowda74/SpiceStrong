@@ -10,6 +10,7 @@ import {
   AppState,
   Image,
   ImageBackground,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Linking,
   Platform,
@@ -17,6 +18,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -24,6 +26,7 @@ import ViewShot from 'react-native-view-shot';
 import { getRecipeById, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep } from '../../src/store/recipes';
 import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
+import { submitReview, submitRating as submitCommunityRating } from '../../services/ratingsService';
 import ShareableRecipeCard from '../../components/ShareableRecipeCard';
 import { getRecipeStepImage } from '../../src/data/recipeImages';
 
@@ -203,6 +206,9 @@ export default function CookingModeScreen() {
   const [initialTimerSeconds, setInitialTimerSeconds] = useState(0);
   const [done, setDone] = useState(false);
   const [starRating, setStarRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [showNutritionDetails, setShowNutritionDetails] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [encouragement, setEncouragement] = useState<{ emoji: string; message: string } | null>(null);
@@ -631,7 +637,10 @@ export default function CookingModeScreen() {
                     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                   }
                   setStarRating(i);
-                  if (recipe?.id) setRating(recipe.id, i);
+                  if (recipe?.id) {
+                    setRating(recipe.id, i);
+                    submitCommunityRating(recipe.id, i).catch(() => {});
+                  }
                 }}
                 style={styles.starTouch}
                 activeOpacity={0.8}
@@ -643,6 +652,51 @@ export default function CookingModeScreen() {
             ))}
           </View>
           <Text style={styles.ratingLabelText}>{RATING_LABELS[starRating] ?? ''}</Text>
+
+          {/* Community Review Section */}
+          {!reviewSubmitted ? (
+            <View style={styles.reviewSection}>
+              <Text style={styles.reviewSectionTitle}>💬 Share your experience</Text>
+              <TextInput
+                style={styles.reviewInput}
+                placeholder="Tell others what you thought... (optional)"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                value={reviewComment}
+                onChangeText={setReviewComment}
+                multiline
+                maxLength={500}
+                textAlignVertical="top"
+              />
+              <Text style={styles.reviewCharCount}>{reviewComment.length}/500</Text>
+              <TouchableOpacity
+                style={[styles.reviewSubmitBtn, reviewSubmitting && styles.reviewSubmitBtnDisabled]}
+                onPress={async () => {
+                  if (reviewSubmitting) return;
+                  setReviewSubmitting(true);
+                  try {
+                    if (recipe?.id) {
+                      await submitReview(recipe.id, starRating, reviewComment || RATING_LABELS[starRating] || 'Great recipe!');
+                    }
+                    setReviewSubmitted(true);
+                  } catch {
+                    // silently fail
+                  } finally {
+                    setReviewSubmitting(false);
+                  }
+                }}
+                activeOpacity={0.8}
+                disabled={reviewSubmitting}
+              >
+                <Text style={styles.reviewSubmitBtnText}>
+                  {reviewSubmitting ? '⏳ Submitting...' : '📤 Submit Review'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.reviewSubmittedBox}>
+              <Text style={styles.reviewSubmittedText}>✅ Thanks for your review!</Text>
+            </View>
+          )}
 
           <TouchableOpacity style={styles.btnCookAnother} onPress={handleCookAnother} activeOpacity={0.8}>
             <Text style={styles.btnCookAnotherText}>🏠 Cook Another</Text>
@@ -1266,7 +1320,73 @@ const styles = StyleSheet.create({
   star: { fontSize: 40 },
   starSelected: { color: STAR_YELLOW },
   starUnselected: { color: 'rgba(255,255,255,0.3)' },
-  ratingLabelText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center', marginBottom: 24 },
+  ratingLabelText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center', marginBottom: 20 },
+
+  // Review section
+  reviewSection: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  reviewSectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  reviewInput: {
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    borderRadius: 12,
+    padding: 14,
+    color: '#FFFFFF',
+    fontSize: 15,
+    minHeight: 80,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    lineHeight: 22,
+  },
+  reviewCharCount: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    textAlign: 'right',
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  reviewSubmitBtn: {
+    backgroundColor: 'rgba(232,93,38,0.9)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  reviewSubmitBtnDisabled: {
+    opacity: 0.5,
+  },
+  reviewSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  reviewSubmittedBox: {
+    width: '100%',
+    backgroundColor: 'rgba(76,175,80,0.15)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(76,175,80,0.25)',
+  },
+  reviewSubmittedText: {
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
   btnCookAnother: {
     backgroundColor: ORANGE_ACCENT,
     borderRadius: 14,
