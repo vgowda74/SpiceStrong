@@ -1,7 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  FlatList,
   ImageBackground,
   SectionList,
   StyleSheet,
@@ -18,17 +17,117 @@ import {
   type QuantityTier,
   type IngredientGroup,
 } from '../../src/store/recipes';
-
-const HEADER_BG = '#FAF7F2';
-const DARK_TEXT = '#1A1A1A';
-const GREY_TEXT = '#6B6B6B';
 const ORANGE = '#E85D26';
-const ORANGE_LIGHT = '#FFB8A0';
-const CARD_WHITE = '#FFFFFF';
-const CHECKBOX_GREY = '#CCCCCC';
+const ORANGE_LIGHT = 'rgba(232, 93, 38, 0.35)';
+const CARD_BG = 'rgba(255,255,255,0.08)';
+const CARD_BG_CHECKED = 'rgba(232, 93, 38, 0.12)';
+const BORDER_COLOR = 'rgba(255,255,255,0.08)';
 
-function flattenGroups(groups: IngredientGroup[]): { name: string; quantity: string }[] {
-  return groups.flatMap((g) => g.items);
+/** Map ingredient names to emojis for visual display. */
+const INGREDIENT_EMOJI_MAP: [RegExp, string][] = [
+  // Proteins
+  [/chicken/i, '🍗'],
+  [/lamb|mutton/i, '🥩'],
+  [/goat/i, '🥩'],
+  [/pork/i, '🥓'],
+  [/fish|salmon|tuna|cod/i, '🐟'],
+  [/prawn|shrimp/i, '🦐'],
+  [/paneer/i, '🧀'],
+  [/tofu/i, '🫘'],
+  [/egg/i, '🥚'],
+  // Dairy
+  [/yogurt|curd|dahi/i, '🥛'],
+  [/cream/i, '🥛'],
+  [/butter/i, '🧈'],
+  [/ghee/i, '🧈'],
+  [/milk/i, '🥛'],
+  [/cheese/i, '🧀'],
+  // Vegetables
+  [/onion/i, '🧅'],
+  [/garlic/i, '🧄'],
+  [/ginger/i, '🫚'],
+  [/tomato/i, '🍅'],
+  [/potato/i, '🥔'],
+  [/carrot/i, '🥕'],
+  [/bell pepper|capsicum/i, '🫑'],
+  [/green chilli|green pepper/i, '🌶️'],
+  [/spinach|palak/i, '🥬'],
+  [/cauliflower/i, '🥦'],
+  [/broccoli/i, '🥦'],
+  [/mushroom/i, '🍄'],
+  [/corn/i, '🌽'],
+  [/pea/i, '🟢'],
+  [/lettuce|salad/i, '🥗'],
+  [/cucumber/i, '🥒'],
+  [/avocado/i, '🥑'],
+  // Fruits
+  [/lemon|lime/i, '🍋'],
+  [/mango/i, '🥭'],
+  [/coconut/i, '🥥'],
+  [/banana/i, '🍌'],
+  [/apple/i, '🍎'],
+  [/orange/i, '🍊'],
+  [/berry|strawberry|blueberry/i, '🫐'],
+  [/pineapple/i, '🍍'],
+  [/tamarind/i, '🫙'],
+  // Spices & seasonings
+  [/pepper\b|peppercorn/i, '🫚'],
+  [/cumin/i, '🫙'],
+  [/turmeric|haldi/i, '🟡'],
+  [/chilli|chili|red chili/i, '🌶️'],
+  [/cinnamon|dalchini/i, '🫙'],
+  [/cardamom|elaichi/i, '🫙'],
+  [/clove|laung/i, '🫙'],
+  [/mustard seed/i, '🫙'],
+  [/fenugreek|methi/i, '🌿'],
+  [/fennel|saunf/i, '🫙'],
+  [/bay leaf|tej patta/i, '🍃'],
+  [/curry leaves/i, '🍃'],
+  [/coriander powder|dhania/i, '🫙'],
+  [/garam masala/i, '🫙'],
+  [/masala/i, '🫙'],
+  [/paprika/i, '🌶️'],
+  [/saffron|kesar/i, '🧡'],
+  [/salt/i, '🧂'],
+  // Grains & flour
+  [/rice|basmati/i, '🍚'],
+  [/flour|atta|maida/i, '🌾'],
+  [/bread|naan|roti/i, '🫓'],
+  [/pasta|noodle/i, '🍝'],
+  [/oat/i, '🥣'],
+  // Oils & fats
+  [/oil|olive oil|coconut oil/i, '🫒'],
+  // Nuts & seeds
+  [/cashew|kaju/i, '🥜'],
+  [/almond|badam/i, '🥜'],
+  [/peanut/i, '🥜'],
+  [/walnut/i, '🥜'],
+  [/sesame|til/i, '🫘'],
+  // Sweeteners
+  [/sugar|jaggery/i, '🍬'],
+  [/honey/i, '🍯'],
+  // Herbs
+  [/coriander|cilantro/i, '🌿'],
+  [/mint|pudina/i, '🌿'],
+  [/basil/i, '🌿'],
+  [/parsley/i, '🌿'],
+  // Liquids
+  [/water/i, '💧'],
+  [/broth|stock/i, '🍲'],
+  [/vinegar/i, '🫗'],
+  [/soy sauce/i, '🫗'],
+  // Chocolate & baking
+  [/chocolate|cocoa/i, '🍫'],
+  [/vanilla/i, '🧁'],
+  // Other
+  [/whey|protein powder/i, '🏋️'],
+];
+
+function getIngredientEmoji(name: string): string {
+  for (const [pattern, emoji] of INGREDIENT_EMOJI_MAP) {
+    if (pattern.test(name)) return emoji;
+  }
+  return '🥘'; // default
 }
 
 export default function IngredientChecklistScreen() {
@@ -72,7 +171,7 @@ export default function IngredientChecklistScreen() {
   const overlay = (
     <View style={{
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.45)',
+      backgroundColor: 'rgba(0,0,0,0.5)',
     }} />
   );
 
@@ -99,12 +198,12 @@ export default function IngredientChecklistScreen() {
         resizeMode="cover"
       >
         {overlay}
-        <View style={[styles.container, styles.headerBg]}>
+        <View style={[styles.container, { paddingTop: 60 }]}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backTextDark}>← Back</Text>
+            <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.errorTitleDark}>Recipe not found</Text>
-          <Text style={styles.errorSubtitleDark}>
+          <Text style={styles.errorTitle}>Recipe not found</Text>
+          <Text style={styles.errorSubtitle}>
             This recipe may have been deleted or the link is invalid.
           </Text>
         </View>
@@ -121,12 +220,15 @@ export default function IngredientChecklistScreen() {
     (ingredientsByTier[tier]?.filter((i) => i.name.trim()).length ?? 0) > 0;
   const availableTiers = QUANTITY_TIERS.filter(tierHasIngredients);
   const effectiveTier = availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '2-3 servings';
-  // Always use tier-based ingredients so quantities update when switching servings
-  const flatIngredients = ingredientsByTier[effectiveTier]?.filter((i) => i.name.trim()) ?? [];
 
-  // For the checklist, just use the flat tier-based list (no grouped sections)
-  // This ensures quantities always match the selected tier
-  const hasGroups = false;
+  // Check for grouped ingredient data (built-in recipes)
+  const ingredientGroups: IngredientGroup[] | undefined = recipeId ? BUILTIN_INGREDIENT_GROUPS[recipeId] : undefined;
+  const hasGroups = !!ingredientGroups && ingredientGroups.length > 0;
+
+  // Flat ingredients for progress tracking
+  const flatIngredients = hasGroups
+    ? ingredientGroups!.flatMap((g) => g.items)
+    : ingredientsByTier[effectiveTier]?.filter((i) => i.name.trim()) ?? [];
 
   const totalCount = flatIngredients.length;
   const checkedCount = flatIngredients.reduce(
@@ -141,31 +243,100 @@ export default function IngredientChecklistScreen() {
     setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const displayName = recipe.name;
-  const subtitle = isSingleServing
-    ? `${displayName} · 1 Serving`
-    : `${displayName} · ${effectiveTier}`;
+  // Build sections for SectionList
+  const sections = hasGroups
+    ? ingredientGroups!.map((group, gIdx) => {
+        let start = 0;
+        for (let i = 0; i < gIdx; i++) start += ingredientGroups![i].items.length;
+        return {
+          key: group.category,
+          emoji: group.emoji,
+          category: group.category,
+          data: group.items.map((item, itemIdx) => ({ ...item, flatIndex: start + itemIdx })),
+        };
+      })
+    : [{
+        key: 'all',
+        emoji: '🧂',
+        category: 'INGREDIENTS',
+        data: flatIngredients.map((item, i) => ({ ...item, flatIndex: i })),
+      }];
 
-  const renderIngredientRow = (item: { name: string; quantity: string }, flatIndex: number) => {
-    const isChecked = !!checked[`${effectiveTier}-${flatIndex}`];
+  const renderIngredientRow = ({ item }: { item: { name: string; quantity: string; flatIndex: number } }) => {
+    const isChecked = !!checked[`${effectiveTier}-${item.flatIndex}`];
+    const emoji = getIngredientEmoji(item.name);
     return (
       <TouchableOpacity
-        style={styles.card}
-        onPress={() => toggleChecked(flatIndex)}
+        style={[styles.ingredientCard, isChecked && styles.ingredientCardChecked]}
+        onPress={() => toggleChecked(item.flatIndex)}
         activeOpacity={0.7}
       >
+        {/* Ingredient emoji icon */}
+        <View style={[styles.ingredientIcon, isChecked && styles.ingredientIconChecked]}>
+          <Text style={styles.ingredientIconEmoji}>{emoji}</Text>
+        </View>
+        {/* Name & quantity */}
+        <View style={styles.ingredientInfo}>
+          <Text style={[styles.ingredientName, isChecked && styles.ingredientNameChecked]} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={[styles.ingredientQty, isChecked && styles.ingredientQtyChecked]} numberOfLines={1}>
+            {item.quantity}
+          </Text>
+        </View>
+        {/* Checkbox */}
         <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
           {isChecked ? <Text style={styles.checkmark}>✓</Text> : null}
         </View>
-        <Text style={[styles.ingredientName, isChecked && styles.ingredientNameChecked]} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={[styles.ingredientQuantity, isChecked && styles.ingredientQuantityChecked]} numberOfLines={1}>
-          {item.quantity}
-        </Text>
       </TouchableOpacity>
     );
   };
+
+  const renderHeader = () => (
+    <>
+      {/* Recipe info */}
+      <View style={styles.infoSection}>
+        <Text style={styles.recipeName}>{recipe.name}</Text>
+        <Text style={styles.recipeSubtitle}>
+          {isSingleServing ? '1 Serving' : effectiveTier} • {totalCount} ingredients
+        </Text>
+
+        {/* Serving selector */}
+        {isSingleServing ? (
+          <View style={styles.singleServingNote}>
+            <Text style={styles.singleServingIcon}>🍰</Text>
+            <Text style={styles.singleServingText}>Recipe for 1 serving. Multiply as needed.</Text>
+          </View>
+        ) : (
+          <View style={styles.tierSelector}>
+            {QUANTITY_TIERS.map((tier) => {
+              const isSelected = effectiveTier === tier;
+              return (
+                <TouchableOpacity
+                  key={tier}
+                  style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
+                  onPress={() => setSelectedTier(tier)}
+                >
+                  <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
+                    {tier === '2-3 servings' ? '👨‍👩‍👦 2-3' : '👨‍👩‍👦‍👦 4-6'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Progress */}
+        <View style={styles.progressRow}>
+          <Text style={styles.progressText}>{checkedCount} of {totalCount} gathered</Text>
+          <Text style={styles.progressPct}>{progressPct}%</Text>
+        </View>
+        <View style={styles.progressBarBg}>
+          <View style={[styles.progressBarFill, { width: `${progressPct}%` }]} />
+        </View>
+      </View>
+    </>
+  );
 
   return (
     <ImageBackground
@@ -174,99 +345,43 @@ export default function IngredientChecklistScreen() {
       resizeMode="cover"
     >
       {overlay}
-    <View style={styles.wrapper}>
-      {/* Header — semi-transparent */}
-      <View style={[styles.header, styles.headerBg]}>
+      <View style={styles.wrapper}>
+        {/* Fixed back button */}
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.backTextDark}>←</Text>
+          <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Gather Ingredients</Text>
-        <View style={styles.headerSpacer} />
-        <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
 
-        {/* Serving selector — hide for dessert/snack (single-serving) */}
-        {isSingleServing ? (
-          <View style={styles.singleServingNote}>
-            <Text style={styles.singleServingIcon}>🍰</Text>
-            <Text style={styles.singleServingText}>Recipe for 1 serving. Multiply ingredients as needed.</Text>
-          </View>
-        ) : (
-          <>
-            <Text style={styles.servingLabel}>🍽️ How many servings?</Text>
-            <View style={styles.tierSelector}>
-              {QUANTITY_TIERS.map((tier) => {
-                const isSelected = effectiveTier === tier;
-                return (
-                  <TouchableOpacity
-                    key={tier}
-                    style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
-                    onPress={() => setSelectedTier(tier)}
-                  >
-                    <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
-                      {tier === '2-3 servings' ? '👨‍👩‍👦 2-3 Servings' : '👨‍👩‍👦‍👦 4-6 Servings'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+        {/* Ingredient list */}
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => `${item.flatIndex}`}
+          stickySectionHeadersEnabled={false}
+          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={renderHeader}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionEmoji}>{section.emoji}</Text>
+              <Text style={styles.sectionTitle}>{section.category}</Text>
+              <View style={styles.sectionLine} />
             </View>
-          </>
-        )}
+          )}
+          renderItem={renderIngredientRow}
+        />
 
-        <View style={styles.progressRow}>
-          <Text style={styles.progressLeft}>{checkedCount} of {totalCount} gathered</Text>
-          <Text style={styles.progressRight}>{progressPct}%</Text>
+        {/* Footer */}
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[styles.startBtn, !allChecked && styles.startBtnNotReady]}
+            onPress={handleStartCooking}
+            activeOpacity={0.8}
+            disabled={!allChecked}
+          >
+            <Text style={styles.startBtnText}>
+              {allChecked ? '🧑‍🍳 Start Cooking' : `🧂 ${totalCount - checkedCount} ingredients remaining`}
+            </Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.progressBarBg}>
-          <View style={[styles.progressBarFill, { width: `${progressPct}%` }]} />
-        </View>
       </View>
-
-      {/* Content — scrollable list */}
-      <View style={styles.content}>
-        {hasGroups ? (
-          <SectionList
-            sections={ingredientGroups!.map((group, gIdx) => {
-              let start = 0;
-              for (let i = 0; i < gIdx; i++) start += ingredientGroups![i].items.length;
-              return {
-                key: group.category,
-                emoji: group.emoji,
-                category: group.category,
-                data: group.items.map((item, itemIdx) => ({ ...item, flatIndex: start + itemIdx })),
-              };
-            })}
-            keyExtractor={(item) => `${item.flatIndex}`}
-            stickySectionHeadersEnabled={false}
-            contentContainerStyle={styles.sectionListContent}
-            renderSectionHeader={({ section }) => (
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>{section.emoji} {section.category}</Text>
-                <View style={styles.sectionLine} />
-              </View>
-            )}
-            renderItem={({ item }) => renderIngredientRow({ name: item.name, quantity: item.quantity }, item.flatIndex)}
-          />
-        ) : (
-          <FlatList
-            data={flatIngredients}
-            keyExtractor={(_, i) => String(i)}
-            contentContainerStyle={styles.list}
-            renderItem={({ item, index }) => renderIngredientRow(item, index)}
-          />
-        )}
-      </View>
-
-      <View style={[styles.footer, styles.headerBg]}>
-        <TouchableOpacity
-          style={[styles.startBtn, !allChecked && styles.startBtnNotReady]}
-          onPress={handleStartCooking}
-          activeOpacity={0.8}
-          disabled={!allChecked}
-        >
-          <Text style={styles.startBtnText}>🧑‍🍳 Start Cooking</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
     </ImageBackground>
   );
 }
@@ -277,97 +392,66 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingTop: 60,
     paddingHorizontal: 16,
   },
   loadingContainer: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerBg: {
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
   loadingText: {
-    color: DARK_TEXT,
+    color: '#FFFFFF',
     fontSize: 16,
   },
-  errorTitleDark: {
-    color: DARK_TEXT,
+  errorTitle: {
+    color: '#FFFFFF',
     fontSize: 20,
     fontWeight: 'bold',
     textAlign: 'center',
     marginTop: 40,
     marginBottom: 12,
   },
-  errorSubtitleDark: {
-    color: GREY_TEXT,
+  errorSubtitle: {
+    color: 'rgba(255,255,255,0.6)',
     fontSize: 14,
     textAlign: 'center',
     paddingHorizontal: 24,
   },
-  header: {
-    paddingTop: 56,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-  },
+  // Back button
   backBtn: {
     position: 'absolute',
     left: 16,
-    top: 56,
-    zIndex: 1,
+    top: 52,
+    zIndex: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  backTextDark: {
+  backText: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 22,
     fontWeight: '700',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  // Recipe info section
+  infoSection: {
+    paddingHorizontal: 20,
+    paddingTop: 64,
+    paddingBottom: 8,
+  },
+  recipeName: {
     color: '#FFFFFF',
-    textAlign: 'center',
+    fontSize: 26,
+    fontWeight: 'bold',
     marginBottom: 4,
   },
-  headerSpacer: { height: 0 },
-  subtitle: {
+  recipeSubtitle: {
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.7)',
-    textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
-  progressRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  progressLeft: {
-    fontSize: 13,
-    color: GREY_TEXT,
-  },
-  progressRight: {
-    fontSize: 13,
-    color: ORANGE,
-    fontWeight: '600',
-  },
-  progressBarBg: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E8E4DE',
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    borderRadius: 3,
-    backgroundColor: ORANGE,
-  },
-  servingLabel: {
-    color: CARD_WHITE,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 8,
-    letterSpacing: 0.5,
-  },
+  // Tier selector
   tierSelector: {
     flexDirection: 'row',
     gap: 10,
@@ -375,12 +459,12 @@ const styles = StyleSheet.create({
   },
   tierOption: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
   },
   tierOptionSelected: {
@@ -389,83 +473,152 @@ const styles = StyleSheet.create({
   },
   tierOptionText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
+    color: 'rgba(255,255,255,0.5)',
     fontWeight: '700',
   },
   tierOptionTextSelected: {
-    color: CARD_WHITE,
+    color: '#FFFFFF',
   },
-  // Single-serving note for desserts
+  // Single-serving
   singleServingNote: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 12,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 14,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   singleServingIcon: {
-    fontSize: 20,
+    fontSize: 18,
     marginRight: 10,
   },
   singleServingText: {
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.8)',
     fontSize: 13,
     fontWeight: '600',
     flex: 1,
   },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    backgroundColor: 'transparent',
+  // Progress
+  progressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  sectionListContent: {
-    paddingBottom: 24,
+  progressText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
   },
+  progressPct: {
+    fontSize: 13,
+    color: ORANGE,
+    fontWeight: '700',
+  },
+  progressBarBg: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: ORANGE,
+  },
+  // Section headers
   sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 20,
     marginBottom: 10,
+    paddingHorizontal: 20,
+  },
+  sectionEmoji: {
+    fontSize: 16,
+    marginRight: 8,
   },
   sectionTitle: {
     fontSize: 12,
-    fontWeight: '600',
-    color: GREY_TEXT,
-    letterSpacing: 0.5,
-    marginBottom: 8,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+    letterSpacing: 1.5,
+    marginRight: 12,
   },
   sectionLine: {
+    flex: 1,
     height: 1,
-    backgroundColor: '#E0DDD8',
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
-  list: {
+  // List
+  listContent: {
     paddingBottom: 24,
-    paddingTop: 8,
   },
-  card: {
+  // Ingredient cards — dark theme with emoji icon
+  ingredientCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: CARD_WHITE,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: CARD_BG,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    marginHorizontal: 20,
+    borderWidth: 1,
+    borderColor: BORDER_COLOR,
   },
+  ingredientCardChecked: {
+    backgroundColor: CARD_BG_CHECKED,
+    borderColor: 'rgba(232, 93, 38, 0.2)',
+  },
+  // Emoji icon circle
+  ingredientIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  ingredientIconChecked: {
+    opacity: 0.4,
+  },
+  ingredientIconEmoji: {
+    fontSize: 22,
+  },
+  // Name + quantity column
+  ingredientInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  ingredientName: {
+    fontSize: 15,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  ingredientNameChecked: {
+    color: 'rgba(255,255,255,0.35)',
+    textDecorationLine: 'line-through',
+  },
+  ingredientQty: {
+    fontSize: 13,
+    color: ORANGE,
+    fontWeight: '500',
+  },
+  ingredientQtyChecked: {
+    color: 'rgba(232, 93, 38, 0.35)',
+  },
+  // Checkbox on right side
   checkbox: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: CHECKBOX_GREY,
-    marginRight: 12,
+    borderColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -474,51 +627,29 @@ const styles = StyleSheet.create({
     borderColor: ORANGE,
   },
   checkmark: {
-    color: CARD_WHITE,
-    fontSize: 14,
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: 'bold',
   },
-  ingredientName: {
-    flex: 1,
-    fontSize: 15,
-    color: DARK_TEXT,
-    fontWeight: '500',
-    marginRight: 8,
-  },
-  ingredientNameChecked: {
-    color: GREY_TEXT,
-    textDecorationLine: 'line-through',
-  },
-  ingredientQuantity: {
-    fontSize: 14,
-    color: ORANGE,
-    fontWeight: '600',
-    minWidth: 56,
-    textAlign: 'right',
-  },
-  ingredientQuantityChecked: {
-    color: GREY_TEXT,
-    textDecorationLine: 'line-through',
-  },
+  // Footer
   footer: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    paddingBottom: 40,
-    borderTopWidth: 1,
-    borderTopColor: '#E8E4DE',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 36,
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
   startBtn: {
     backgroundColor: ORANGE,
     borderRadius: 14,
-    paddingVertical: 18,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   startBtnNotReady: {
     backgroundColor: ORANGE_LIGHT,
   },
   startBtnText: {
-    color: CARD_WHITE,
-    fontSize: 18,
+    color: '#FFFFFF',
+    fontSize: 17,
     fontWeight: 'bold',
   },
 });

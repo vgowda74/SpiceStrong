@@ -5,6 +5,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  Image,
   ImageBackground,
   Platform,
   ScrollView,
@@ -16,9 +17,12 @@ import {
 
 const screenWidth = Dimensions.get('window').width;
 
-import RecipeCard, { type RecipeDifficulty } from '../../components/RecipeCard';
+import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../components/RecipeCard';
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProtein, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
+import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
+
+const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { getRatings, getFavourites, toggleFavourite, type RatingsMap } from '../../src/store/ratingsFavourites';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
@@ -158,6 +162,16 @@ export default function RecipeListScreen() {
       difficultyRaw === 'Medium' ? 'Medium' : difficultyRaw === 'Hard' ? 'Hard' : 'Easy';
     const gradient: readonly [string, string] = (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
     const cardImage = getRecipeCardImage(item.id);
+    const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
+    const cardNutrition: CardNutrition | undefined = nutritionData ? {
+      calories: nutritionData.calories,
+      proteinG: nutritionData.proteinG,
+      fatG: nutritionData.fatG,
+      carbsG: nutritionData.carbsG,
+      fiberG: nutritionData.fiberG,
+      sugarG: nutritionData.sugarG,
+      sodiumMg: nutritionData.sodiumMg,
+    } : undefined;
     // Use community rating if available, fall back to personal rating
     const community = communityRatings[item.id];
     const ratingValue = community?.averageRating ?? ratings[item.id];
@@ -188,8 +202,9 @@ export default function RecipeListScreen() {
         onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
         onRatingPress={() => handleRatingPress(item.id, item.name)}
         accentColors={gradient}
+        nutrition={cardNutrition}
         actionRow={
-          <View style={styles.actionRow}>
+          !builtInIds.has(item.id) ? (
             <TouchableOpacity
               style={styles.deleteBtn}
               onPress={(e) => {
@@ -199,7 +214,7 @@ export default function RecipeListScreen() {
             >
               <Text style={styles.deleteBtnText}>🗑</Text>
             </TouchableOpacity>
-          </View>
+          ) : undefined
         }
       />
     );
@@ -295,8 +310,8 @@ export default function RecipeListScreen() {
             }
             activeOpacity={0.85}
           >
-            <Text style={styles.actionCardEmoji}>🤖</Text>
-            <Text style={styles.actionCardTitle}>Build with AI</Text>
+            <Image source={require('../../assets/images/icon.png')} style={styles.actionCardIcon} />
+            <Text style={styles.actionCardTitle}>Build with SpiceBuilder</Text>
             <Text style={styles.actionCardSub}>Generate a custom recipe</Text>
           </TouchableOpacity>
         </View>
@@ -309,7 +324,7 @@ export default function RecipeListScreen() {
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyEmoji}>🍽️</Text>
             <Text style={styles.emptyTitle}>No recipes yet</Text>
-            <Text style={styles.emptySub}>Use "Build with AI" to create your first {proteinName} recipe!</Text>
+            <Text style={styles.emptySub}>Use "Build with SpiceBuilder" to create your first {proteinName} recipe!</Text>
           </View>
         }
         renderItem={({ item }) => renderRecipeCard(item)}
@@ -452,6 +467,7 @@ const styles = StyleSheet.create({
     }),
   },
   actionCardEmoji: { fontSize: 28, marginBottom: 4 },
+  actionCardIcon: { width: 36, height: 36, borderRadius: 18, marginBottom: 4 },
   actionCardTitle: { color: '#1a1a1a', fontWeight: '800', fontSize: 14, textAlign: 'center' },
   actionCardSub: { color: '#888', fontWeight: '500', fontSize: 11, textAlign: 'center', marginTop: 1 },
   tabPill: {
@@ -470,14 +486,14 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 44 },
   actionRow: { flexDirection: 'row', gap: 10 },
   deleteBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteBtnText: { fontSize: 14, color: '#fff' },
+  deleteBtnText: { fontSize: 16 },
 
   // Empty state
   emptyWrap: {

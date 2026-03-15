@@ -41,6 +41,16 @@ export interface SavedRecipe {
   chefTip: string;
   createdAt: number;
   mealType?: MealType;
+  /** AI-generated nutrition data (optional). */
+  aiNutrition?: {
+    calories: number;
+    proteinG: number;
+    fatG: number;
+    carbsG: number;
+    fiberG: number;
+    sugarG: number;
+    sodiumMg: number;
+  };
 }
 
 function defaultIngredientsByTier(): IngredientsByTier {
@@ -156,23 +166,70 @@ export async function getRecipeById(recipeId: string): Promise<SavedRecipe | nul
 export function getCompletionStats(recipe: SavedRecipe): {
   proteinG: number;
   calories: number;
-  cookTimeMin: number;
   carbsG: number;
   fatG: number;
   fiberG: number;
+  sugarG: number;
+  sodiumMg: number;
+  cholesterolMg: number;
+  saturatedFatG: number;
+  ironMg: number;
+  calciumMg: number;
   servings: number;
 } {
+  // Try to get full nutrition from built-in recipe
+  const builtIn = BUILTIN_RECIPES.find((r) => r.id === recipe.id);
+  if (builtIn?.nutrition) {
+    const n = builtIn.nutrition;
+    return {
+      proteinG: n.proteinG,
+      calories: n.calories,
+      carbsG: n.carbsG,
+      fatG: n.fatG,
+      fiberG: n.fiberG,
+      sugarG: n.sugarG,
+      sodiumMg: n.sodiumMg,
+      cholesterolMg: n.cholesterolMg ?? 0,
+      saturatedFatG: n.saturatedFatG ?? 0,
+      ironMg: n.ironMg ?? 0,
+      calciumMg: n.calciumMg ?? 0,
+      servings: 1,
+    };
+  }
+  // Try AI-generated nutrition data
+  if (recipe.aiNutrition) {
+    const a = recipe.aiNutrition;
+    return {
+      proteinG: a.proteinG,
+      calories: a.calories,
+      carbsG: a.carbsG,
+      fatG: a.fatG,
+      fiberG: a.fiberG,
+      sugarG: a.sugarG,
+      sodiumMg: a.sodiumMg,
+      cholesterolMg: 0,
+      saturatedFatG: 0,
+      ironMg: 0,
+      calciumMg: 0,
+      servings: 1,
+    };
+  }
+  // Fallback: parse from description text
   const desc = recipe.chefTip || recipe.description || '';
   const proteinMatch = desc.match(/(\d+)g?\s*protein/i);
   const calMatch = desc.match(/(\d+)\s*kcal/i);
-  const timeMatch = desc.match(/(\d+)m?\s*cook/i);
   return {
     proteinG: proteinMatch ? parseInt(proteinMatch[1], 10) : 0,
     calories: calMatch ? parseInt(calMatch[1], 10) : 0,
-    cookTimeMin: timeMatch ? parseInt(timeMatch[1], 10) : recipe.steps.reduce((a, s) => a + (s.timerMinutes ?? 0), 0),
     carbsG: 0,
     fatG: 0,
     fiberG: 0,
+    sugarG: 0,
+    sodiumMg: 0,
+    cholesterolMg: 0,
+    saturatedFatG: 0,
+    ironMg: 0,
+    calciumMg: 0,
     servings: 1,
   };
 }

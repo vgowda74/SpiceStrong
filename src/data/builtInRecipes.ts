@@ -4,6 +4,21 @@
  */
 import { type SavedRecipe, type IngredientGroup } from '../store/recipes';
 
+/** Nutrition info per serving. */
+export interface NutritionInfo {
+  calories: number;
+  proteinG: number;
+  fatG: number;
+  carbsG: number;
+  fiberG: number;
+  sugarG: number;
+  sodiumMg: number;
+  cholesterolMg?: number;
+  saturatedFatG?: number;
+  ironMg?: number;
+  calciumMg?: number;
+}
+
 /** Extended recipe type with display metadata for built-in recipes. */
 export interface BuiltInRecipe extends SavedRecipe {
   timeMinutes: number;
@@ -13,6 +28,8 @@ export interface BuiltInRecipe extends SavedRecipe {
   caloriesPerServing?: number;
   proteinGPerServing?: number;
   netCarbsG?: number;
+  /** Complete nutrition breakdown per serving */
+  nutrition?: NutritionInfo;
 }
 
 /** All built-in recipes. */
@@ -31,6 +48,19 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
     caloriesPerServing: 310,
     proteinGPerServing: 38,
     netCarbsG: 6,
+    nutrition: {
+      calories: 310,
+      proteinG: 38,
+      fatG: 12,
+      carbsG: 9,
+      fiberG: 3,
+      sugarG: 3,
+      sodiumMg: 480,
+      cholesterolMg: 120,
+      saturatedFatG: 4,
+      ironMg: 2,
+      calciumMg: 35,
+    },
     gradient: ['#8B4513', '#D2691E'],
     chefTip: '38g protein | 310 kcal | 25 min cook. Freshly crushed black pepper is the star spice — use a mortar & pestle or pepper mill for best results.',
     createdAt: Date.now(),

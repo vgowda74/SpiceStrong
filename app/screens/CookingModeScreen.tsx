@@ -23,43 +23,13 @@ import {
   View,
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
-import { getRecipeById, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep } from '../../src/store/recipes';
+import { getRecipeById, getCompletionStats, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep } from '../../src/store/recipes';
 import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
 import { submitReview, submitRating as submitCommunityRating } from '../../services/ratingsService';
 import ShareableRecipeCard from '../../components/ShareableRecipeCard';
 import { getRecipeStepImage } from '../../src/data/recipeImages';
 
-const ENCOURAGEMENTS = [
-  { emoji: '🎉', message: "Great start! You're on your way." },
-  { emoji: '👏', message: 'Nice work! Looking good already.' },
-  { emoji: '🔥', message: "You're crushing it! Keep going." },
-  { emoji: '⭐', message: "Halfway there — you're doing great!" },
-  { emoji: '🌟', message: 'Almost done! The hardest part is over.' },
-  { emoji: '🏆', message: "Last step! You've got this, Chef!" },
-];
-
-function getStepEncouragement(recipe: SavedRecipe, stepIndex: number): { emoji: string; message: string } {
-  const step = recipe.steps[stepIndex];
-  const title = (step?.title ?? '').toLowerCase();
-  const proteinName = recipe.proteinName ?? 'protein';
-  if (title.includes('marinate') || title.includes('prep')) {
-    return { emoji: '🌶️', message: `Nice! The ${proteinName} is soaking up all those flavours 🌶️` };
-  }
-  if (title.includes('sear') || title.includes('brown')) {
-    return { emoji: '🔥', message: 'Perfect sear! That golden colour means amazing flavour 🔥' };
-  }
-  if (title.includes('spice') || title.includes('masala') || title.includes('garam')) {
-    return { emoji: '✨', message: 'The kitchen must smell incredible right now! ✨' };
-  }
-  if (title.includes('sauce') || title.includes('gravy') || title.includes('simmer')) {
-    return { emoji: '🍲', message: 'The sauce is coming together beautifully 🍲' };
-  }
-  if (stepIndex >= recipe.steps.length - 2) {
-    return { emoji: '👨‍🍳', message: 'Almost there Chef! One final step 👨‍🍳' };
-  }
-  return ENCOURAGEMENTS[Math.min(stepIndex, ENCOURAGEMENTS.length - 1)];
-}
 
 function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[] {
   const groups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
@@ -164,30 +134,6 @@ const STAR_GREY = '#888888';
 const STAR_YELLOW = '#FFD700';
 const SERIF_FONT = Platform.OS === 'ios' ? 'Georgia' : 'serif';
 
-function getCompletionStats(recipe: SavedRecipe) {
-  const isButterChicken = recipe.name.toLowerCase().includes('butter chicken');
-  if (isButterChicken) {
-    return { proteinG: 56, kcal: 480, cookTimeMin: 45, carbsG: 12, fatG: 22, fiberG: 2, servings: 3 };
-  }
-  const isIndianPorkCurry = recipe.id === 'builtin-pork-indian-curry';
-  if (isIndianPorkCurry) {
-    return { proteinG: 31, kcal: 380, cookTimeMin: 40, carbsG: 18, fatG: 16, fiberG: 3, servings: 3 };
-  }
-  const isHealthyEggCurry = recipe.id === 'builtin-eggs-healthy-curry';
-  if (isHealthyEggCurry) {
-    return { proteinG: 13, kcal: 280, cookTimeMin: 25, carbsG: 10, fatG: 14, fiberG: 2, servings: 2 };
-  }
-  const proteinById: Record<string, number> = {
-    chicken: 45,
-    beef: 50,
-    salmon: 42,
-    pork: 48,
-    turkey: 46,
-  };
-  const proteinG = proteinById[recipe.proteinId?.toLowerCase()] ?? 40;
-  const cookTimeMin = recipe.steps.length * 8;
-  return { proteinG, kcal: 400, cookTimeMin, carbsG: 15, fatG: 18, fiberG: 2, servings: 2 };
-}
 
 const TIMER_MAX_MINUTES = 30;
 const ORANGE = '#E85D26';
@@ -211,9 +157,6 @@ export default function CookingModeScreen() {
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [showNutritionDetails, setShowNutritionDetails] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [encouragement, setEncouragement] = useState<{ emoji: string; message: string } | null>(null);
-  const encouragementSlide = useRef(new Animated.Value(300)).current;
-  const encouragementTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerReachedZeroRef = useRef(false);
   const [showTimerCompleteAlert, setShowTimerCompleteAlert] = useState(false);
   const timerCompleteSlide = useRef(new Animated.Value(300)).current;
@@ -324,7 +267,6 @@ export default function CookingModeScreen() {
   useEffect(() => {
     return () => {
       cancelTimerNotification();
-      if (encouragementTimeoutRef.current) clearTimeout(encouragementTimeoutRef.current);
       if (timerCompleteAutoDismissRef.current) clearTimeout(timerCompleteAutoDismissRef.current);
       Linking.openURL('clock-timer://stop').catch(() => null);
     };
@@ -436,18 +378,7 @@ export default function CookingModeScreen() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setTimerRunning(false);
     if (currentStep < totalSteps - 1) {
-      const msg = recipe ? getStepEncouragement(recipe, currentStep) : ENCOURAGEMENTS[currentStep] ?? ENCOURAGEMENTS[0];
-      setEncouragement(msg);
-      encouragementSlide.setValue(300);
-      Animated.spring(encouragementSlide, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
-      if (encouragementTimeoutRef.current) clearTimeout(encouragementTimeoutRef.current);
-      encouragementTimeoutRef.current = setTimeout(() => {
-        encouragementTimeoutRef.current = null;
-        Animated.timing(encouragementSlide, { toValue: 300, duration: 200, useNativeDriver: true }).start(() => {
-          setEncouragement(null);
-          setCurrentStep((s) => s + 1);
-        });
-      }, 1800);
+      setCurrentStep((s) => s + 1);
     } else {
       setDone(true);
     }
@@ -571,7 +502,7 @@ export default function CookingModeScreen() {
           >
             <View style={styles.nutritionBoxHeader}>
               <View style={styles.nutritionBoxSummary}>
-                <Text style={styles.nutritionBoxValue}>🔥 {stats.kcal} kcal</Text>
+                <Text style={styles.nutritionBoxValue}>🔥 {stats.calories} kcal</Text>
                 <Text style={styles.nutritionBoxDot}>•</Text>
                 <Text style={styles.nutritionBoxValue}>💪 {stats.proteinG}g protein</Text>
               </View>
@@ -583,7 +514,7 @@ export default function CookingModeScreen() {
               <View style={styles.nutritionDetailsGrid}>
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Calories</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.kcal} kcal</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.calories} kcal</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Protein</Text>
@@ -597,10 +528,43 @@ export default function CookingModeScreen() {
                   <Text style={styles.nutritionDetailLabel}>Fat</Text>
                   <Text style={styles.nutritionDetailVal}>{stats.fatG}g</Text>
                 </View>
+                {stats.saturatedFatG > 0 && (
+                  <View style={styles.nutritionDetailRow}>
+                    <Text style={styles.nutritionDetailLabelIndent}>Saturated Fat</Text>
+                    <Text style={styles.nutritionDetailVal}>{stats.saturatedFatG}g</Text>
+                  </View>
+                )}
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Fiber</Text>
                   <Text style={styles.nutritionDetailVal}>{stats.fiberG}g</Text>
                 </View>
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Sugar</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.sugarG}g</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                {stats.cholesterolMg > 0 && (
+                  <View style={styles.nutritionDetailRow}>
+                    <Text style={styles.nutritionDetailLabel}>Cholesterol</Text>
+                    <Text style={styles.nutritionDetailVal}>{stats.cholesterolMg}mg</Text>
+                  </View>
+                )}
+                <View style={styles.nutritionDetailRow}>
+                  <Text style={styles.nutritionDetailLabel}>Sodium</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.sodiumMg}mg</Text>
+                </View>
+                {stats.ironMg > 0 && (
+                  <View style={styles.nutritionDetailRow}>
+                    <Text style={styles.nutritionDetailLabel}>Iron</Text>
+                    <Text style={styles.nutritionDetailVal}>{stats.ironMg}mg</Text>
+                  </View>
+                )}
+                {stats.calciumMg > 0 && (
+                  <View style={styles.nutritionDetailRow}>
+                    <Text style={styles.nutritionDetailLabel}>Calcium</Text>
+                    <Text style={styles.nutritionDetailVal}>{stats.calciumMg}mg</Text>
+                  </View>
+                )}
                 <View style={styles.nutritionDivider} />
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Servings</Text>
@@ -608,20 +572,11 @@ export default function CookingModeScreen() {
                 </View>
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Total Calories</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.kcal * stats.servings} kcal</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.calories * stats.servings} kcal</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Total Protein</Text>
                   <Text style={styles.nutritionDetailVal}>{stats.proteinG * stats.servings}g</Text>
-                </View>
-                <View style={styles.nutritionDivider} />
-                <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Cook Time</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.cookTimeMin} min</Text>
-                </View>
-                <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Steps Completed</Text>
-                  <Text style={styles.nutritionDetailVal}>{totalSteps}</Text>
                 </View>
               </View>
             )}
@@ -748,20 +703,6 @@ export default function CookingModeScreen() {
       resizeMode="cover"
     >
       {overlay}
-      {encouragement ? (
-        <Animated.View
-          style={[
-            styles.encouragementOverlay,
-            { transform: [{ translateY: encouragementSlide }] },
-          ]}
-          pointerEvents="none"
-        >
-          <View style={styles.encouragementCard}>
-            <Text style={styles.encouragementEmoji}>{encouragement.emoji}</Text>
-            <Text style={styles.encouragementText}>{encouragement.message}</Text>
-          </View>
-        </Animated.View>
-      ) : null}
       {showTimerCompleteAlert ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View style={styles.timerCompleteOverlayBg} />
@@ -787,22 +728,21 @@ export default function CookingModeScreen() {
         </View>
       ) : null}
     <View style={styles.container}>
-      {/* Header: dark brown full width */}
+      {/* Header: back button only */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleExit} style={styles.headerBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.headerBackText}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{displayName}</Text>
-        <Text style={styles.headerStepCount}>Step {stepNum} of {totalSteps}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>{recipe.name}</Text>
+        <View style={{ width: 32 }} />
       </View>
 
-      {/* Segmented progress bar: one segment per step */}
+      {/* Segmented progress bar */}
       <View style={styles.progressRow}>
         {Array.from({ length: totalSteps }, (_, i) => {
           const completed = i < currentStep;
           const current = i === currentStep;
-          const fill =
-            completed ? 1 : current ? currentStepProgress : 0;
+          const fill = completed ? 1 : current ? currentStepProgress : 0;
           return (
             <View key={i} style={styles.progressSegmentBg}>
               <View
@@ -824,90 +764,89 @@ export default function CookingModeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Step card */}
-        <View style={styles.card}>
-          <Text style={styles.stepLabel}>{stepLabel}</Text>
-          <Text style={styles.stepTitle}>{step.title}</Text>
-          <View style={styles.imageAreaWrapper}>
-            {getRecipeStepImage(recipe.id, currentStep) ? (
-              <Image
-                source={getRecipeStepImage(recipe.id, currentStep)!}
-                style={styles.stepImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={styles.imageArea}>
-                <Text style={styles.stepEmoji}>{stepEmoji}</Text>
-              </View>
-            )}
+        {/* Step label & title */}
+        <Text style={styles.stepLabel}>STEP {stepNum} of {totalSteps}</Text>
+        <Text style={styles.stepTitle}>{step.title}</Text>
+
+        {/* Step description */}
+        <Text style={styles.stepDescription}>{step.description}</Text>
+
+        {/* Ingredient pills */}
+        {stepIngredients.length > 0 && (
+          <View style={styles.ingredientsRow}>
+            <Text style={styles.ingredientsLabel}>You'll need:</Text>
+            <View style={styles.ingredientsPillsRow}>
+              {stepIngredients.map((name, i) => (
+                <View key={i} style={styles.ingredientPill}>
+                  <Text style={styles.ingredientPillText}>{name}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <Text style={styles.stepDescription}>{step.description}</Text>
-          {stepIngredients.length > 0 && (
-            <>
-              <Text style={styles.ingredientsHeader}>🧂 You'll need:</Text>
-              <View style={styles.ingredientsPillsRow}>
-                {stepIngredients.map((name, i) => (
-                  <View key={i} style={styles.ingredientPill}>
-                    <Text style={styles.ingredientPillText} numberOfLines={1}>{name}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
-          {showTipBox && (
-            <View style={styles.tipBox}>
-              <Text style={styles.tipIcon}>💡</Text>
-              <Text style={styles.tipText}>{tipText}</Text>
+        )}
+
+        {/* Step image or emoji */}
+        <View style={styles.imageAreaWrapper}>
+          {getRecipeStepImage(recipe.id, currentStep) ? (
+            <Image
+              source={getRecipeStepImage(recipe.id, currentStep)!}
+              style={styles.stepImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.imageArea}>
+              <Text style={styles.stepEmoji}>{stepEmoji}</Text>
             </View>
           )}
         </View>
 
-        {/* Timer */}
-        <View style={styles.timerSection}>
-          <View style={styles.timerDialRow}>
-            <TouchableOpacity
-              style={[styles.timerDialBtn, atMin && styles.timerDialBtnDisabled]}
-              onPress={() => adjustTimerMinutes(-1)}
-              disabled={atMin}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.timerDialBtnText, atMin && styles.timerDialBtnTextDisabled]}>−</Text>
-            </TouchableOpacity>
+        {/* Chef's Tip — cream card */}
+        {showTipBox && (
+          <View style={styles.tipCard}>
+            <Text style={styles.tipCardHeader}>💡 Chef's Tip</Text>
+            <Text style={styles.tipCardText}>{tipText}</Text>
+          </View>
+        )}
 
-            <View style={styles.timerRectangle}>
-              <Text style={styles.timerRectangleTime}>{formatTime(timerSeconds)}</Text>
+        {/* Timer — side by side: timer display + start button */}
+        <View style={styles.timerSection}>
+          <View style={styles.timerRow}>
+            {/* Timer display with +/- */}
+            <View style={styles.timerDisplayGroup}>
+              <TouchableOpacity
+                style={[styles.timerAdjustBtn, atMin && styles.timerAdjustBtnDisabled]}
+                onPress={() => adjustTimerMinutes(-1)}
+                disabled={atMin}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.timerAdjustBtnText, atMin && { color: '#555' }]}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.timerTimeText}>{formatTime(timerSeconds)}</Text>
+              <TouchableOpacity
+                style={[styles.timerAdjustBtn, atMax && styles.timerAdjustBtnDisabled]}
+                onPress={() => adjustTimerMinutes(1)}
+                disabled={atMax}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.timerAdjustBtnText, atMax && { color: '#555' }]}>+</Text>
+              </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[styles.timerDialBtn, atMax && styles.timerDialBtnDisabled]}
-              onPress={() => adjustTimerMinutes(1)}
-              disabled={atMax}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.timerDialBtnText, atMax && styles.timerDialBtnTextDisabled]}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.timerButtonsRow}>
+            {/* Start button */}
             <TouchableOpacity
               style={[styles.timerStartBtn, atMin && styles.timerStartBtnDisabled]}
               onPress={toggleTimer}
               disabled={atMin}
               activeOpacity={0.8}
             >
-              <Text style={styles.timerStartBtnText}>▶ Start Timer</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.timerResetBtn}
-              onPress={resetTimer}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.timerResetBtnText}>↺ Reset</Text>
+              <Text style={styles.timerStartBtnText}>
+                {timerRunning ? '⏸ Pause' : '▶ Start'}
+              </Text>
             </TouchableOpacity>
           </View>
-          {suggestedMin != null && (
-            <Text style={styles.timerSuggestion}>💡 Suggested: {suggestedMin} min</Text>
-          )}
+          {(step.timerMinutes || suggestedMin) ? (
+            <Text style={styles.timerHint}>{step.timerMinutes ?? suggestedMin} min recommended</Text>
+          ) : null}
         </View>
 
         {/* Navigation row */}
@@ -922,7 +861,7 @@ export default function CookingModeScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.navNextBtn} onPress={goNext} activeOpacity={0.8}>
             <Text style={styles.navNextBtnText}>
-              {currentStep === totalSteps - 1 ? 'Finish 🎉' : 'Next →'}
+              {currentStep === totalSteps - 1 ? 'Finish 🎉' : 'Next Step →'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -941,20 +880,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 56,
-    paddingBottom: 12,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingBottom: 8,
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  headerBack: { padding: 4 },
+  headerBack: { padding: 4, width: 32 },
   headerBackText: { color: '#FFFFFF', fontSize: 24 },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 8,
   },
-  headerStepCount: { color: ORANGE, fontSize: 14, fontWeight: 'bold' },
   imageAreaWrapper: {
     position: 'relative',
     marginBottom: 16,
@@ -963,8 +901,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0,0,0,0.25)',
   },
   progressSegmentBg: {
     flex: 1,
@@ -978,95 +916,127 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 40, paddingTop: 20 },
-  card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(232, 93, 38, 0.15)',
-  },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 40, paddingTop: 16 },
   stepLabel: {
     color: ORANGE,
-    fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 3,
-    marginBottom: 8,
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 6,
   },
   stepTitle: {
     color: '#FFFFFF',
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: 'bold',
-    marginBottom: 16,
-    fontFamily: undefined,
+    marginBottom: 14,
+    lineHeight: 36,
   },
   imageArea: {
     backgroundColor: IMAGE_BG,
-    borderRadius: 12,
-    height: 200,
+    borderRadius: 14,
+    height: 220,
     alignItems: 'center',
     justifyContent: 'center',
   },
   stepImage: {
     width: '100%',
-    height: 220,
-    borderRadius: 12,
+    height: 260,
+    borderRadius: 14,
   },
-  stepEmoji: { fontSize: 72 },
+  stepEmoji: { fontSize: 80 },
   stepDescription: {
-    color: '#D4C4B0',
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 16,
+    color: '#E8D8C8',
+    fontSize: 17,
+    lineHeight: 28,
+    marginBottom: 14,
   },
-  tipBox: {
-    backgroundColor: '#4A2C1A',
-    borderRadius: 10,
-    padding: 12,
+  // Ingredient pills — compact horizontal row
+  ingredientsRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+    alignItems: 'center',
+    marginBottom: 14,
+    flexWrap: 'wrap',
+    gap: 6,
   },
-  tipIcon: { fontSize: 16 },
-  tipText: { color: '#D4C4B0', fontSize: 14, fontStyle: 'italic', flex: 1, lineHeight: 20 },
-  ingredientsHeader: {
+  ingredientsLabel: {
+    color: 'rgba(255,255,255,0.5)',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.6)',
-    letterSpacing: 1,
-    marginTop: 12,
-    marginBottom: 8,
+    fontWeight: '500',
+    marginRight: 2,
   },
-  ingredientsPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  ingredientsPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   ingredientPill: {
     backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
+    borderRadius: 16,
     paddingVertical: 4,
     paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  ingredientPillText: { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
-  timerSection: { marginBottom: 24 },
-  timerSuggestion: { fontSize: 13, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginTop: 10 },
-  encouragementOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 80,
-    justifyContent: 'flex-end',
-    zIndex: 100,
+  ingredientPillText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 12,
+    fontWeight: '500',
   },
-  encouragementCard: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 28,
+  // Chef's Tip — cream/beige card like reference
+  tipCard: {
+    backgroundColor: '#FFF8ED',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+  },
+  tipCardHeader: {
+    color: '#2D1A0E',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  tipCardText: {
+    color: '#3D2A1A',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  timerSection: { marginBottom: 20 },
+  timerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
-  encouragementEmoji: { fontSize: 56, marginBottom: 12 },
-  encouragementText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  timerDisplayGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2A1005',
+    borderWidth: 2,
+    borderColor: ORANGE,
+    borderRadius: 14,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  timerAdjustBtn: {
+    width: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timerAdjustBtnDisabled: { opacity: 0.3 },
+  timerAdjustBtnText: {
+    color: ORANGE,
+    fontSize: 22,
+    fontWeight: '300',
+  },
+  timerTimeText: {
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: 'bold',
+    fontVariant: ['tabular-nums'] as any,
+    minWidth: 90,
+    textAlign: 'center',
+  },
+  timerHint: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 6,
+  },
   timerCompleteOverlayBg: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.55)',
@@ -1107,87 +1077,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   timerCompleteDismissText: { color: '#FFFFFF', fontWeight: '700' },
-  timerDialRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    marginBottom: 20,
-  },
-  timerDialBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    borderWidth: 2,
-    borderColor: ORANGE,
-    backgroundColor: HEADER_BG,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timerDialBtnDisabled: { opacity: 0.35, borderColor: '#555555' },
-  timerDialBtnText: { color: ORANGE, fontSize: 28, fontWeight: '300', lineHeight: 32 },
-  timerDialBtnTextDisabled: { color: '#666666' },
-  timerRectangle: {
-    backgroundColor: '#2A1005',
-    borderWidth: 2,
-    borderColor: '#E85D26',
-    borderRadius: 16,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timerRectangleTime: {
-    color: '#FFFFFF',
-    fontSize: 42,
-    fontWeight: 'bold',
-    fontFamily: SERIF_FONT,
-    fontVariant: ['tabular-nums'],
-  },
-  timerButtonsRow: { flexDirection: 'row', gap: 12, justifyContent: 'center' },
   timerStartBtn: {
     flex: 1,
     backgroundColor: ORANGE,
     borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
+    paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   timerStartBtnDisabled: { backgroundColor: DARK_GREY, opacity: 0.6 },
   timerStartBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
-  timerResetBtn: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: DARK_GREY,
-  },
-  timerResetBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
   navRow: { flexDirection: 'row', gap: 12 },
   navPrevBtn: {
-    flex: 1,
-    backgroundColor: HEADER_BG,
+    flex: 0.4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 14,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: DARK_GREY,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
-  navBtnDisabled: { opacity: 0.35 },
-  navPrevBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  navBtnDisabled: { opacity: 0.3 },
+  navPrevBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   navNextBtn: {
-    flex: 1,
+    flex: 0.6,
     backgroundColor: ORANGE,
     borderRadius: 14,
-    paddingVertical: 18,
+    paddingVertical: 16,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
-  navNextBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+  navNextBtnText: { color: '#FFFFFF', fontSize: 17, fontWeight: 'bold' },
   completionRoot: {
     flex: 1,
   },
@@ -1297,6 +1218,12 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
     fontSize: 14,
     fontWeight: '500',
+  },
+  nutritionDetailLabelIndent: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 13,
+    fontWeight: '400',
+    paddingLeft: 12,
   },
   nutritionDetailVal: {
     color: '#FFFFFF',

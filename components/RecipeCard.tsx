@@ -28,6 +28,17 @@ const HERO_CONTENT_HEIGHT = 140;
 
 export type RecipeDifficulty = 'Easy' | 'Medium' | 'Hard';
 
+/** Nutrition info to display on the card. */
+export interface CardNutrition {
+  calories: number;
+  proteinG: number;
+  fatG: number;
+  carbsG: number;
+  fiberG: number;
+  sugarG: number;
+  sodiumMg: number;
+}
+
 export interface RecipeCardProps {
   name: string;
   description: string;
@@ -53,6 +64,8 @@ export interface RecipeCardProps {
   accentColors: readonly [string, string];
   /** Optional row below stats (e.g. Edit/Delete for custom recipes). */
   actionRow?: React.ReactNode;
+  /** Nutrition info per serving */
+  nutrition?: CardNutrition;
 }
 
 const DIFFICULTY_LABELS: Record<RecipeDifficulty, string> = {
@@ -78,6 +91,7 @@ export function RecipeCard({
   accentColors,
   actionRow,
   imageSource,
+  nutrition,
 }: RecipeCardProps) {
   const difficultyLabel = DIFFICULTY_LABELS[difficulty];
   const nameParts = name.includes(' (') ? name.split(/ \((.+)\)$/) : [name, ''];
@@ -135,61 +149,98 @@ export function RecipeCard({
               </Text>
             </TouchableOpacity>
 
+            {/* Delete button for AI-generated recipes — top right */}
+            {actionRow && (
+              <View style={styles.deleteCorner}>{actionRow}</View>
+            )}
+
             {/* Difficulty badge removed */}
           </LinearGradient>
         </View>
 
-        {/* ————— INFO SECTION (white, padding 18) ————— */}
+        {/* ————— INFO SECTION ————— */}
         <View style={styles.infoSection}>
           <View style={styles.infoContent}>
-            <Text style={styles.recipeTitle} numberOfLines={1}>{recipeTitle}</Text>
-            {recipeSubtitle ? <Text style={styles.recipeSubtitle} numberOfLines={1}>{recipeSubtitle}</Text> : null}
+            {/* Title row with rating pill */}
+            <View style={styles.titleRow}>
+              <View style={styles.titleLeft}>
+                <Text style={styles.recipeTitle} numberOfLines={1}>{recipeTitle}</Text>
+                {recipeSubtitle ? <Text style={styles.recipeSubtitle} numberOfLines={1}>{recipeSubtitle}</Text> : null}
+              </View>
+              {communityLoading ? (
+                <View style={styles.ratingPill}>
+                  <Text style={styles.ratingPillText}>⭐ ···</Text>
+                </View>
+              ) : rating != null && rating !== '' ? (
+                <TouchableOpacity
+                  style={styles.ratingPill}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRatingPress?.();
+                  }}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.ratingPillText}>
+                    ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.newPill}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRatingPress?.();
+                  }}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.newPillText}>⭐ New</Text>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <Text style={styles.description} numberOfLines={2}>{description}</Text>
 
-            <View style={styles.statsRow}>
-              <View style={styles.statsLeft}>
-                <Text style={styles.statsMeta}>⏱ {time}</Text>
+            {/* Nutrition grid */}
+            {nutrition ? (
+              <View style={styles.nutritionGrid}>
+                <View style={styles.nutritionItem}>
+                  <Text style={styles.nutritionValue}>{nutrition.calories}</Text>
+                  <Text style={styles.nutritionLabel}>Cal</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionItem}>
+                  <Text style={[styles.nutritionValue, styles.proteinHighlight]}>{nutrition.proteinG}g</Text>
+                  <Text style={styles.nutritionLabel}>Protein</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionItem}>
+                  <Text style={styles.nutritionValue}>{nutrition.fatG}g</Text>
+                  <Text style={styles.nutritionLabel}>Fat</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionItem}>
+                  <Text style={styles.nutritionValue}>{nutrition.carbsG}g</Text>
+                  <Text style={styles.nutritionLabel}>Carbs</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionItem}>
+                  <Text style={styles.nutritionValue}>{nutrition.fiberG}g</Text>
+                  <Text style={styles.nutritionLabel}>Fiber</Text>
+                </View>
+                <View style={styles.nutritionDivider} />
+                <View style={styles.nutritionItem}>
+                  <Text style={styles.nutritionValue}>{nutrition.sugarG}g</Text>
+                  <Text style={styles.nutritionLabel}>Sugar</Text>
+                </View>
               </View>
-              <View style={styles.statsRight}>
-                {protein ? (
-                  <Text style={styles.proteinText}>{protein}</Text>
-                ) : null}
-                {communityLoading ? (
-                  <View style={styles.ratingPill}>
-                    <Text style={styles.ratingPillText}>⭐ ···</Text>
-                  </View>
-                ) : rating != null && rating !== '' ? (
-                  <TouchableOpacity
-                    style={styles.ratingPill}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      onRatingPress?.();
-                    }}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.ratingPillText}>
-                      ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
-                    </Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.newPill}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      onRatingPress?.();
-                    }}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.newPillText}>⭐ New</Text>
-                  </TouchableOpacity>
-                )}
+            ) : protein ? (
+              <View style={styles.nutritionFallback}>
+                <Text style={styles.proteinText}>{protein}</Text>
               </View>
-            </View>
+            ) : null}
 
-            {/* Action row removed */}
           </View>
         </View>
       </View>
@@ -360,7 +411,7 @@ const styles = StyleSheet.create({
 
   infoSection: {
     backgroundColor: '#FFFFFF',
-    padding: 18,
+    padding: 16,
     marginTop: 0,
     overflow: 'hidden',
     borderBottomLeftRadius: CARD_RADIUS,
@@ -369,40 +420,70 @@ const styles = StyleSheet.create({
   infoContent: {
     paddingTop: 0,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  titleLeft: {
+    flex: 1,
+  },
   recipeTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     color: '#1A1A1A',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   recipeSubtitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '400',
     color: '#666666',
   },
   description: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#888888',
-    marginBottom: 12,
+    marginTop: 4,
+    marginBottom: 10,
   },
-  statsRow: {
+  nutritionGrid: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    backgroundColor: '#FAFAF8',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: '#F0EDE8',
   },
-  statsLeft: {
-    flexDirection: 'row',
-    gap: 14,
-  },
-  statsMeta: {
-    fontSize: 14,
-    color: '#555555',
-  },
-  statsRight: {
-    flexDirection: 'row',
-    gap: 8,
+  nutritionItem: {
+    flex: 1,
     alignItems: 'center',
+  },
+  nutritionValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#333333',
+  },
+  proteinHighlight: {
+    color: '#E85D26',
+  },
+  nutritionLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#999999',
+    marginTop: 1,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  nutritionDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#E8E4DF',
+  },
+  nutritionFallback: {
+    marginTop: 4,
   },
   proteinText: {
     fontSize: 14,
@@ -433,6 +514,12 @@ const styles = StyleSheet.create({
   },
   actionRowWrap: {
     marginTop: SPACE * 3,
+  },
+  deleteCorner: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 2,
   },
 });
 

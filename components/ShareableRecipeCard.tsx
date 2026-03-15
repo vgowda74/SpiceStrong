@@ -11,7 +11,7 @@ const BORDER_ORNAMENT = '#C4854C';
 
 interface ShareableRecipeCardProps {
   recipe: SavedRecipe;
-  stats?: { proteinG: number; kcal: number; cookTimeMin: number; servings?: number };
+  stats?: { proteinG: number; calories: number; servings?: number };
 }
 
 export default function ShareableRecipeCard({ recipe, stats }: ShareableRecipeCardProps) {
@@ -50,9 +50,7 @@ export default function ShareableRecipeCard({ recipe, stats }: ShareableRecipeCa
           <View style={styles.statsBar}>
             <Text style={styles.statChip}>💪 {stats.proteinG}g protein</Text>
             <Text style={styles.statDot}>•</Text>
-            <Text style={styles.statChip}>🔥 {stats.kcal} kcal</Text>
-            <Text style={styles.statDot}>•</Text>
-            <Text style={styles.statChip}>⏱️ {stats.cookTimeMin} min</Text>
+            <Text style={styles.statChip}>🔥 {stats.calories} kcal</Text>
           </View>
         )}
 

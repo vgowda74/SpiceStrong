@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  Image,
   ImageBackground,
   Platform,
   ScrollView,
@@ -12,6 +13,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import type { ImageSourcePropType } from 'react-native';
+
+/** Custom images for proteins (replaces emoji). */
+const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
+  paneer: require('../../assets/images/paneer_small.png'),
+};
 import { PROTEINS } from '../../src/theme';
 
 const screenWidth = Dimensions.get('window').width;
@@ -20,6 +27,9 @@ const CARD_HEIGHT = 150;
 
 const FILTERS = ['All', 'Non-Veg', 'Vegetarian'] as const;
 type Filter = (typeof FILTERS)[number];
+
+/** Beta-enabled proteins — set to empty array to enable all. */
+const BETA_ENABLED_PROTEINS = ['chicken', 'paneer'];
 
 const HEADER_BG = '#2A1005';
 const BODY_BG = '#FAF7F2';
@@ -45,28 +55,37 @@ type ProteinItem = (typeof PROTEINS)[0];
 function ProteinCard({
   item,
   onPress,
+  disabled,
 }: {
   item: ProteinItem;
   onPress: () => void;
+  disabled?: boolean;
 }) {
   return (
     <TouchableOpacity
-      style={styles.card}
-      onPress={onPress}
-      activeOpacity={0.8}
+      style={[styles.card, disabled && styles.cardDisabled]}
+      onPress={disabled ? undefined : onPress}
+      activeOpacity={disabled ? 1 : 0.8}
     >
-      <View style={styles.emojiCircle}>
-        <Text style={styles.emojiText}>{item.emoji}</Text>
+      <View style={[styles.emojiCircle, disabled && styles.emojiCircleDisabled]}>
+        {PROTEIN_IMAGES[item.id] ? (
+          <Image source={PROTEIN_IMAGES[item.id]} style={styles.proteinImage} resizeMode="cover" />
+        ) : (
+          <Text style={styles.emojiText}>{item.emoji}</Text>
+        )}
       </View>
-      <Text style={styles.proteinName} numberOfLines={1}>
+      <Text style={[styles.proteinName, disabled && styles.proteinNameDisabled]} numberOfLines={1}>
         {item.name}
       </Text>
-      <Text style={styles.proteinGrams}>
-        {item.proteinPer100g}g protein / 100g
-      </Text>
-      <View style={styles.categoryBadge}>
-        <Text style={styles.categoryBadgeText}>{item.category}</Text>
-      </View>
+      {disabled ? (
+        <View style={styles.comingSoonBadge}>
+          <Text style={styles.comingSoonText}>🔒 Coming Soon</Text>
+        </View>
+      ) : (
+        <Text style={styles.proteinGrams}>
+          {item.proteinPer100g}g protein / 100g
+        </Text>
+      )}
     </TouchableOpacity>
   );
 }
@@ -164,9 +183,12 @@ export default function ProteinSelectionScreen() {
                   scrollEnabled={false}
                   nestedScrollEnabled={true}
                   keyExtractor={(p) => p.id}
-                  renderItem={({ item }) => (
-                    <ProteinCard item={item} onPress={() => navigateToRecipes(item)} />
-                  )}
+                  renderItem={({ item }) => {
+                    const isBetaLocked = BETA_ENABLED_PROTEINS.length > 0 && !BETA_ENABLED_PROTEINS.includes(item.id);
+                    return (
+                      <ProteinCard item={item} onPress={() => navigateToRecipes(item)} disabled={isBetaLocked} />
+                    );
+                  }}
                   columnWrapperStyle={styles.gridRow}
                   initialNumToRender={20}
                 />
@@ -185,9 +207,12 @@ export default function ProteinSelectionScreen() {
                   scrollEnabled={false}
                   nestedScrollEnabled={true}
                   keyExtractor={(p) => p.id}
-                  renderItem={({ item }) => (
-                    <ProteinCard item={item} onPress={() => navigateToRecipes(item)} />
-                  )}
+                  renderItem={({ item }) => {
+                    const isBetaLocked = BETA_ENABLED_PROTEINS.length > 0 && !BETA_ENABLED_PROTEINS.includes(item.id);
+                    return (
+                      <ProteinCard item={item} onPress={() => navigateToRecipes(item)} disabled={isBetaLocked} />
+                    );
+                  }}
                   columnWrapperStyle={styles.gridRow}
                   initialNumToRender={20}
                 />
@@ -334,6 +359,11 @@ const styles = StyleSheet.create({
   emojiText: {
     fontSize: 30,
   },
+  proteinImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
   proteinName: {
     fontSize: 17,
     fontWeight: '700',
@@ -358,6 +388,26 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 10,
     fontWeight: '700',
+  },
+  // Disabled / Coming Soon styles
+  cardDisabled: {
+    opacity: 0.45,
+  },
+  emojiCircleDisabled: {
+    backgroundColor: '#E0E0E0',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  proteinNameDisabled: {
+    color: '#888',
+  },
+  comingSoonBadge: {
+    marginTop: 4,
+  },
+  comingSoonText: {
+    fontSize: 11,
+    color: '#999',
+    fontWeight: '600',
     letterSpacing: 0.5,
   },
   fabAI: {

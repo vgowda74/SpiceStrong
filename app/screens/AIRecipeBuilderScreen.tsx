@@ -16,11 +16,18 @@ import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType } fr
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
+/** Max AI recipes allowed for free users. Set to 0 for unlimited.
+ * Change back to 1 for production builds. */
+const MAX_FREE_AI_RECIPES = __DEV__ ? 0 : 1;
+
+/** Beta-enabled proteins for AI builder. Empty array = all enabled. */
+const BETA_AI_PROTEINS = ['chicken', 'paneer'];
+
 const ACCENT = '#E85D26';
 const GLASS = 'rgba(255,255,255,0.1)';
 const BORDER_LIGHT = 'rgba(255,255,255,0.2)';
 
-const VEG_PROTEIN_IDS = ['paneer', 'tofu', 'soy', 'beans', 'eggs', 'milk', 'whey'];
+const VEG_PROTEIN_IDS = ['paneer', 'tofu', 'soy', 'beans', 'milk', 'whey'];
 const DRINK_PROTEIN_IDS = ['milk', 'whey'];
 
 // Meat type options per protein
@@ -208,6 +215,11 @@ Return this exact JSON structure:
   "difficulty": "Easy|Medium|Hard",
   "protein": "32g",
   "calories": "320 kcal",
+  "fatG": 12,
+  "carbsG": 15,
+  "fiberG": 3,
+  "sugarG": 4,
+  "sodiumMg": 450,
   "mealType": "breakfast|lunch_dinner|snack_dessert",
   ${ingredientStructure},
   "steps": [
@@ -255,7 +267,14 @@ ${constraintsText}`;
     throw new Error(data.error?.message ?? 'API request failed');
   }
   const text = data.content?.[0]?.text ?? '';
-  const cleaned = text.replace(/```json|```/g, '').trim();
+  // Strip markdown fences and any text before/after the JSON object
+  let cleaned = text.replace(/```json|```/g, '').trim();
+  // Extract JSON object — find first { and last }
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  }
   return JSON.parse(cleaned);
 }
 
@@ -306,6 +325,11 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
   const validMealTypes: MealType[] = ['breakfast', 'lunch_dinner', 'snack_dessert'];
   const mealType: MealType = validMealTypes.includes(mealTypeRaw as MealType) ? (mealTypeRaw as MealType) : 'lunch_dinner';
 
+  // Parse AI nutrition values
+  const parseNum = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v ?? '0'), 10) || 0);
+  const parseCalStr = (v: unknown) => parseInt(String(v ?? '0').replace(/[^0-9]/g, ''), 10) || 0;
+  const parseProteinStr = (v: unknown) => parseInt(String(v ?? '0').replace(/[^0-9]/g, ''), 10) || 0;
+
   const newRecipe: SavedRecipe = {
     id: Date.now().toString(),
     name: String(recipe.name ?? 'Untitled'),
@@ -315,9 +339,18 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
     description: String(recipe.description ?? ''),
     ingredients: normalizeAIIngredients(recipe.ingredients),
     steps: stepsNormalized,
-    chefTip: String(recipe.description ?? steps[0]?.tip ?? ''),
+    chefTip: `${String(recipe.protein ?? '0g')} protein | ${String(recipe.calories ?? '0 kcal')} | ${String(recipe.description ?? steps[0]?.tip ?? '')}`,
     createdAt: Date.now(),
     mealType,
+    aiNutrition: {
+      calories: parseCalStr(recipe.calories),
+      proteinG: parseProteinStr(recipe.protein),
+      fatG: parseNum(recipe.fatG),
+      carbsG: parseNum(recipe.carbsG),
+      fiberG: parseNum(recipe.fiberG),
+      sugarG: parseNum(recipe.sugarG),
+      sodiumMg: parseNum(recipe.sodiumMg),
+    },
   };
 
   const toStore = {
@@ -469,6 +502,26 @@ export default function AIRecipeBuilderScreen() {
       Alert.alert('', 'AI is not configured. Set EXPO_PUBLIC_ANTHROPIC_KEY.');
       return;
     }
+    // Beta protein restriction
+    if (BETA_AI_PROTEINS.length > 0 && !BETA_AI_PROTEINS.includes(paramProteinId ?? '')) {
+      Alert.alert('Coming Soon', 'SpiceBuilder recipes for this protein will be available soon!');
+      return;
+    }
+    // Enforce AI recipe limit in production (permanent counter — survives recipe deletion)
+    if (MAX_FREE_AI_RECIPES > 0) {
+      try {
+        const countStr = await AsyncStorage.getItem('spicestrong_ai_recipe_count');
+        const aiCount = countStr ? parseInt(countStr, 10) : 0;
+        if (aiCount >= MAX_FREE_AI_RECIPES) {
+          Alert.alert(
+            'Recipe Limit Reached',
+            `You've used your free SpiceBuilder recipe. Upgrade to Premium for unlimited custom recipes!`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+      } catch { /* proceed if check fails */ }
+    }
     setLoading(true);
     setGeneratedRecipe(null);
     try {
@@ -513,6 +566,12 @@ export default function AIRecipeBuilderScreen() {
     if (!generatedRecipe) return;
     try {
       const saved = await saveRecipe(generatedRecipe);
+      // Increment permanent AI recipe counter
+      try {
+        const countStr = await AsyncStorage.getItem('spicestrong_ai_recipe_count');
+        const aiCount = countStr ? parseInt(countStr, 10) : 0;
+        await AsyncStorage.setItem('spicestrong_ai_recipe_count', String(aiCount + 1));
+      } catch { /* non-critical */ }
       router.push({
         pathname: '/screens/RecipeListScreen',
         params: { proteinId: saved.proteinId, proteinName: saved.proteinName, proteinEmoji: saved.proteinEmoji },
@@ -540,7 +599,7 @@ export default function AIRecipeBuilderScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>AI Recipe Builder</Text>
+          <Text style={styles.title}>SpiceBuilder</Text>
           <View style={styles.headerSpacer} />
         </View>
 
@@ -691,14 +750,14 @@ export default function AIRecipeBuilderScreen() {
               disabled={loading}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnText}>🤖 Generate Recipe with AI</Text>
+              <Text style={styles.primaryBtnText}>🍳 Generate Recipe with SpiceBuilder</Text>
             </TouchableOpacity>
           )}
 
           {loading && (
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="large" color={ACCENT} />
-              <Text style={styles.loadingText}>🤖 Claude is crafting your recipe...</Text>
+              <Text style={styles.loadingText}>🍳 SpiceBuilder is crafting your recipe...</Text>
             </View>
           )}
 
