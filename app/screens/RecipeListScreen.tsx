@@ -202,7 +202,7 @@ export default function RecipeListScreen() {
         isFavorite={favourites.includes(item.id)}
         onPress={() =>
           router.push({
-            pathname: '/screens/IngredientChecklistScreen',
+            pathname: '/screens/RecipeOverviewScreen',
             params: { recipeId: item.id, quantityTier: (selectedTierByRecipeId[item.id] ?? '2-3 servings') },
           })
         }
