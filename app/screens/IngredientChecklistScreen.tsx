@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+  Image,
   ImageBackground,
   SectionList,
   StyleSheet,
@@ -8,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { getIngredientImage } from '../../src/data/ingredientImages';
 import {
   getRecipeById,
   SavedRecipe,
@@ -265,15 +267,20 @@ export default function IngredientChecklistScreen() {
   const renderIngredientRow = ({ item }: { item: { name: string; quantity: string; flatIndex: number } }) => {
     const isChecked = !!checked[`${effectiveTier}-${item.flatIndex}`];
     const emoji = getIngredientEmoji(item.name);
+    const ingredientImg = getIngredientImage(item.name);
     return (
       <TouchableOpacity
         style={[styles.ingredientCard, isChecked && styles.ingredientCardChecked]}
         onPress={() => toggleChecked(item.flatIndex)}
         activeOpacity={0.7}
       >
-        {/* Ingredient emoji icon */}
+        {/* Ingredient image or emoji fallback */}
         <View style={[styles.ingredientIcon, isChecked && styles.ingredientIconChecked]}>
-          <Text style={styles.ingredientIconEmoji}>{emoji}</Text>
+          {ingredientImg ? (
+            <Image source={ingredientImg} style={styles.ingredientIconImage} />
+          ) : (
+            <Text style={styles.ingredientIconEmoji}>{emoji}</Text>
+          )}
         </View>
         {/* Name & quantity */}
         <View style={styles.ingredientInfo}>
@@ -462,9 +469,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.5)',
     alignItems: 'center',
   },
   tierOptionSelected: {
@@ -473,7 +480,7 @@ const styles = StyleSheet.create({
   },
   tierOptionText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.5)',
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   tierOptionTextSelected: {
@@ -585,6 +592,11 @@ const styles = StyleSheet.create({
   },
   ingredientIconChecked: {
     opacity: 0.4,
+  },
+  ingredientIconImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
   ingredientIconEmoji: {
     fontSize: 22,

@@ -1,7 +1,6 @@
 /**
  * RecipeCard.tsx — SpiceStrong
- * Premium editorial / App Store–style recipe card with cinematic hero,
- * layered food pedestal, creamy info panel, and refined typography.
+ * Compact recipe card with protein/rating top bar, hero image, and title.
  */
 
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,13 +17,9 @@ import {
   View,
 } from 'react-native';
 
-/** Base unit for spacing scale (4px grid). */
 const SPACE = 4;
-const CARD_RADIUS = 24;
-const HERO_HEIGHT = 180;
-/** Hero content area for Image only; emoji is rendered full-area without a frame. */
-const HERO_CONTENT_WIDTH = 140;
-const HERO_CONTENT_HEIGHT = 140;
+const CARD_RADIUS = 20;
+const HERO_HEIGHT = 160;
 
 export type RecipeDifficulty = 'Easy' | 'Medium' | 'Hard';
 
@@ -45,41 +40,23 @@ export interface RecipeCardProps {
   time: string;
   protein: string;
   difficulty: RecipeDifficulty;
-  /** If undefined, "✨ New" badge is shown. */
   rating: string | undefined;
-  /** Community rating count (e.g. 127). If provided, shown as "⭐ 4.6 (127)" */
   communityCount?: number;
-  /** Whether community ratings are still loading */
   communityLoading?: boolean;
-  /** Placeholder emoji when no image; hero content frame is sized for <Image /> (e.g. expo-image) when provided. */
   emoji: string;
-  /** Optional image source for hero; when set, render image inside heroContentFrame instead of emoji. */
   imageSource?: ImageSourcePropType;
   isFavorite: boolean;
   onPress: () => void;
   onFavoriteToggle: (e: GestureResponderEvent) => void;
-  /** Called when the rating pill is tapped */
   onRatingPress?: () => void;
-  /** Gradient [start, end] for hero background. */
   accentColors: readonly [string, string];
-  /** Optional row below stats (e.g. Edit/Delete for custom recipes). */
   actionRow?: React.ReactNode;
-  /** Nutrition info per serving */
   nutrition?: CardNutrition;
 }
 
-const DIFFICULTY_LABELS: Record<RecipeDifficulty, string> = {
-  Easy: '🍃 Easy',
-  Medium: '🔥 Medium',
-  Hard: '⚡ Hard',
-};
-
 export function RecipeCard({
   name,
-  description,
-  time,
   protein,
-  difficulty,
   rating,
   communityCount,
   communityLoading,
@@ -91,12 +68,37 @@ export function RecipeCard({
   accentColors,
   actionRow,
   imageSource,
-  nutrition,
 }: RecipeCardProps) {
-  const difficultyLabel = DIFFICULTY_LABELS[difficulty];
   const nameParts = name.includes(' (') ? name.split(/ \((.+)\)$/) : [name, ''];
   const recipeTitle = nameParts[0]?.trim() ?? name;
-  const recipeSubtitle = nameParts[1] ? ` (${nameParts[1]})` : '';
+
+  // Build rating display
+  let ratingDisplay: React.ReactNode;
+  if (communityLoading) {
+    ratingDisplay = <Text style={styles.topBarText}>⭐ ···</Text>;
+  } else if (rating != null && rating !== '') {
+    ratingDisplay = (
+      <TouchableOpacity
+        onPress={(e) => { e.stopPropagation(); onRatingPress?.(); }}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={styles.topBarText}>
+          ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
+        </Text>
+      </TouchableOpacity>
+    );
+  } else {
+    ratingDisplay = (
+      <TouchableOpacity
+        onPress={(e) => { e.stopPropagation(); onRatingPress?.(); }}
+        activeOpacity={0.7}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={styles.topBarTextNew}>⭐ New</Text>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <Pressable
@@ -104,30 +106,25 @@ export function RecipeCard({
       onPress={onPress}
     >
       <View style={styles.cardInner}>
-        {/* ————— HERO (height 260, gloss overlay, bottom fade, glow circle) ————— */}
-        <View style={styles.heroWrap} pointerEvents="box-none">
+        {/* ——— TOP BAR: Protein + Rating ——— */}
+        <View style={styles.topBar}>
+          <Text style={styles.topBarProtein}>💪 {protein || '—'}</Text>
+          {ratingDisplay}
+        </View>
+
+        {/* ——— HERO IMAGE ——— */}
+        <View style={styles.heroWrap}>
           <LinearGradient
             colors={[accentColors[0], accentColors[1]]}
             style={styles.heroGradient}
           >
-            {/* Gloss overlay on top of gradient */}
             <LinearGradient
-              colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0)']}
+              colors={['rgba(255,255,255,0.2)', 'rgba(255,255,255,0)']}
               start={{ x: 0, y: 0 }}
               end={{ x: 0, y: 1 }}
               style={styles.heroGloss}
               pointerEvents="none"
             />
-            {/* Bottom fade into white */}
-            <LinearGradient
-              colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.15)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.heroBottomFade}
-              pointerEvents="none"
-            />
-            {/* Glow circle behind emoji */}
-            <View style={styles.heroEmojiGlow} pointerEvents="none" />
             {imageSource != null ? (
               <Image
                 source={imageSource}
@@ -135,7 +132,10 @@ export function RecipeCard({
                 resizeMode="cover"
               />
             ) : (
-              <Text style={styles.heroEmoji}>{emoji}</Text>
+              <>
+                <View style={styles.heroEmojiGlow} pointerEvents="none" />
+                <Text style={styles.heroEmoji}>{emoji}</Text>
+              </>
             )}
 
             <TouchableOpacity
@@ -149,99 +149,15 @@ export function RecipeCard({
               </Text>
             </TouchableOpacity>
 
-            {/* Delete button for AI-generated recipes — top right */}
             {actionRow && (
               <View style={styles.deleteCorner}>{actionRow}</View>
             )}
-
-            {/* Difficulty badge removed */}
           </LinearGradient>
         </View>
 
-        {/* ————— INFO SECTION ————— */}
-        <View style={styles.infoSection}>
-          <View style={styles.infoContent}>
-            {/* Title row with rating pill */}
-            <View style={styles.titleRow}>
-              <View style={styles.titleLeft}>
-                <Text style={styles.recipeTitle} numberOfLines={1}>{recipeTitle}</Text>
-                {recipeSubtitle ? <Text style={styles.recipeSubtitle} numberOfLines={1}>{recipeSubtitle}</Text> : null}
-              </View>
-              {communityLoading ? (
-                <View style={styles.ratingPill}>
-                  <Text style={styles.ratingPillText}>⭐ ···</Text>
-                </View>
-              ) : rating != null && rating !== '' ? (
-                <TouchableOpacity
-                  style={styles.ratingPill}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    onRatingPress?.();
-                  }}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.ratingPillText}>
-                    ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.newPill}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    onRatingPress?.();
-                  }}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.newPillText}>⭐ New</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <Text style={styles.description} numberOfLines={2}>{description}</Text>
-
-            {/* Nutrition grid */}
-            {nutrition ? (
-              <View style={styles.nutritionGrid}>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.calories}</Text>
-                  <Text style={styles.nutritionLabel}>Cal</Text>
-                </View>
-                <View style={styles.nutritionDivider} />
-                <View style={styles.nutritionItem}>
-                  <Text style={[styles.nutritionValue, styles.proteinHighlight]}>{nutrition.proteinG}g</Text>
-                  <Text style={styles.nutritionLabel}>Protein</Text>
-                </View>
-                <View style={styles.nutritionDivider} />
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.fatG}g</Text>
-                  <Text style={styles.nutritionLabel}>Fat</Text>
-                </View>
-                <View style={styles.nutritionDivider} />
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.carbsG}g</Text>
-                  <Text style={styles.nutritionLabel}>Carbs</Text>
-                </View>
-                <View style={styles.nutritionDivider} />
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.fiberG}g</Text>
-                  <Text style={styles.nutritionLabel}>Fiber</Text>
-                </View>
-                <View style={styles.nutritionDivider} />
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.sugarG}g</Text>
-                  <Text style={styles.nutritionLabel}>Sugar</Text>
-                </View>
-              </View>
-            ) : protein ? (
-              <View style={styles.nutritionFallback}>
-                <Text style={styles.proteinText}>{protein}</Text>
-              </View>
-            ) : null}
-
-          </View>
+        {/* ——— TITLE ——— */}
+        <View style={styles.titleSection}>
+          <Text style={styles.recipeTitle} numberOfLines={1}>{recipeTitle}</Text>
         </View>
       </View>
     </Pressable>
@@ -251,32 +167,60 @@ export function RecipeCard({
 const styles = StyleSheet.create({
   cardShell: {
     marginHorizontal: SPACE * 4,
-    marginVertical: SPACE * 3,
+    marginVertical: SPACE * 2,
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
         shadowColor: 'rgba(100,40,0,1)',
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.25,
-        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.2,
+        shadowRadius: 16,
       },
-      android: { elevation: 16 },
+      android: { elevation: 12 },
     }),
   },
   cardInner: {
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: '#FFFFFF',
   },
   cardPressed: {
     transform: [{ scale: 0.98 }],
     ...Platform.select({
-      ios: { shadowOpacity: 0.08, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
-      android: { elevation: 8 },
+      ios: { shadowOpacity: 0.08, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
     }),
   },
 
+  // Top bar
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: '#FAF8F5',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#EDE9E3',
+  },
+  topBarProtein: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#E85D26',
+  },
+  topBarText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#D4920A',
+  },
+  topBarTextNew: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+
+  // Hero
   heroWrap: {
     height: HERO_HEIGHT,
   },
@@ -290,51 +234,15 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 80,
-  },
-  heroBottomFade: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     height: 60,
   },
   heroEmojiGlow: {
     position: 'absolute',
-    width: 150,
-    height: 150,
-    borderRadius: 75,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignSelf: 'center',
-  },
-  heroContentFrame: {
-    position: 'absolute',
-    bottom: 0,
-    alignSelf: 'center',
-    width: HERO_CONTENT_WIDTH,
-    height: HERO_CONTENT_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: -18,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.38)',
-    overflow: 'hidden',
-    zIndex: 1,
-    ...Platform.select({
-      ios: {
-        shadowColor: 'rgba(36,24,16,0.22)',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.42,
-        shadowRadius: 18,
-      },
-      android: { elevation: 5 },
-    }),
-  },
-  heroImage: {
-    width: '100%',
-    height: '100%',
   },
   heroFullImage: {
     position: 'absolute',
@@ -346,180 +254,62 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   heroEmoji: {
-    fontSize: 120,
+    fontSize: 80,
     ...Platform.select({
       ios: {
         textShadowColor: 'rgba(0,0,0,0.2)',
-        textShadowOffset: { width: 2, height: 6 },
-        textShadowRadius: 10,
+        textShadowOffset: { width: 2, height: 4 },
+        textShadowRadius: 8,
       },
     }),
   },
 
   favouriteBtn: {
     position: 'absolute',
-    top: 14,
-    left: 14,
+    top: 10,
+    left: 10,
     zIndex: 2,
     backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: 22,
-    width: 40,
-    height: 40,
+    borderRadius: 18,
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOpacity: 0.15,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 3 },
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 2 },
       },
-      android: { elevation: 4 },
+      android: { elevation: 3 },
     }),
   },
   favouriteStar: {
-    fontSize: 20,
+    fontSize: 18,
     color: '#999999',
   },
   favouriteStarFilled: {
     color: '#FFD700',
   },
 
-  difficultyBadge: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    zIndex: 2,
-    backgroundColor: 'rgba(40,15,5,0.80)',
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: { elevation: 5 },
-    }),
-  },
-  difficultyBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  infoSection: {
-    backgroundColor: '#FFFFFF',
-    padding: 16,
-    marginTop: 0,
-    overflow: 'hidden',
-    borderBottomLeftRadius: CARD_RADIUS,
-    borderBottomRightRadius: CARD_RADIUS,
-  },
-  infoContent: {
-    paddingTop: 0,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  titleLeft: {
-    flex: 1,
-  },
-  recipeTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    marginBottom: 2,
-  },
-  recipeSubtitle: {
-    fontSize: 14,
-    fontWeight: '400',
-    color: '#666666',
-  },
-  description: {
-    fontSize: 12,
-    color: '#888888',
-    marginTop: 4,
-    marginBottom: 10,
-  },
-  nutritionGrid: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FAFAF8',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#F0EDE8',
-  },
-  nutritionItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  nutritionValue: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#333333',
-  },
-  proteinHighlight: {
-    color: '#E85D26',
-  },
-  nutritionLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: '#999999',
-    marginTop: 1,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  nutritionDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: '#E8E4DF',
-  },
-  nutritionFallback: {
-    marginTop: 4,
-  },
-  proteinText: {
-    fontSize: 14,
-    color: '#E85D26',
-    fontWeight: '700',
-  },
-  ratingPill: {
-    backgroundColor: 'rgba(255,200,50,0.15)',
-    borderRadius: 14,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-  },
-  ratingPillText: {
-    color: '#D4920A',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  newPill: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 14,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-  },
-  newPillText: {
-    color: '#3B82F6',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  actionRowWrap: {
-    marginTop: SPACE * 3,
-  },
   deleteCorner: {
     position: 'absolute',
-    top: 14,
-    right: 14,
+    top: 10,
+    right: 10,
     zIndex: 2,
+  },
+
+  // Title section
+  titleSection: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  recipeTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1A1A1A',
   },
 });
 
