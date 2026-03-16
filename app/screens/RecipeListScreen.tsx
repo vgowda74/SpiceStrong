@@ -31,7 +31,7 @@ const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
   chicken: require('../../assets/images/Protein/Chicken.jpg'),
   paneer: require('../../assets/images/Protein/paneer.png'),
 };
-import { getRatings, getFavourites, toggleFavourite, type RatingsMap } from '../../src/store/ratingsFavourites';
+import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -67,6 +67,7 @@ export default function RecipeListScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [ratings, setRatings] = useState<RatingsMap>({});
   const [favourites, setFavourites] = useState<string[]>([]);
+  const [cookCounts, setCookCounts] = useState<CookCountMap>({});
 
   // Community ratings cache (persists across re-renders, fetched once per recipeId)
   const communityRatingsCache = useRef<Record<string, RecipeRatings>>({});
@@ -81,12 +82,13 @@ export default function RecipeListScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getAllRecipesForProtein(proteinId), getRatings(), getFavourites()]).then(([allRecipes, ratingsMap, favouritesList]) => {
+      Promise.all([getAllRecipesForProtein(proteinId), getRatings(), getFavourites(), getCookCounts()]).then(([allRecipes, ratingsMap, favouritesList, cookCountsMap]) => {
         if (cancelled) return;
         const filtered = allRecipes;
         setRecipes(filtered);
         setRatings(ratingsMap);
         setFavourites(favouritesList);
+        setCookCounts(cookCountsMap);
       });
       return () => { cancelled = true; };
     }, [proteinId])
@@ -185,7 +187,7 @@ export default function RecipeListScreen() {
     const ratingString = ratingValue != null && ratingValue >= 1 ? Number(ratingValue).toFixed(1) : undefined;
     const ratingCount = community?.totalCount;
     const isLoading = communityLoading[item.id] ?? false;
-    const description = item.chefTip ?? item.description ?? '';
+    const description = item.description ?? item.chefTip ?? '';
 
     return (
       <RecipeCard
@@ -197,6 +199,7 @@ export default function RecipeListScreen() {
         rating={ratingString}
         communityCount={ratingCount}
         communityLoading={isLoading}
+        cookCount={cookCounts[item.id]}
         emoji={item.proteinEmoji ?? '🍽️'}
         imageSource={cardImage}
         isFavorite={favourites.includes(item.id)}

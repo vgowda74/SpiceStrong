@@ -20,6 +20,7 @@ import {
 import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/store/recipes';
 import { type BuiltInRecipe, type NutritionInfo } from '../../src/data/builtInRecipes';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
+import { incrementCookCount } from '../../src/store/ratingsFavourites';
 
 const ORANGE = '#E85D26';
 const CARD_WHITE = '#FFFFFF';
@@ -157,12 +158,13 @@ export default function RecipeOverviewScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.startButton}
-            onPress={() =>
+            onPress={async () => {
+              await incrementCookCount(recipe.id);
               router.push({
                 pathname: '/screens/IngredientChecklistScreen',
                 params: { recipeId: recipe.id, quantityTier },
-              })
-            }
+              });
+            }}
             activeOpacity={0.8}
           >
             <Text style={styles.startButtonText}>Start Cooking 🔥</Text>

@@ -43,6 +43,7 @@ export interface RecipeCardProps {
   rating: string | undefined;
   communityCount?: number;
   communityLoading?: boolean;
+  cookCount?: number;
   emoji: string;
   imageSource?: ImageSourcePropType;
   isFavorite: boolean;
@@ -56,10 +57,12 @@ export interface RecipeCardProps {
 
 export function RecipeCard({
   name,
+  description,
   protein,
   rating,
   communityCount,
   communityLoading,
+  cookCount,
   emoji,
   isFavorite,
   onPress,
@@ -106,9 +109,12 @@ export function RecipeCard({
       onPress={onPress}
     >
       <View style={styles.cardInner}>
-        {/* ——— TOP BAR: Protein + Rating ——— */}
+        {/* ——— TOP BAR: Protein + Cook Count + Rating ——— */}
         <View style={styles.topBar}>
           <Text style={styles.topBarProtein}>💪 {protein || '—'}</Text>
+          {cookCount != null && cookCount > 0 && (
+            <Text style={styles.topBarCookCount}>🍳 {cookCount} cooked</Text>
+          )}
           {ratingDisplay}
         </View>
 
@@ -152,12 +158,19 @@ export function RecipeCard({
             {actionRow && (
               <View style={styles.deleteCorner}>{actionRow}</View>
             )}
-          </LinearGradient>
-        </View>
 
-        {/* ——— TITLE ——— */}
-        <View style={styles.titleSection}>
-          <Text style={styles.recipeTitle} numberOfLines={1}>{recipeTitle}</Text>
+            {/* ——— Name + Description overlay on image ——— */}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.7)']}
+              style={styles.heroTextOverlay}
+              pointerEvents="none"
+            >
+              <Text style={styles.heroTitle} numberOfLines={1}>{recipeTitle}</Text>
+              {description ? (
+                <Text style={styles.heroDescription} numberOfLines={2}>{description}</Text>
+              ) : null}
+            </LinearGradient>
+          </LinearGradient>
         </View>
       </View>
     </Pressable>
@@ -170,6 +183,8 @@ const styles = StyleSheet.create({
     marginVertical: SPACE * 2,
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(30,15,5,0.6)',
     ...Platform.select({
       ios: {
         shadowColor: 'rgba(100,40,0,1)',
@@ -218,6 +233,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#3B82F6',
+  },
+  topBarCookCount: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#16A34A',
   },
 
   // Hero
@@ -300,16 +320,41 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
 
-  // Title section
-  titleSection: {
+  // Hero text overlay
+  heroTextOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
+    paddingBottom: 10,
+    paddingTop: 30,
   },
-  recipeTitle: {
+  heroTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#1A1A1A',
+    color: '#FFFFFF',
+    ...Platform.select({
+      ios: {
+        textShadowColor: 'rgba(0,0,0,0.5)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+      },
+    }),
+  },
+  heroDescription: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 2,
+    lineHeight: 15,
+    ...Platform.select({
+      ios: {
+        textShadowColor: 'rgba(0,0,0,0.4)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
+      },
+    }),
   },
 });
 

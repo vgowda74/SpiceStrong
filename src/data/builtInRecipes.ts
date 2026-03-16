@@ -40,7 +40,7 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
     proteinId: 'chicken',
     proteinName: 'Chicken',
     proteinEmoji: '🍗',
-    description: 'High-Protein • Low-Carb • Gluten Free • Authentic South Indian',
+    description: 'A healthy, protein-rich pepper chicken cooked with roasted spices for deep flavor without heavy sauces.',
     mealType: 'lunch_dinner',
     timeMinutes: 30,
     difficulty: 'Easy',
