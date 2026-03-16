@@ -83,7 +83,12 @@
       "Bash(find /c/Users/v_gow/SpiceStrong/app/screens -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
       "Bash(find /c/Users/v_gow/SpiceStrong/components -type f \\\\\\(-name *ecipe* -o -name *ecipeCard* \\\\\\))",
       "Bash(curl -s -X POST \"https://dqghnktxrhsvdkgcjsmc.supabase.co/rest/v1/rpc\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s\" -H \"Content-Type: application/json\")",
-      "Bash(grep -E \"\\\\.\\(ts|tsx|json\\)$\")"
+      "Bash(grep -E \"\\\\.\\(ts|tsx|json\\)$\")",
+      "Bash(grep -r emoji.*: /c/Users/v_gow/SpiceStrong/src --include=*.ts --include=*.tsx)",
+      "Bash(find /c/Users/v_gow/SpiceStrong -type f -name *[Ii]ngredient*)",
+      "Bash(find /c/Users/v_gow/SpiceStrong/assets/images -type f -name *.jpg -o -name *.png)",
+      "Bash(ls \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\assets\\\\images\\\\proteins\"\" 2>/dev/null || echo \"no dir \")",
+      "Bash(npx --yes sharp-cli -- resize 120 120 --input assets/images/paneer.png --output assets/images/paneer_small.png)"
     ]
   }
 }
