@@ -24,6 +24,13 @@ import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecip
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 import { getRecipeCardImage } from '../../src/data/recipeImages';
+import type { ImageSourcePropType } from 'react-native';
+
+/** Protein header images — keyed by protein ID */
+const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
+  chicken: require('../../assets/images/Protein/Chicken.jpg'),
+  paneer: require('../../assets/images/Protein/paneer.png'),
+};
 import { getRatings, getFavourites, toggleFavourite, type RatingsMap } from '../../src/store/ratingsFavourites';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -254,7 +261,6 @@ export default function RecipeListScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{proteinName} Recipes</Text>
           <View style={styles.headerHero}>
             <View style={styles.headerProteinIconWrap}>
               <LinearGradient
@@ -264,18 +270,16 @@ export default function RecipeListScreen() {
                 style={styles.headerProteinIconShine}
               />
               <View style={styles.headerProteinIcon}>
-                <Text style={styles.headerEmoji}>{proteinEmoji}</Text>
+                {proteinId && PROTEIN_HEADER_IMAGES[proteinId] ? (
+                  <Image source={PROTEIN_HEADER_IMAGES[proteinId]} style={styles.headerProteinImage} />
+                ) : (
+                  <Text style={styles.headerEmoji}>{proteinEmoji}</Text>
+                )}
               </View>
             </View>
             <Text style={styles.headerProteinName}>{proteinName}</Text>
           </View>
           <Text style={styles.headerSubtitle}>High-protein recipes</Text>
-          <View style={styles.statsRow}>
-            <View style={styles.statCol}>
-              <Text style={styles.statNumber}>{totalCount}</Text>
-              <Text style={styles.statLabel}>RECIPES</Text>
-            </View>
-          </View>
         </View>
 
         <View style={styles.tabsWrap}>
@@ -413,6 +417,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerProteinImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+  },
   headerEmoji: { fontSize: 40 },
   headerProteinName: {
     fontSize: 32,
@@ -422,7 +431,7 @@ const styles = StyleSheet.create({
     ...Platform.select({ ios: { textShadowColor: 'rgba(0,0,0,0.15)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 } }),
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: 20,
     color: CREAM_LABEL,
     textAlign: 'center',
     marginBottom: 20,
@@ -454,34 +463,49 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.95)',
+    backgroundColor: 'rgba(232, 93, 38, 0.85)',
     borderRadius: 16,
     height: 88,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
     paddingVertical: 10,
+    borderWidth: 1.5,
+    borderTopColor: 'rgba(255,255,255,1)',
+    borderLeftColor: 'rgba(255,255,255,0.9)',
+    borderBottomColor: 'rgba(180,120,60,0.3)',
+    borderRightColor: 'rgba(180,120,60,0.2)',
     ...Platform.select({
-      ios: { shadowColor: 'rgba(100,40,0,0.9)', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-      android: { elevation: 8 },
+      ios: { shadowColor: 'rgba(100,40,0,0.9)', shadowOpacity: 0.25, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+      android: { elevation: 10 },
     }),
   },
   actionCardEmoji: { fontSize: 28, marginBottom: 4 },
   actionCardIcon: { width: 36, height: 36, borderRadius: 18, marginBottom: 4 },
-  actionCardTitle: { color: '#1a1a1a', fontWeight: '800', fontSize: 14, textAlign: 'center' },
-  actionCardSub: { color: '#888', fontWeight: '500', fontSize: 11, textAlign: 'center', marginTop: 1 },
+  actionCardTitle: { color: '#FFFFFF', fontWeight: '900', fontSize: 17, textAlign: 'center' },
+  actionCardSub: { color: 'rgba(255,255,255,0.8)', fontWeight: '700', fontSize: 13, textAlign: 'center', marginTop: 2 },
   tabPill: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: 28,
     backgroundColor: TAB_INACTIVE,
-    borderWidth: 0,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderTopColor: 'rgba(255,255,255,0.5)',
+    borderLeftColor: 'rgba(255,255,255,0.4)',
+    borderBottomColor: 'rgba(255,255,255,0.15)',
+    borderRightColor: 'rgba(255,255,255,0.2)',
   },
   tabPillActive: {
     backgroundColor: TAB_ACTIVE_BG,
+    borderColor: 'rgba(232,93,38,0.5)',
+    borderTopColor: 'rgba(255,255,255,0.4)',
+    borderLeftColor: 'rgba(255,255,255,0.3)',
+    borderBottomColor: 'rgba(232,93,38,0.3)',
+    borderRightColor: 'rgba(232,93,38,0.4)',
   },
-  tabPillText: { fontSize: 14, color: 'white', fontWeight: '600' },
-  tabPillTextActive: { color: 'white', fontWeight: '700' },
+  tabPillText: { fontSize: 14, color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
+  tabPillTextActive: { color: '#FFFFFF', fontWeight: '700' },
 
   list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 44 },
   actionRow: { flexDirection: 'row', gap: 10 },

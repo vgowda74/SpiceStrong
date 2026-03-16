@@ -32,7 +32,8 @@ import { getRecipeStepImage } from '../../src/data/recipeImages';
 
 
 function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[] {
-  const groups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
+  const recipeGroups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
+  const groups = recipeGroups ? Object.values(recipeGroups as Record<string, { items: { name: string }[] }[]>)[0] : undefined;
   const flat = groups
     ? groups.flatMap((g) => g.items.map((i) => i.name))
     : (recipe.ingredients['2-3 servings'] ?? recipe.ingredients['1lb' as keyof typeof recipe.ingredients] ?? []).filter((i) => i.name.trim()).map((i) => i.name);

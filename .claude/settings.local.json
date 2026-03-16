@@ -124,7 +124,12 @@
       "Bash(taskkill //PID 65940 //F)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8085/)",
       "Bash(node C:/nvm/nodejs/node_modules/npm/bin/npx-cli.js expo start --web --port 8085)",
-      "Bash(curl -s http://localhost:8085/)"
+      "Bash(curl -s http://localhost:8085/)",
+      "Bash(findstr :8085)",
+      "Bash(taskkill //PID 102236 //F)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 120 http://localhost:8085/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 180 \"http://localhost:8085/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 180 http://localhost:8085/)"
     ]
   }
 }

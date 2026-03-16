@@ -173,7 +173,7 @@ export default function IngredientChecklistScreen() {
   const overlay = (
     <View style={{
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: 'rgba(0,0,0,0.35)',
     }} />
   );
 
@@ -223,8 +223,11 @@ export default function IngredientChecklistScreen() {
   const availableTiers = QUANTITY_TIERS.filter(tierHasIngredients);
   const effectiveTier = availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '2-3 servings';
 
-  // Check for grouped ingredient data (built-in recipes)
-  const ingredientGroups: IngredientGroup[] | undefined = recipeId ? BUILTIN_INGREDIENT_GROUPS[recipeId] : undefined;
+  // Check for grouped ingredient data (built-in recipes) — now tier-aware
+  const recipeGroups = recipeId ? BUILTIN_INGREDIENT_GROUPS[recipeId] : undefined;
+  const ingredientGroups: IngredientGroup[] | undefined = recipeGroups
+    ? (recipeGroups as Record<string, IngredientGroup[]>)[effectiveTier] ?? Object.values(recipeGroups as Record<string, IngredientGroup[]>)[0]
+    : undefined;
   const hasGroups = !!ingredientGroups && ingredientGroups.length > 0;
 
   // Flat ingredients for progress tracking
@@ -243,6 +246,17 @@ export default function IngredientChecklistScreen() {
   const toggleChecked = (flatIndex: number) => {
     const key = `${effectiveTier}-${flatIndex}`;
     setChecked((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleSection = (sectionData: { flatIndex: number }[]) => {
+    const allSectionChecked = sectionData.every((item) => checked[`${effectiveTier}-${item.flatIndex}`]);
+    setChecked((prev) => {
+      const updated = { ...prev };
+      sectionData.forEach((item) => {
+        updated[`${effectiveTier}-${item.flatIndex}`] = !allSectionChecked;
+      });
+      return updated;
+    });
   };
 
   // Build sections for SectionList
@@ -274,6 +288,10 @@ export default function IngredientChecklistScreen() {
         onPress={() => toggleChecked(item.flatIndex)}
         activeOpacity={0.7}
       >
+        {/* Radio button on the left */}
+        <View style={[styles.radioBtn, isChecked && styles.radioBtnChecked]}>
+          {isChecked ? <View style={styles.radioBtnInner} /> : null}
+        </View>
         {/* Ingredient image or emoji fallback */}
         <View style={[styles.ingredientIcon, isChecked && styles.ingredientIconChecked]}>
           {ingredientImg ? (
@@ -282,32 +300,35 @@ export default function IngredientChecklistScreen() {
             <Text style={styles.ingredientIconEmoji}>{emoji}</Text>
           )}
         </View>
-        {/* Name & quantity */}
+        {/* Name & subtitle */}
         <View style={styles.ingredientInfo}>
           <Text style={[styles.ingredientName, isChecked && styles.ingredientNameChecked]} numberOfLines={1}>
             {item.name}
           </Text>
-          <Text style={[styles.ingredientQty, isChecked && styles.ingredientQtyChecked]} numberOfLines={1}>
+          <Text style={[styles.ingredientSubtitle, isChecked && styles.ingredientSubtitleChecked]} numberOfLines={1}>
             {item.quantity}
           </Text>
         </View>
-        {/* Checkbox */}
-        <View style={[styles.checkbox, isChecked && styles.checkboxChecked]}>
-          {isChecked ? <Text style={styles.checkmark}>✓</Text> : null}
-        </View>
+        {/* Quantity on the right */}
+        <Text style={[styles.ingredientQtyRight, isChecked && styles.ingredientQtyRightChecked]}>
+          {item.quantity}
+        </Text>
       </TouchableOpacity>
     );
   };
 
   const renderHeader = () => (
     <>
-      {/* Recipe info */}
-      <View style={styles.infoSection}>
+      {/* Recipe name — indented to clear back arrow */}
+      <View style={styles.nameSection}>
         <Text style={styles.recipeName}>{recipe.name}</Text>
         <Text style={styles.recipeSubtitle}>
           {isSingleServing ? '1 Serving' : effectiveTier} • {totalCount} ingredients
         </Text>
+      </View>
 
+      {/* Controls section — full width */}
+      <View style={styles.controlsSection}>
         {/* Serving selector */}
         {isSingleServing ? (
           <View style={styles.singleServingNote}>
@@ -315,22 +336,24 @@ export default function IngredientChecklistScreen() {
             <Text style={styles.singleServingText}>Recipe for 1 serving. Multiply as needed.</Text>
           </View>
         ) : (
-          <View style={styles.tierSelector}>
-            {QUANTITY_TIERS.map((tier) => {
-              const isSelected = effectiveTier === tier;
-              return (
-                <TouchableOpacity
-                  key={tier}
-                  style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
-                  onPress={() => setSelectedTier(tier)}
-                >
-                  <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
-                    {tier === '2-3 servings' ? '👨‍👩‍👦 2-3' : '👨‍👩‍👦‍👦 4-6'}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <>
+            <View style={styles.tierSelector}>
+              {QUANTITY_TIERS.map((tier) => {
+                const isSelected = effectiveTier === tier;
+                return (
+                  <TouchableOpacity
+                    key={tier}
+                    style={[styles.tierOption, isSelected && styles.tierOptionSelected]}
+                    onPress={() => setSelectedTier(tier)}
+                  >
+                    <Text style={[styles.tierOptionText, isSelected && styles.tierOptionTextSelected]}>
+                      {tier === '2-3 servings' ? '👥 2-3 Servings' : '👥 4-6 Servings'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
         )}
 
         {/* Progress */}
@@ -365,13 +388,23 @@ export default function IngredientChecklistScreen() {
           stickySectionHeadersEnabled={false}
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={renderHeader}
-          renderSectionHeader={({ section }) => (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionEmoji}>{section.emoji}</Text>
-              <Text style={styles.sectionTitle}>{section.category}</Text>
-              <View style={styles.sectionLine} />
-            </View>
-          )}
+          renderSectionHeader={({ section }) => {
+            const allSectionChecked = section.data.length > 0 && section.data.every((item: { flatIndex: number }) => checked[`${effectiveTier}-${item.flatIndex}`]);
+            return (
+              <TouchableOpacity
+                style={styles.sectionHeader}
+                onPress={() => toggleSection(section.data)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.sectionCheckbox, allSectionChecked && styles.sectionCheckboxChecked]}>
+                  {allSectionChecked ? <Text style={styles.sectionCheckmark}>✓</Text> : null}
+                </View>
+                <Text style={styles.sectionEmoji}>{section.emoji}</Text>
+                <Text style={styles.sectionTitle}>{section.category}</Text>
+                <View style={styles.sectionLine} />
+              </TouchableOpacity>
+            );
+          }}
           renderItem={renderIngredientRow}
         />
 
@@ -429,27 +462,33 @@ const styles = StyleSheet.create({
     left: 16,
     top: 52,
     zIndex: 10,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   backText: {
     color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '900',
   },
-  // Recipe info section
-  infoSection: {
+  // Recipe name — indented to clear back arrow
+  nameSection: {
+    paddingLeft: 64,
+    paddingRight: 20,
+    paddingTop: 52,
+    paddingBottom: 4,
+  },
+  // Controls — full width
+  controlsSection: {
     paddingHorizontal: 20,
-    paddingTop: 64,
     paddingBottom: 8,
   },
   recipeName: {
     color: '#FFFFFF',
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 4,
   },
@@ -457,6 +496,21 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
     fontSize: 14,
     marginBottom: 14,
+  },
+  // Serving header
+  servingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  servingHeaderIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  servingHeaderText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   // Tier selector
   tierSelector: {
@@ -466,12 +520,12 @@ const styles = StyleSheet.create({
   },
   tierOption: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: 'rgba(255,255,255,0.3)',
     alignItems: 'center',
   },
   tierOptionSelected: {
@@ -479,7 +533,7 @@ const styles = StyleSheet.create({
     borderColor: ORANGE,
   },
   tierOptionText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#FFFFFF',
     fontWeight: '700',
   },
@@ -554,6 +608,27 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     marginRight: 12,
   },
+  sectionCheckbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+    marginRight: 10,
+  },
+  sectionCheckboxChecked: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  sectionCheckmark: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginTop: -1,
+  },
   sectionLine: {
     flex: 1,
     height: 1,
@@ -563,85 +638,96 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: 24,
   },
-  // Ingredient cards — dark theme with emoji icon
+  // Ingredient cards — bordered rows with radio on left
   ingredientCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: CARD_BG,
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    backgroundColor: 'rgba(80, 40, 20, 0.55)',
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     marginBottom: 8,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
     borderWidth: 1,
-    borderColor: BORDER_COLOR,
+    borderColor: 'rgba(255,255,255,0.4)',
   },
   ingredientCardChecked: {
-    backgroundColor: CARD_BG_CHECKED,
-    borderColor: 'rgba(232, 93, 38, 0.2)',
+    backgroundColor: 'rgba(232, 93, 38, 0.18)',
+    borderColor: 'rgba(232, 93, 38, 0.35)',
   },
-  // Emoji icon circle
-  ingredientIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  // Radio button on the left
+  radioBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+  },
+  radioBtnChecked: {
+    backgroundColor: ORANGE,
+  },
+  radioBtnInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FFFFFF',
+  },
+  // Ingredient image/emoji circle
+  ingredientIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+    overflow: 'hidden',
   },
   ingredientIconChecked: {
     opacity: 0.4,
   },
   ingredientIconImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 10,
   },
   ingredientIconEmoji: {
-    fontSize: 22,
+    fontSize: 24,
   },
-  // Name + quantity column
+  // Name + subtitle column
   ingredientInfo: {
     flex: 1,
     marginRight: 10,
   },
   ingredientName: {
-    fontSize: 15,
+    fontSize: 16,
     color: '#FFFFFF',
-    fontWeight: '600',
-    marginBottom: 2,
+    fontWeight: '700',
+    marginBottom: 3,
   },
   ingredientNameChecked: {
     color: 'rgba(255,255,255,0.35)',
     textDecorationLine: 'line-through',
   },
-  ingredientQty: {
+  ingredientSubtitle: {
     fontSize: 13,
-    color: ORANGE,
+    color: 'rgba(255,255,255,0.55)',
     fontWeight: '500',
   },
-  ingredientQtyChecked: {
-    color: 'rgba(232, 93, 38, 0.35)',
+  ingredientSubtitleChecked: {
+    color: 'rgba(255,255,255,0.25)',
   },
-  // Checkbox on right side
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: ORANGE,
-    borderColor: ORANGE,
-  },
-  checkmark: {
+  // Quantity on the right
+  ingredientQtyRight: {
+    fontSize: 16,
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    minWidth: 50,
+    textAlign: 'right',
+  },
+  ingredientQtyRightChecked: {
+    color: 'rgba(255,255,255,0.3)',
   },
   // Footer
   footer: {

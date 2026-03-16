@@ -17,7 +17,8 @@ import type { ImageSourcePropType } from 'react-native';
 
 /** Custom images for proteins (replaces emoji). */
 const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
-  paneer: require('../../assets/images/paneer_small.png'),
+  chicken: require('../../assets/images/Protein/Chicken.jpg'),
+  paneer: require('../../assets/images/Protein/paneer_small.png'),
 };
 import { PROTEINS } from '../../src/theme';
 

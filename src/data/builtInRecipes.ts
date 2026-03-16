@@ -67,7 +67,7 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
     ingredients: {
       '2-3 servings': [
         { name: 'Chicken (Boneless/Breast)', quantity: '500 g' },
-        { name: 'Red Onion (Finely Chopped)', quantity: '1 Large' },
+        { name: 'Red Onion (Finely Chopped)', quantity: '1 Medium' },
         { name: 'Whole Black Pepper', quantity: '1 tsp' },
         { name: 'Fennel Seeds', quantity: '1.25 tsp' },
         { name: 'Cumin Seeds', quantity: '1 tsp' },
@@ -80,10 +80,10 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
       ],
       '4-6 servings': [
         { name: 'Chicken (Boneless/Breast)', quantity: '1 kg' },
-        { name: 'Red Onion (Finely Chopped)', quantity: '2 Large' },
-        { name: 'Whole Black Pepper', quantity: '2 tsp' },
-        { name: 'Fennel Seeds', quantity: '2.5 tsp' },
-        { name: 'Cumin Seeds', quantity: '2 tsp' },
+        { name: 'Red Onion (Finely Chopped)', quantity: '1 Large' },
+        { name: 'Whole Black Pepper', quantity: '1.5 tsp' },
+        { name: 'Fennel Seeds', quantity: '2 tsp' },
+        { name: 'Cumin Seeds', quantity: '1.5 tsp' },
         { name: 'Ginger-Garlic Paste', quantity: '2 tsp' },
         { name: 'Gingelly Oil (or Olive Oil)', quantity: '4 tbsp' },
         { name: 'Curry Leaves', quantity: '2 Sprigs' },
@@ -262,91 +262,179 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
 ];
 
 /** Grouped ingredients by recipe ID — used for the "You\'ll need" section in cooking mode. */
-export const BUILTIN_INGREDIENT_GROUPS: Record<string, IngredientGroup[]> = {
-  'spicestrong-pepper-chicken': [
-    {
-      emoji: '🍗',
-      category: 'PROTEIN',
-      items: [
-        { name: 'Chicken (Boneless/Breast)', quantity: '500 g' },
-        { name: 'Salt', quantity: 'To taste' },
-      ],
-    },
-    {
-      emoji: '🌶️',
-      category: 'DRY ROAST SPICES',
-      items: [
-        { name: 'Whole Black Pepper', quantity: '1 tsp' },
-        { name: 'Fennel Seeds', quantity: '1.25 tsp' },
-        { name: 'Cumin Seeds', quantity: '1 tsp' },
-      ],
-    },
-    {
-      emoji: '🍳',
-      category: 'FOR THE COOK',
-      items: [
-        { name: 'Gingelly Oil (or Olive Oil)', quantity: '2 tbsp' },
-        { name: 'Red Onion (Finely Chopped)', quantity: '1 Large' },
-        { name: 'Curry Leaves', quantity: '1 Sprig' },
-        { name: 'Ginger-Garlic Paste', quantity: '1 tsp' },
-        { name: 'Turmeric Powder', quantity: '¼ tsp' },
-        { name: 'Garam Masala', quantity: '½ tsp' },
-      ],
-    },
-    {
-      emoji: '🌿',
-      category: 'GARNISH',
-      items: [
-        { name: 'Fresh Coriander', quantity: 'A handful' },
-        { name: 'Curry Leaves', quantity: 'Extra' },
-      ],
-    },
-  ],
-  'pepper-chicken': [
-    {
-      emoji: '🍗',
-      category: 'FOR THE CHICKEN',
-      items: [
-        { name: 'Boneless chicken', quantity: '500 g' },
-        { name: 'Lemon juice', quantity: '1 tbsp' },
-        { name: 'Salt', quantity: '½ tsp' },
-      ],
-    },
-    {
-      emoji: '🌶️',
-      category: 'SPICE MIX',
-      items: [
-        { name: 'Crushed black pepper ★', quantity: '1½ tsp' },
-        { name: 'Cumin powder', quantity: '1 tsp' },
-        { name: 'Turmeric powder', quantity: '½ tsp' },
-        { name: 'Red chilli flakes', quantity: '½ tsp' },
-        { name: 'Garam masala', quantity: '¼ tsp' },
-        { name: 'Coriander powder', quantity: '½ tsp' },
-      ],
-    },
-    {
-      emoji: '🍳',
-      category: 'FOR THE STIR-FRY',
-      items: [
-        { name: 'Coconut/olive oil', quantity: '1 tbsp' },
-        { name: 'Cumin seeds', quantity: '1 tsp' },
-        { name: 'Onion, sliced', quantity: '1 large' },
-        { name: 'Ginger-garlic paste', quantity: '1 tbsp' },
-        { name: 'Green bell pepper', quantity: '1 medium' },
-        { name: 'Green chillies', quantity: '2' },
-        { name: 'Curry leaves', quantity: '8–10' },
-      ],
-    },
-    {
-      emoji: '🌿',
-      category: 'GARNISH',
-      items: [
-        { name: 'Fresh coriander', quantity: '2 tbsp' },
-        { name: 'Crushed black pepper', quantity: '½ tsp' },
-        { name: 'Lemon wedges', quantity: 'To serve' },
-      ],
-    },
-  ],
+export const BUILTIN_INGREDIENT_GROUPS: Record<string, Record<string, IngredientGroup[]>> = {
+  'spicestrong-pepper-chicken': {
+    '2-3 servings': [
+      {
+        emoji: '🍗',
+        category: 'PROTEIN',
+        items: [
+          { name: 'Chicken (Boneless/Breast)', quantity: '500 g' },
+          { name: 'Salt', quantity: 'To taste' },
+        ],
+      },
+      {
+        emoji: '🌶️',
+        category: 'DRY ROAST SPICES',
+        items: [
+          { name: 'Whole Black Pepper', quantity: '1 tsp' },
+          { name: 'Fennel Seeds', quantity: '1.25 tsp' },
+          { name: 'Cumin Seeds', quantity: '1 tsp' },
+        ],
+      },
+      {
+        emoji: '🍳',
+        category: 'FOR THE COOK',
+        items: [
+          { name: 'Gingelly Oil (or Olive Oil)', quantity: '2 tbsp' },
+          { name: 'Red Onion (Finely Chopped)', quantity: '1 Medium' },
+          { name: 'Curry Leaves', quantity: '1 Sprig' },
+          { name: 'Ginger-Garlic Paste', quantity: '1 tsp' },
+          { name: 'Turmeric Powder', quantity: '¼ tsp' },
+          { name: 'Garam Masala', quantity: '½ tsp' },
+        ],
+      },
+      {
+        emoji: '🌿',
+        category: 'GARNISH',
+        items: [
+          { name: 'Fresh Coriander', quantity: 'A handful' },
+          { name: 'Curry Leaves', quantity: 'Extra' },
+        ],
+      },
+    ],
+    '4-6 servings': [
+      {
+        emoji: '🍗',
+        category: 'PROTEIN',
+        items: [
+          { name: 'Chicken (Boneless/Breast)', quantity: '1 kg' },
+          { name: 'Salt', quantity: 'To taste' },
+        ],
+      },
+      {
+        emoji: '🌶️',
+        category: 'DRY ROAST SPICES',
+        items: [
+          { name: 'Whole Black Pepper', quantity: '1.5 tsp' },
+          { name: 'Fennel Seeds', quantity: '2 tsp' },
+          { name: 'Cumin Seeds', quantity: '1.5 tsp' },
+        ],
+      },
+      {
+        emoji: '🍳',
+        category: 'FOR THE COOK',
+        items: [
+          { name: 'Gingelly Oil (or Olive Oil)', quantity: '4 tbsp' },
+          { name: 'Red Onion (Finely Chopped)', quantity: '1 Large' },
+          { name: 'Curry Leaves', quantity: '2 Sprigs' },
+          { name: 'Ginger-Garlic Paste', quantity: '2 tsp' },
+          { name: 'Turmeric Powder', quantity: '½ tsp' },
+          { name: 'Garam Masala', quantity: '1 tsp' },
+        ],
+      },
+      {
+        emoji: '🌿',
+        category: 'GARNISH',
+        items: [
+          { name: 'Fresh Coriander', quantity: 'A handful' },
+          { name: 'Curry Leaves', quantity: 'Extra' },
+        ],
+      },
+    ],
+  },
+  'pepper-chicken': {
+    '2-3 servings': [
+      {
+        emoji: '🍗',
+        category: 'FOR THE CHICKEN',
+        items: [
+          { name: 'Boneless chicken', quantity: '500 g' },
+          { name: 'Lemon juice', quantity: '1 tbsp' },
+          { name: 'Salt', quantity: '½ tsp' },
+        ],
+      },
+      {
+        emoji: '🌶️',
+        category: 'SPICE MIX',
+        items: [
+          { name: 'Crushed black pepper ★', quantity: '1½ tsp' },
+          { name: 'Cumin powder', quantity: '1 tsp' },
+          { name: 'Turmeric powder', quantity: '½ tsp' },
+          { name: 'Red chilli flakes', quantity: '½ tsp' },
+          { name: 'Garam masala', quantity: '¼ tsp' },
+          { name: 'Coriander powder', quantity: '½ tsp' },
+        ],
+      },
+      {
+        emoji: '🍳',
+        category: 'FOR THE STIR-FRY',
+        items: [
+          { name: 'Coconut/olive oil', quantity: '1 tbsp' },
+          { name: 'Cumin seeds', quantity: '1 tsp' },
+          { name: 'Onion, sliced', quantity: '1 large' },
+          { name: 'Ginger-garlic paste', quantity: '1 tbsp' },
+          { name: 'Green bell pepper', quantity: '1 medium' },
+          { name: 'Green chillies', quantity: '2' },
+          { name: 'Curry leaves', quantity: '8–10' },
+        ],
+      },
+      {
+        emoji: '🌿',
+        category: 'GARNISH',
+        items: [
+          { name: 'Fresh coriander', quantity: '2 tbsp' },
+          { name: 'Crushed black pepper', quantity: '½ tsp' },
+          { name: 'Lemon wedges', quantity: 'To serve' },
+        ],
+      },
+    ],
+    '4-6 servings': [
+      {
+        emoji: '🍗',
+        category: 'FOR THE CHICKEN',
+        items: [
+          { name: 'Boneless chicken', quantity: '1 kg' },
+          { name: 'Lemon juice', quantity: '2 tbsp' },
+          { name: 'Salt', quantity: '1 tsp' },
+        ],
+      },
+      {
+        emoji: '🌶️',
+        category: 'SPICE MIX',
+        items: [
+          { name: 'Crushed black pepper ★', quantity: '1 tbsp' },
+          { name: 'Cumin powder', quantity: '2 tsp' },
+          { name: 'Turmeric powder', quantity: '1 tsp' },
+          { name: 'Red chilli flakes', quantity: '1 tsp' },
+          { name: 'Garam masala', quantity: '½ tsp' },
+          { name: 'Coriander powder', quantity: '1 tsp' },
+        ],
+      },
+      {
+        emoji: '🍳',
+        category: 'FOR THE STIR-FRY',
+        items: [
+          { name: 'Coconut/olive oil', quantity: '1½ tbsp' },
+          { name: 'Cumin seeds', quantity: '1½ tsp' },
+          { name: 'Onion, sliced', quantity: '2 large' },
+          { name: 'Ginger-garlic paste', quantity: '2 tbsp' },
+          { name: 'Green bell pepper', quantity: '2 medium' },
+          { name: 'Green chillies', quantity: '4' },
+          { name: 'Curry leaves', quantity: '15–18' },
+        ],
+      },
+      {
+        emoji: '🌿',
+        category: 'GARNISH',
+        items: [
+          { name: 'Fresh coriander', quantity: '4 tbsp' },
+          { name: 'Crushed black pepper', quantity: '1 tsp' },
+          { name: 'Lemon wedges', quantity: 'To serve' },
+        ],
+      },
+    ],
+  },
 };
 
 /** Get a built-in recipe by ID. */

@@ -8,6 +8,7 @@
     "scheme": "spicestrong",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "platforms": ["ios", "android", "web"], 
     "plugins": [
       "expo-router",
       [
