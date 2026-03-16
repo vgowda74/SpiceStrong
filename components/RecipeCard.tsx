@@ -75,49 +75,12 @@ export function RecipeCard({
   const nameParts = name.includes(' (') ? name.split(/ \((.+)\)$/) : [name, ''];
   const recipeTitle = nameParts[0]?.trim() ?? name;
 
-  // Build rating display
-  let ratingDisplay: React.ReactNode;
-  if (communityLoading) {
-    ratingDisplay = <Text style={styles.topBarText}>⭐ ···</Text>;
-  } else if (rating != null && rating !== '') {
-    ratingDisplay = (
-      <TouchableOpacity
-        onPress={(e) => { e.stopPropagation(); onRatingPress?.(); }}
-        activeOpacity={0.7}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Text style={styles.topBarText}>
-          ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
-        </Text>
-      </TouchableOpacity>
-    );
-  } else {
-    ratingDisplay = (
-      <TouchableOpacity
-        onPress={(e) => { e.stopPropagation(); onRatingPress?.(); }}
-        activeOpacity={0.7}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Text style={styles.topBarTextNew}>⭐ New</Text>
-      </TouchableOpacity>
-    );
-  }
-
   return (
     <Pressable
       style={({ pressed }) => [styles.cardShell, pressed && styles.cardPressed]}
       onPress={onPress}
     >
       <View style={styles.cardInner}>
-        {/* ——— TOP BAR: Protein + Cook Count + Rating ——— */}
-        <View style={styles.topBar}>
-          <Text style={styles.topBarProtein}>💪 {protein || '—'}</Text>
-          {cookCount != null && cookCount > 0 && (
-            <Text style={styles.topBarCookCount}>🍳 {cookCount} cooked</Text>
-          )}
-          {ratingDisplay}
-        </View>
-
         {/* ——— HERO IMAGE ——— */}
         <View style={styles.heroWrap}>
           <LinearGradient
@@ -143,6 +106,48 @@ export function RecipeCard({
                 <Text style={styles.heroEmoji}>{emoji}</Text>
               </>
             )}
+
+            {/* ——— Stats overlay on hero image ——— */}
+            <View style={styles.statsOverlay}>
+              <View style={styles.statPill}>
+                <Text style={styles.statPillText}>💪 {protein || '—'}</Text>
+              </View>
+              {cookCount != null && cookCount > 0 && (
+                <View style={[styles.statPill, styles.statPillGreen]}>
+                  <Text style={styles.statPillText}>🍳 {cookCount} cooked</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.ratingOverlay}>
+              {communityLoading ? (
+                <View style={styles.statPill}>
+                  <Text style={styles.statPillText}>⭐ ···</Text>
+                </View>
+              ) : rating != null && rating !== '' ? (
+                <TouchableOpacity
+                  onPress={(e) => { e.stopPropagation(); onRatingPress?.(); }}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <View style={styles.statPill}>
+                    <Text style={styles.statPillText}>
+                      ⭐ {rating}{communityCount != null ? ` (${communityCount})` : ''}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={(e) => { e.stopPropagation(); onRatingPress?.(); }}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <View style={[styles.statPill, styles.statPillBlue]}>
+                    <Text style={styles.statPillText}>⭐ New</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            </View>
 
             <TouchableOpacity
               style={styles.favouriteBtn}
@@ -183,8 +188,8 @@ const styles = StyleSheet.create({
     marginVertical: SPACE * 2,
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
-    borderWidth: 1.5,
-    borderColor: 'rgba(30,15,5,0.6)',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.85)',
     ...Platform.select({
       ios: {
         shadowColor: 'rgba(100,40,0,1)',
@@ -208,36 +213,37 @@ const styles = StyleSheet.create({
     }),
   },
 
-  // Top bar
-  topBar: {
+  // Stats overlay pills
+  statsOverlay: {
+    position: 'absolute',
+    top: 10,
+    left: 50,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    backgroundColor: '#FAF8F5',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#EDE9E3',
+    gap: 6,
+    zIndex: 3,
   },
-  topBarProtein: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#E85D26',
+  ratingOverlay: {
+    position: 'absolute',
+    top: 10,
+    right: 50,
+    zIndex: 3,
   },
-  topBarText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#D4920A',
+  statPill: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  topBarTextNew: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#3B82F6',
+  statPillGreen: {
+    backgroundColor: 'rgba(22,163,74,0.7)',
   },
-  topBarCookCount: {
+  statPillBlue: {
+    backgroundColor: 'rgba(59,130,246,0.7)',
+  },
+  statPillText: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#16A34A',
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 
   // Hero
@@ -331,7 +337,7 @@ const styles = StyleSheet.create({
     paddingTop: 30,
   },
   heroTitle: {
-    fontSize: 17,
+    fontSize: 20,
     fontWeight: '800',
     color: '#FFFFFF',
     ...Platform.select({
@@ -343,11 +349,11 @@ const styles = StyleSheet.create({
     }),
   },
   heroDescription: {
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.9)',
-    marginTop: 2,
-    lineHeight: 15,
+    marginTop: 3,
+    lineHeight: 17,
     ...Platform.select({
       ios: {
         textShadowColor: 'rgba(0,0,0,0.4)',

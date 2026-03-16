@@ -369,16 +369,24 @@ function ChipRow({
   onSelect,
   multi = false,
   disabled = false,
+  compact = false,
 }: {
   options: { id: string; label: string }[];
   selected: string | string[];
   onSelect: (id: string) => void;
   multi?: boolean;
   disabled?: boolean;
+  compact?: boolean;
 }) {
+  const visibleOptions = compact
+    ? options.filter((opt) =>
+        multi ? (selected as string[]).includes(opt.id) : selected === opt.id,
+      )
+    : options;
+  if (compact && visibleOptions.length === 0) return null;
   return (
     <View style={styles.chipsWrap}>
-      {options.map((opt) => {
+      {visibleOptions.map((opt) => {
         const active = multi
           ? (selected as string[]).includes(opt.id)
           : selected === opt.id;
@@ -387,8 +395,8 @@ function ChipRow({
             key={opt.id}
             style={[styles.chip, active && styles.chipActive]}
             onPress={() => onSelect(opt.id)}
-            disabled={disabled}
-            activeOpacity={0.8}
+            disabled={disabled || compact}
+            activeOpacity={compact ? 1 : 0.8}
           >
             <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
           </TouchableOpacity>
@@ -415,6 +423,7 @@ export default function AIRecipeBuilderScreen() {
   const [selectedCuisine, setSelectedCuisine] = useState<string>('indian');
   const [loading, setLoading] = useState(false);
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
+  const [filtersConfirmed, setFiltersConfirmed] = useState(false);
 
   const isVegProtein = VEG_PROTEIN_IDS.includes(paramProteinId ?? '');
   const isDrinkProtein = DRINK_PROTEIN_IDS.includes(paramProteinId ?? '');
@@ -562,7 +571,7 @@ export default function AIRecipeBuilderScreen() {
     }
   };
 
-  const handleSave = async () => {
+  const handleViewRecipe = async () => {
     if (!generatedRecipe) return;
     try {
       const saved = await saveRecipe(generatedRecipe);
@@ -573,8 +582,8 @@ export default function AIRecipeBuilderScreen() {
         await AsyncStorage.setItem('spicestrong_ai_recipe_count', String(aiCount + 1));
       } catch { /* non-critical */ }
       router.push({
-        pathname: '/screens/RecipeListScreen',
-        params: { proteinId: saved.proteinId, proteinName: saved.proteinName, proteinEmoji: saved.proteinEmoji },
+        pathname: '/screens/RecipeOverviewScreen',
+        params: { recipeId: saved.id, quantityTier: '2-3 servings', fromBuilder: '1' },
       });
     } catch (e) {
       console.error(e);
@@ -629,24 +638,31 @@ export default function AIRecipeBuilderScreen() {
                     selected={selectedDrinkType}
                     onSelect={setSelectedDrinkType}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
 
                   {/* Flavor */}
-                  <Text style={styles.sectionLabel}>🎨 Flavor</Text>
-                  <ChipRow
-                    options={DRINK_FLAVOR_OPTIONS}
-                    selected={selectedDrinkFlavor}
-                    onSelect={setSelectedDrinkFlavor}
-                    disabled={loading}
-                  />
+                  {(!filtersConfirmed || selectedDrinkFlavor) && (
+                    <>
+                      <Text style={styles.sectionLabel}>🎨 Flavor</Text>
+                      <ChipRow
+                        options={DRINK_FLAVOR_OPTIONS}
+                        selected={selectedDrinkFlavor}
+                        onSelect={setSelectedDrinkFlavor}
+                        disabled={loading}
+                        compact={filtersConfirmed}
+                      />
+                    </>
+                  )}
 
                   {/* Protein Goal */}
-                  <Text style={styles.sectionLabel}>🎯 Protein Goal (per serving)</Text>
+                  <Text style={styles.sectionLabel}>🎯 Protein Goal</Text>
                   <ChipRow
                     options={PROTEIN_GOAL_OPTIONS}
                     selected={selectedProteinGoal}
                     onSelect={setSelectedProteinGoal}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
 
                   {/* Meal Type — drink-specific */}
@@ -656,22 +672,28 @@ export default function AIRecipeBuilderScreen() {
                     selected={selectedMealType}
                     onSelect={setSelectedMealType}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
 
                   {/* Dietary Preference */}
-                  <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
-                  <ChipRow
-                    options={visibleDietary}
-                    selected={selectedDietary}
-                    onSelect={toggleDietary}
-                    multi
-                    disabled={loading}
-                  />
+                  {(!filtersConfirmed || selectedDietary.length > 0) && (
+                    <>
+                      <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
+                      <ChipRow
+                        options={visibleDietary}
+                        selected={selectedDietary}
+                        onSelect={toggleDietary}
+                        multi
+                        disabled={loading}
+                        compact={filtersConfirmed}
+                      />
+                    </>
+                  )}
                 </>
               ) : (
                 <>
                   {/* Meat Type — only for non-veg */}
-                  {showMeatType && (
+                  {showMeatType && (!filtersConfirmed || selectedMeatType) && (
                     <>
                       <Text style={styles.sectionLabel}>🥩 Meat Type</Text>
                       <ChipRow
@@ -679,17 +701,19 @@ export default function AIRecipeBuilderScreen() {
                         selected={selectedMeatType}
                         onSelect={setSelectedMeatType}
                         disabled={loading}
+                        compact={filtersConfirmed}
                       />
                     </>
                   )}
 
                   {/* Protein Goal */}
-                  <Text style={styles.sectionLabel}>🎯 Protein Goal (per serving)</Text>
+                  <Text style={styles.sectionLabel}>🎯 Protein Goal</Text>
                   <ChipRow
                     options={PROTEIN_GOAL_OPTIONS}
                     selected={selectedProteinGoal}
                     onSelect={setSelectedProteinGoal}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
 
                   {/* Meal Type */}
@@ -699,16 +723,22 @@ export default function AIRecipeBuilderScreen() {
                     selected={selectedMealType}
                     onSelect={setSelectedMealType}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
 
                   {/* Cooking Time */}
-                  <Text style={styles.sectionLabel}>⏱️ Cooking Time</Text>
-                  <ChipRow
-                    options={COOKING_TIME_OPTIONS}
-                    selected={selectedCookingTime}
-                    onSelect={setSelectedCookingTime}
-                    disabled={loading}
-                  />
+                  {(!filtersConfirmed || selectedCookingTime) && (
+                    <>
+                      <Text style={styles.sectionLabel}>⏱️ Cooking Time</Text>
+                      <ChipRow
+                        options={COOKING_TIME_OPTIONS}
+                        selected={selectedCookingTime}
+                        onSelect={setSelectedCookingTime}
+                        disabled={loading}
+                        compact={filtersConfirmed}
+                      />
+                    </>
+                  )}
 
                   {/* Spice Level */}
                   <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
@@ -717,17 +747,23 @@ export default function AIRecipeBuilderScreen() {
                     selected={selectedSpiceLevel}
                     onSelect={setSelectedSpiceLevel}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
 
                   {/* Dietary Preference */}
-                  <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
-                  <ChipRow
-                    options={visibleDietary}
-                    selected={selectedDietary}
-                    onSelect={toggleDietary}
-                    multi
-                    disabled={loading}
-                  />
+                  {(!filtersConfirmed || selectedDietary.length > 0) && (
+                    <>
+                      <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
+                      <ChipRow
+                        options={visibleDietary}
+                        selected={selectedDietary}
+                        onSelect={toggleDietary}
+                        multi
+                        disabled={loading}
+                        compact={filtersConfirmed}
+                      />
+                    </>
+                  )}
 
                   {/* Cuisine Style */}
                   <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
@@ -736,22 +772,43 @@ export default function AIRecipeBuilderScreen() {
                     selected={selectedCuisine}
                     onSelect={setSelectedCuisine}
                     disabled={loading}
+                    compact={filtersConfirmed}
                   />
                 </>
               )}
             </>
           )}
 
-          {/* Generate button */}
-          {!generatedRecipe && (
+          {/* Confirm / Generate / Edit buttons */}
+          {!generatedRecipe && !filtersConfirmed && (
             <TouchableOpacity
-              style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
-              onPress={handleGenerate}
-              disabled={loading}
+              style={styles.primaryBtn}
+              onPress={() => setFiltersConfirmed(true)}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnText}>🍳 Generate Recipe with SpiceBuilder</Text>
+              <Text style={styles.primaryBtnText}>✓ Confirm Selections</Text>
             </TouchableOpacity>
+          )}
+          {!generatedRecipe && filtersConfirmed && (
+            <>
+              <TouchableOpacity
+                style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
+                onPress={handleGenerate}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryBtnText}>🍳 Generate Recipe with SpiceBuilder</Text>
+              </TouchableOpacity>
+              {!loading && (
+                <TouchableOpacity
+                  style={styles.editFiltersBtn}
+                  onPress={() => setFiltersConfirmed(false)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.editFiltersBtnText}>✏️ Edit Selections</Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
 
           {loading && (
@@ -788,8 +845,8 @@ export default function AIRecipeBuilderScreen() {
                   {ingredientCount} ingredients · {stepCount} steps
                 </Text>
                 <View style={styles.previewActions}>
-                  <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
-                    <Text style={styles.saveBtnText}>💾 Save Recipe</Text>
+                  <TouchableOpacity style={styles.saveBtn} onPress={handleViewRecipe} activeOpacity={0.85}>
+                    <Text style={styles.saveBtnText}>👀 View Recipe</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.regenBtn}
@@ -798,16 +855,9 @@ export default function AIRecipeBuilderScreen() {
                     }}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.regenBtnText}>✏️ Edit Filters</Text>
+                    <Text style={styles.regenBtnText}>✕ Cancel Recipe</Text>
                   </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  style={styles.regenFullBtn}
-                  onPress={handleGenerate}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.regenFullBtnText}>🔄 Regenerate</Text>
-                </TouchableOpacity>
               </View>
             </>
           )}
@@ -885,6 +935,14 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  editFiltersBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: -16,
+    marginBottom: 16,
+  },
+  editFiltersBtnText: { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontWeight: '600' },
   loadingWrap: {
     alignItems: 'center',
     paddingVertical: 32,

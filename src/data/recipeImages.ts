@@ -22,18 +22,6 @@ const RECIPE_IMAGES: Record<string, RecipeImageSet> = {
       5: require('../../assets/images/recipes/spicestrong-pepper-chicken/step6.jpg'),
     },
   },
-  'pepper-chicken': {
-    card: require('../../assets/images/recipes/pepper-chicken/card.jpg'),
-    steps: {
-      0: require('../../assets/images/recipes/pepper-chicken/step1.jpg'),
-      1: require('../../assets/images/recipes/pepper-chicken/step2.jpg'),
-      2: require('../../assets/images/recipes/pepper-chicken/step3.jpg'),
-      3: require('../../assets/images/recipes/pepper-chicken/step4.jpg'),
-      4: require('../../assets/images/recipes/pepper-chicken/step5.jpg'),
-      5: require('../../assets/images/recipes/pepper-chicken/step6.jpg'),
-      6: require('../../assets/images/recipes/pepper-chicken/step7.jpg'),
-    },
-  },
 };
 
 /** Get the card image for a recipe, or undefined if none. */

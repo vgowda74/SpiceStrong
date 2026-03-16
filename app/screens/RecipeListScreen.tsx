@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     paddingTop: 56,
     paddingHorizontal: 20,
-    paddingBottom: 24,
+    paddingBottom: 10,
     zIndex: 1,
   },
   backBtn: { position: 'absolute', top: 52, left: 20, zIndex: 2 },
@@ -437,7 +437,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: CREAM_LABEL,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 4,
     letterSpacing: 0.3,
   },
   statsRow: {

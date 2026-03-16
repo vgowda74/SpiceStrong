@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 
 import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/store/recipes';
-import { type BuiltInRecipe, type NutritionInfo } from '../../src/data/builtInRecipes';
+import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
 
@@ -51,8 +51,8 @@ export default function RecipeOverviewScreen() {
 
   const ingredients = recipe.ingredients[quantityTier] ?? recipe.ingredients['2-3 servings'] ?? [];
   const timeMinutes = (recipe as BuiltInRecipe).timeMinutes ?? null;
-  const difficulty = (recipe as BuiltInRecipe).difficulty ?? null;
   const nutrition = (recipe as BuiltInRecipe).nutrition ?? null;
+  const proteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
   const gradient: readonly [string, string] = (recipe as BuiltInRecipe).gradient ?? ['#8B4513', '#5D2E0C'];
   const cardImage = getRecipeCardImage(recipe.id);
   const stepsCount = recipe.steps?.length ?? 0;
@@ -86,7 +86,7 @@ export default function RecipeOverviewScreen() {
           <View style={styles.infoCard}>
             <Text style={styles.recipeName}>{recipe.name}</Text>
 
-            {/* Quick stats */}
+            {/* Quick stats: cook time, protein, steps */}
             <View style={styles.statsRow}>
               {timeMinutes != null && (
                 <View style={styles.statBadge}>
@@ -94,10 +94,10 @@ export default function RecipeOverviewScreen() {
                   <Text style={styles.statText}>{timeMinutes} min</Text>
                 </View>
               )}
-              {difficulty != null && (
+              {proteinG != null && (
                 <View style={styles.statBadge}>
-                  <Text style={styles.statEmoji}>📊</Text>
-                  <Text style={styles.statText}>{difficulty}</Text>
+                  <Text style={styles.statEmoji}>💪</Text>
+                  <Text style={styles.statText}>{proteinG}g protein</Text>
                 </View>
               )}
               {stepsCount > 0 && (
@@ -108,46 +108,25 @@ export default function RecipeOverviewScreen() {
               )}
             </View>
 
-            {/* Nutrition quick view */}
-            {nutrition && (
-              <View style={styles.nutritionRow}>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.calories}</Text>
-                  <Text style={styles.nutritionLabel}>kcal</Text>
-                </View>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.proteinG}g</Text>
-                  <Text style={styles.nutritionLabel}>protein</Text>
-                </View>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.fatG}g</Text>
-                  <Text style={styles.nutritionLabel}>fat</Text>
-                </View>
-                <View style={styles.nutritionItem}>
-                  <Text style={styles.nutritionValue}>{nutrition.carbsG}g</Text>
-                  <Text style={styles.nutritionLabel}>carbs</Text>
-                </View>
-              </View>
-            )}
-
-            {/* Description / chef tip */}
-            {recipe.chefTip ? (
-              <Text style={styles.description}>{recipe.chefTip}</Text>
-            ) : recipe.description ? (
-              <Text style={styles.description}>{recipe.description}</Text>
+            {/* One-line description */}
+            {(recipe.description || recipe.chefTip) ? (
+              <Text style={styles.description} numberOfLines={2}>
+                {recipe.description || recipe.chefTip}
+              </Text>
             ) : null}
 
-            {/* Ingredients */}
-            <View style={styles.ingredientSection}>
-              <Text style={styles.sectionTitle}>Ingredients ({quantityTier})</Text>
-              {ingredients.map((ing, i) => (
-                <View key={i} style={styles.ingredientRow}>
-                  <View style={styles.bulletDot} />
-                  <Text style={styles.ingredientName}>{ing.name}</Text>
-                  <Text style={styles.ingredientQty}>{ing.quantity}</Text>
-                </View>
-              ))}
-            </View>
+            {/* Ingredients (names only) */}
+            {ingredients.length > 0 && (
+              <View style={styles.ingredientSection}>
+                <Text style={styles.sectionTitle}>Ingredients</Text>
+                {ingredients.map((ing, i) => (
+                  <View key={i} style={styles.ingredientRow}>
+                    <View style={styles.bulletDot} />
+                    <Text style={styles.ingredientName}>{ing.name}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
 
@@ -256,20 +235,6 @@ const styles = StyleSheet.create({
   statEmoji: { fontSize: 13 },
   statText: { fontSize: 13, fontWeight: '600', color: '#8B4513' },
 
-  // Nutrition
-  nutritionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#FAF7F2',
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    marginBottom: 14,
-  },
-  nutritionItem: { alignItems: 'center' },
-  nutritionValue: { fontSize: 16, fontWeight: '800', color: ORANGE },
-  nutritionLabel: { fontSize: 11, fontWeight: '600', color: '#8B7355', marginTop: 2 },
-
   // Description
   description: {
     fontSize: 14,
@@ -305,12 +270,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
-  },
-  ingredientQty: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: ORANGE,
-    marginLeft: 8,
   },
 
   // Bottom bar
