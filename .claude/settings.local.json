@@ -139,7 +139,13 @@
       "Bash(git status:*)",
       "Bash(find /c/Users/v_gow/SpiceStrong -type f -name *supabase* -o -name *recipeService*)",
       "Bash(find . -path ./node_modules -prune -o -name *.ts -o -name *.sql)",
-      "Bash(grep -r \"rpc\\\\|function\" /c/Users/v_gow/SpiceStrong/supabase/*.sql)"
+      "Bash(grep -r \"rpc\\\\|function\" /c/Users/v_gow/SpiceStrong/supabase/*.sql)",
+      "Bash(dir \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\assets\\\\images\\\\splash-bg.png\")",
+      "Bash(python3 -c \"from PIL import Image; img = Image.open\\(''C:/Users/v_gow/SpiceStrong/assets/images/splash-bg.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
+      "Bash(python -c \"from PIL import Image; img = Image.open\\(''C:/Users/v_gow/SpiceStrong/assets/images/splash-bg.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
+      "Bash(pip3 install:*)",
+      "Bash(sed -i 's/contentFit=\"\"cover\"\" transition={200}/resizeMode=\"\"cover\"\"/g' app/screens/CookingModeScreen.tsx)",
+      "Bash(sed -i '/<Image/{n;/.*/;s/resizeMode=\"\"cover\"\"/contentFit=\"\"cover\"\" transition={200}/}' app/screens/CookingModeScreen.tsx)"
     ]
   }
 }

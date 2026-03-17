@@ -189,3 +189,79 @@ INSERT INTO recipes (
   '{"calories": 280, "proteinG": 40, "fatG": 10, "carbsG": 5, "fiberG": 1, "sugarG": 1, "sodiumMg": 420, "cholesterolMg": 110, "saturatedFatG": 2, "ironMg": 3, "calciumMg": 40}'::jsonb,
   'curated', true, 'ready'
 ) ON CONFLICT (id) DO NOTHING;
+
+
+-- ============================================================
+-- Seed: Healthy High-Protein Paneer Masala (built-in recipe)
+-- ============================================================
+INSERT INTO recipes (
+  id, name, protein_id, protein_name, protein_emoji,
+  description, chef_tip, meal_type,
+  ingredients, steps,
+  time_minutes, difficulty, protein_per_100g, gradient,
+  nutrition, source, is_active, status
+) VALUES (
+  'spicestrong-high-protein-paneer-masala',
+  'Healthy High-Protein Paneer Masala',
+  'paneer', 'Paneer', '🧀',
+  'A lighter paneer masala made with low-fat Greek yogurt and blended cottage cheese instead of cream, fresh tomatoes, and colorful bell peppers. Rich, creamy, high-protein curry with authentic Indian flavor.',
+  '30g protein | 340 kcal | 22 min cook. Using Greek yogurt and cottage cheese instead of cream keeps it high-protein and fitness friendly.',
+  'lunch_dinner',
+  '{
+    "2-3 servings": [
+      {"name": "Paneer (prefer low-fat)", "quantity": "250 g"},
+      {"name": "Low-fat Greek Yogurt", "quantity": "¾ cup"},
+      {"name": "Low-fat Cottage Cheese (blended smooth)", "quantity": "½ cup"},
+      {"name": "Onion (Finely Chopped)", "quantity": "1 Medium"},
+      {"name": "Fresh Tomatoes (Finely Chopped)", "quantity": "2 Medium"},
+      {"name": "Red Bell Pepper (Diced)", "quantity": "½"},
+      {"name": "Green Bell Pepper (Diced)", "quantity": "½"},
+      {"name": "Yellow Bell Pepper (Diced)", "quantity": "½"},
+      {"name": "Ginger Garlic Paste", "quantity": "1 tbsp"},
+      {"name": "Kashmiri Chili Powder", "quantity": "1 tsp"},
+      {"name": "Turmeric Powder", "quantity": "¼ tsp"},
+      {"name": "Coriander Powder", "quantity": "1 tsp"},
+      {"name": "Garam Masala", "quantity": "½ tsp"},
+      {"name": "Cumin Seeds", "quantity": "½ tsp"},
+      {"name": "Kasuri Methi (Crushed)", "quantity": "½ tsp"},
+      {"name": "Cooking Oil (Olive/Avocado)", "quantity": "1 tbsp"},
+      {"name": "Salt", "quantity": "¾ tsp"},
+      {"name": "Black Pepper", "quantity": "¼ tsp"},
+      {"name": "Fresh Cilantro (Garnish)", "quantity": "2 tbsp"}
+    ],
+    "4-6 servings": [
+      {"name": "Paneer (prefer low-fat)", "quantity": "500 g"},
+      {"name": "Low-fat Greek Yogurt", "quantity": "1½ cups"},
+      {"name": "Low-fat Cottage Cheese (blended smooth)", "quantity": "1 cup"},
+      {"name": "Onion (Finely Chopped)", "quantity": "2 Medium"},
+      {"name": "Fresh Tomatoes (Finely Chopped)", "quantity": "4 Medium"},
+      {"name": "Red Bell Pepper (Diced)", "quantity": "1"},
+      {"name": "Green Bell Pepper (Diced)", "quantity": "1"},
+      {"name": "Yellow Bell Pepper (Diced)", "quantity": "1"},
+      {"name": "Ginger Garlic Paste", "quantity": "2 tbsp"},
+      {"name": "Kashmiri Chili Powder", "quantity": "2 tsp"},
+      {"name": "Turmeric Powder", "quantity": "½ tsp"},
+      {"name": "Coriander Powder", "quantity": "2 tsp"},
+      {"name": "Garam Masala", "quantity": "1 tsp"},
+      {"name": "Cumin Seeds", "quantity": "1 tsp"},
+      {"name": "Kasuri Methi (Crushed)", "quantity": "1 tsp"},
+      {"name": "Cooking Oil (Olive/Avocado)", "quantity": "2 tbsp"},
+      {"name": "Salt", "quantity": "1½ tsp"},
+      {"name": "Black Pepper", "quantity": "½ tsp"},
+      {"name": "Fresh Cilantro (Garnish)", "quantity": "4 tbsp"}
+    ]
+  }'::jsonb,
+  '[
+    {"title": "Prepare Paneer", "description": "Cut paneer into medium cubes. If paneer feels firm, soak it in warm water for about 5 minutes to soften.", "emoji": "🧀", "tip": "Soaking in warm water keeps paneer soft and juicy throughout cooking."},
+    {"title": "Cook Aromatics", "description": "Heat oil in a pan over medium heat. Add cumin seeds and chopped onions. Cook until onions turn light golden. Add ginger garlic paste and sauté briefly.", "emoji": "🧅", "timerMinutes": 5, "tip": "Light golden onions give a smoother gravy."},
+    {"title": "Cook Fresh Tomatoes", "description": "Add chopped tomatoes, chili powder, turmeric, coriander powder, and salt. Cook until tomatoes soften and the mixture thickens.", "emoji": "🍅", "timerMinutes": 7, "tip": "Cook until tomatoes lose their raw smell for the best flavor."},
+    {"title": "Add Bell Peppers", "description": "Add diced red, green, and yellow bell peppers. Cook briefly so they remain slightly crisp.", "emoji": "🌶️", "timerMinutes": 3, "tip": "Do not overcook peppers; they should keep some crunch."},
+    {"title": "Add Yogurt & Protein Boost", "description": "Lower the heat. Add whisked Greek yogurt and blended cottage cheese. Stir continuously until the gravy becomes smooth and creamy.", "emoji": "🥣", "tip": "Blend cottage cheese with 1-2 tbsp water before adding for a silky texture."},
+    {"title": "Add Paneer", "description": "Add paneer cubes and gently mix until coated with the sauce. Cook for a few minutes.", "emoji": "🧀", "timerMinutes": 4, "tip": "Avoid overcooking paneer to keep it soft and pillowy."},
+    {"title": "Finish the Dish", "description": "Add garam masala, crushed kasuri methi, and black pepper. Garnish with fresh cilantro and serve hot.", "emoji": "🌿", "tip": "Crushing kasuri methi between your palms releases maximum aroma."}
+  ]'::jsonb,
+  22, 'Easy', 18,
+  '["#D4A017", "#C0392B"]'::jsonb,
+  '{"calories": 1020, "proteinG": 90, "fatG": 57, "carbsG": 36, "fiberG": 5, "sugarG": 12, "sodiumMg": 1200}'::jsonb,
+  'curated', true, 'ready'
+) ON CONFLICT (id) DO NOTHING;

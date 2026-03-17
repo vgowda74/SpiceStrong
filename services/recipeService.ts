@@ -651,6 +651,58 @@ export async function uploadRecipeHeroImage(
 }
 
 /**
+ * Fully delete an AI recipe from all layers:
+ *   1. Local AsyncStorage (spicestrong_recipes)
+ *   2. Per-protein recipe cache (spicestrong_recipe_cache_[proteinId])
+ *   3. Image URL cache (spicestrong_recipe_img_urls_[recipeId])
+ *   4. Supabase database (set is_active = false)
+ *
+ * @returns true if deletion succeeded at the local level
+ */
+export async function deleteAIRecipe(recipeId: string, proteinId: string): Promise<boolean> {
+  try {
+    // 1. Remove from local AsyncStorage
+    const data = await AsyncStorage.getItem('spicestrong_recipes');
+    if (data) {
+      const all = JSON.parse(data) as Array<{ id: string }>;
+      const updated = all.filter((r) => r.id !== recipeId);
+      await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(updated));
+    }
+
+    // 2. Remove from per-protein recipe cache
+    const cached = await getCachedRecipes(proteinId);
+    if (cached) {
+      const updatedCache = cached.filter((r) => r.id !== recipeId);
+      await setCachedRecipes(proteinId, updatedCache);
+    }
+
+    // 3. Remove image URL cache
+    await AsyncStorage.removeItem(`${IMAGE_CACHE_KEY_PREFIX}${recipeId}`);
+
+    // 4. Deactivate in Supabase (soft delete — set is_active = false)
+    try {
+      const isAvailable = await checkRecipeTableAvailable();
+      if (isAvailable) {
+        await supabase
+          .from('recipes')
+          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .eq('id', recipeId);
+        console.log(`[SpiceStrong] Recipe deactivated in Supabase: ${recipeId}`);
+      }
+    } catch {
+      // Supabase deletion is best-effort; local deletion already succeeded
+      console.warn(`[SpiceStrong] Could not deactivate recipe in Supabase: ${recipeId}`);
+    }
+
+    console.log(`[SpiceStrong] Recipe fully deleted: ${recipeId}`);
+    return true;
+  } catch (e) {
+    console.error('[SpiceStrong] Recipe deletion failed:', e);
+    return false;
+  }
+}
+
+/**
  * Update a recipe's status in Supabase (e.g., 'building' -> 'ready').
  */
 export async function updateRecipeStatus(

@@ -21,7 +21,7 @@ import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../com
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
-import { getRecipeImageUrls } from '../../services/recipeService';
+import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
 // imageCacheService no longer needed — expo-image handles caching
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
@@ -48,7 +48,7 @@ const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
 };
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// AsyncStorage no longer needed — deleteAIRecipe handles all cleanup
 
 const HEADER_ORANGE = '#E85D26';
 const DARK_PILL = '#1A0A00';
@@ -245,11 +245,10 @@ export default function RecipeListScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-            const data = await AsyncStorage.getItem('spicestrong_recipes');
-            const all = data ? JSON.parse(data) : [];
-            const updated = all.filter((r: { id: string }) => r.id !== recipe.id);
-            await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(updated));
-            setRecipes((prev) => prev.filter((r) => r.id !== recipe.id));
+              const success = await deleteAIRecipe(recipe.id, recipe.proteinId);
+              if (success) {
+                setRecipes((prev) => prev.filter((r) => r.id !== recipe.id));
+              }
             } catch (e) {
               console.error('Delete failed', e);
             }

@@ -307,18 +307,21 @@ const styles = StyleSheet.create({
   },
   filtersScrollContent: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
+    paddingHorizontal: 4,
     gap: 10,
     alignItems: 'center',
+    flexGrow: 1,
   },
   filterBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 24,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#D1D5DB',
     flexShrink: 0,
+    flex: 1,
+    alignItems: 'center',
   },
   filterActive: {
     backgroundColor: ORANGE,
@@ -326,7 +329,8 @@ const styles = StyleSheet.create({
   },
   filterText: {
     color: '#6B7280',
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: '600',
   },
   filterTextActive: {
     color: '#FFFFFF',
