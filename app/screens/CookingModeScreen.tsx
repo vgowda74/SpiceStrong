@@ -3,7 +3,7 @@ import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -28,7 +28,8 @@ import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
 import { submitReview, submitRating as submitCommunityRating } from '../../services/ratingsService';
 import ShareableRecipeCard from '../../components/ShareableRecipeCard';
-import { getRecipeStepImage } from '../../src/data/recipeImages';
+import { getRecipeStepImage, getRecipeCardImage } from '../../src/data/recipeImages';
+import { getIngredientImage } from '../../src/data/ingredientImages';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 
 
@@ -170,6 +171,43 @@ export default function CookingModeScreen() {
   const timerEndTimeRef = useRef<number | null>(null);
   const notificationIdRef = useRef<string | null>(null);
   const shareCardRef = useRef<ViewShot>(null);
+
+  // Resolve images for the shareable recipe card
+  const shareCardImages = useMemo(() => {
+    if (!recipe) return { dishImage: null, stepImages: {}, ingredientImages: {} };
+    const rid = recipe.id;
+
+    // Dish image: prefer AI, fall back to built-in
+    let dishImg: any = null;
+    if (aiImages?.dishImage) {
+      dishImg = { uri: aiImages.dishImage };
+    } else {
+      const builtIn = getRecipeCardImage(rid);
+      if (builtIn) dishImg = builtIn;
+    }
+
+    // Step images: prefer AI, fall back to built-in
+    const stepImgs: Record<number, any> = {};
+    recipe.steps.forEach((_, idx) => {
+      if (aiImages?.stepImages?.[String(idx)]) {
+        stepImgs[idx] = { uri: aiImages.stepImages[String(idx)] };
+      } else {
+        const builtIn = getRecipeStepImage(rid, idx);
+        if (builtIn) stepImgs[idx] = builtIn;
+      }
+    });
+
+    // Ingredient images from static mappings
+    const ingImgs: Record<string, any> = {};
+    const t = ['2-3 servings', '4-6 servings'] as const;
+    const tier = t.find((k) => recipe.ingredients[k]?.length > 0) ?? '2-3 servings';
+    (recipe.ingredients[tier] ?? []).forEach((ing) => {
+      const img = getIngredientImage(ing.name);
+      if (img) ingImgs[ing.name] = img;
+    });
+
+    return { dishImage: dishImg, stepImages: stepImgs, ingredientImages: ingImgs };
+  }, [recipe, aiImages]);
 
   // Poll for background-generated images every 30s until they arrive
   useEffect(() => {
@@ -689,7 +727,13 @@ export default function CookingModeScreen() {
         {/* Hidden shareable card for image capture */}
         <View style={{ position: 'absolute', left: -9999, top: 0 }}>
           <ViewShot ref={shareCardRef} options={{ format: 'png', quality: 1 }}>
-            <ShareableRecipeCard recipe={recipe} stats={stats} />
+            <ShareableRecipeCard
+              recipe={recipe}
+              stats={stats}
+              dishImage={shareCardImages.dishImage}
+              stepImages={shareCardImages.stepImages}
+              ingredientImages={shareCardImages.ingredientImages}
+            />
           </ViewShot>
         </View>
       </ImageBackground>

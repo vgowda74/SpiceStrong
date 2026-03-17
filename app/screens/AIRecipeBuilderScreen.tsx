@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   ImageBackground,
 } from 'react-native';
@@ -17,12 +18,32 @@ import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } fr
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
-/** Max AI recipes allowed for free users. Set to 0 for unlimited.
- * Change back to 1 for production builds. */
-const MAX_FREE_AI_RECIPES = __DEV__ ? 0 : 1;
+/** Max AI recipes allowed PER PROTEIN TYPE for free users. Set to 0 for unlimited.
+ * Change this single constant to adjust the limit for all proteins at launch. */
+const MAX_FREE_AI_RECIPES_PER_PROTEIN = __DEV__ ? 0 : 1;
+
+/** AsyncStorage key for per-protein AI recipe count */
+const AI_COUNT_KEY_PREFIX = 'aiRecipeCount_';
 
 /** Beta-enabled proteins for AI builder. Empty array = all enabled. */
 const BETA_AI_PROTEINS = ['chicken', 'paneer', 'eggs'];
+
+/** Protein emoji & name lookup for the limit modal */
+const PROTEIN_INFO: Record<string, { name: string; emoji: string }> = {
+  chicken: { name: 'Chicken', emoji: '🍗' },
+  paneer: { name: 'Paneer', emoji: '🧀' },
+  eggs: { name: 'Eggs', emoji: '🥚' },
+  lamb: { name: 'Lamb', emoji: '🥩' },
+  goat: { name: 'Goat', emoji: '🐐' },
+  pork: { name: 'Pork', emoji: '🥓' },
+  fish: { name: 'Fish', emoji: '🐟' },
+  prawns: { name: 'Prawns', emoji: '🦐' },
+  tofu: { name: 'Tofu', emoji: '🟫' },
+  soy: { name: 'Soy', emoji: '🫘' },
+  beans: { name: 'Beans', emoji: '🫘' },
+  milk: { name: 'Milk', emoji: '🥛' },
+  whey: { name: 'Whey', emoji: '🥤' },
+};
 
 const ACCENT = '#E85D26';
 const GLASS = 'rgba(255,255,255,0.1)';
@@ -429,6 +450,8 @@ export default function AIRecipeBuilderScreen() {
   const [loading, setLoading] = useState(false);
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
   const [filtersConfirmed, setFiltersConfirmed] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [availableProteins, setAvailableProteins] = useState<{ id: string; name: string; emoji: string }[]>([]);
 
   const isVegProtein = VEG_PROTEIN_IDS.includes(paramProteinId ?? '');
   const isDrinkProtein = DRINK_PROTEIN_IDS.includes(paramProteinId ?? '');
@@ -521,17 +544,27 @@ export default function AIRecipeBuilderScreen() {
       Alert.alert('Coming Soon', 'SpiceBuilder recipes for this protein will be available soon!');
       return;
     }
-    // Enforce AI recipe limit in production (permanent counter — survives recipe deletion)
-    if (MAX_FREE_AI_RECIPES > 0) {
+    // Enforce AI recipe limit PER PROTEIN (permanent counter — survives recipe deletion)
+    if (MAX_FREE_AI_RECIPES_PER_PROTEIN > 0) {
       try {
-        const countStr = await AsyncStorage.getItem('spicestrong_ai_recipe_count');
+        const countKey = `${AI_COUNT_KEY_PREFIX}${paramProteinId}`;
+        const countStr = await AsyncStorage.getItem(countKey);
         const aiCount = countStr ? parseInt(countStr, 10) : 0;
-        if (aiCount >= MAX_FREE_AI_RECIPES) {
-          Alert.alert(
-            'Recipe Limit Reached',
-            `You've used your free SpiceBuilder recipe. Upgrade to Premium for unlimited custom recipes!`,
-            [{ text: 'OK' }]
-          );
+        if (aiCount >= MAX_FREE_AI_RECIPES_PER_PROTEIN) {
+          // Find other beta proteins the user can still generate for
+          const others: { id: string; name: string; emoji: string }[] = [];
+          for (const pid of BETA_AI_PROTEINS) {
+            if (pid === paramProteinId) continue;
+            const otherKey = `${AI_COUNT_KEY_PREFIX}${pid}`;
+            const otherStr = await AsyncStorage.getItem(otherKey);
+            const otherCount = otherStr ? parseInt(otherStr, 10) : 0;
+            if (otherCount < MAX_FREE_AI_RECIPES_PER_PROTEIN) {
+              const info = PROTEIN_INFO[pid];
+              if (info) others.push({ id: pid, ...info });
+            }
+          }
+          setAvailableProteins(others);
+          setShowLimitModal(true);
           return;
         }
       } catch { /* proceed if check fails */ }
@@ -565,11 +598,12 @@ export default function AIRecipeBuilderScreen() {
       recipes.push({ ...placeholder, isAIGenerated: true });
       await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(recipes));
 
-      // Increment permanent AI recipe counter
+      // Increment permanent AI recipe counter for this protein
       try {
-        const countStr = await AsyncStorage.getItem('spicestrong_ai_recipe_count');
+        const countKey = `${AI_COUNT_KEY_PREFIX}${paramProteinId}`;
+        const countStr = await AsyncStorage.getItem(countKey);
         const aiCount = countStr ? parseInt(countStr, 10) : 0;
-        await AsyncStorage.setItem('spicestrong_ai_recipe_count', String(aiCount + 1));
+        await AsyncStorage.setItem(countKey, String(aiCount + 1));
       } catch { /* non-critical */ }
     } catch (e) {
       console.error(e);
@@ -883,6 +917,81 @@ export default function AIRecipeBuilderScreen() {
           )}
         </ScrollView>
       </View>
+
+      {/* ===== Beta Limit Modal ===== */}
+      <Modal
+        visible={showLimitModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLimitModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            {/* Close X */}
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => setShowLimitModal(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalCloseText}>✕</Text>
+            </TouchableOpacity>
+
+            {/* Rocket emoji */}
+            <Text style={styles.modalEmoji}>🚀</Text>
+
+            {/* Title */}
+            <Text style={styles.modalTitle}>Beta Limit Reached</Text>
+
+            {/* Message */}
+            <Text style={styles.modalMessage}>
+              You've used your beta AI recipe for{' '}
+              <Text style={styles.modalProteinHighlight}>{paramProteinName}</Text>.
+              {'\n\n'}Full launch unlocks unlimited AI recipes.{'\n'}Stay tuned! 🚀
+            </Text>
+
+            {/* Other available proteins */}
+            {availableProteins.length > 0 && (
+              <View style={styles.modalOtherSection}>
+                <Text style={styles.modalOtherTitle}>You can still generate for:</Text>
+                <View style={styles.modalOtherRow}>
+                  {availableProteins.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.modalOtherChip}
+                      onPress={() => {
+                        setShowLimitModal(false);
+                        router.replace({
+                          pathname: '/screens/AIRecipeBuilderScreen',
+                          params: {
+                            proteinId: p.id,
+                            proteinName: p.name,
+                            proteinEmoji: p.emoji,
+                          },
+                        });
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.modalOtherChipText}>{p.emoji} {p.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Dismiss button */}
+            <TouchableOpacity
+              style={styles.modalDismissBtn}
+              onPress={() => {
+                setShowLimitModal(false);
+                router.back();
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modalDismissBtnText}>Back to Recipes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -1029,4 +1138,118 @@ const styles = StyleSheet.create({
     borderColor: BORDER_LIGHT,
   },
   regenFullBtnText: { color: 'rgba(255,255,255,0.8)', fontWeight: '600', fontSize: 14 },
+
+  // Beta Limit Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: '#1A0A00',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    maxWidth: 380,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(232,93,38,0.35)',
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
+      android: { elevation: 16 },
+    }),
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 14,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  modalTitle: {
+    color: '#E85D26',
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 14,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 15,
+    lineHeight: 23,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalProteinHighlight: {
+    color: '#E85D26',
+    fontWeight: '800',
+  },
+  modalOtherSection: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalOtherTitle: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  modalOtherRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  modalOtherChip: {
+    backgroundColor: 'rgba(232,93,38,0.2)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.4)',
+  },
+  modalOtherChipText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  modalDismissBtn: {
+    backgroundColor: '#E85D26',
+    borderRadius: 16,
+    height: 50,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 8 },
+    }),
+  },
+  modalDismissBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
 });

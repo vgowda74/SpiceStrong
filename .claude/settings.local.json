@@ -133,7 +133,9 @@
       "Bash(ls -la \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\types\"\" 2>/dev/null || echo \"Directory does not exist \")",
       "Bash(ls node_modules/expo-file-system/build/*.d.ts)",
       "Bash(find /c/Users/v_gow/SpiceStrong/services -type f -name *.ts)",
-      "Bash(xargs basename:*)"
+      "Bash(xargs basename:*)",
+      "Bash(node create-recipe-template.js)",
+      "Bash(find /c/Users/v_gow/SpiceStrong -name *.env* -o -name .env*)"
     ]
   }
 }
