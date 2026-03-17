@@ -31,6 +31,7 @@ const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   soy: require('../../assets/images/Protein/Soy.jpg'),
   beans: require('../../assets/images/Protein/Beans.jpg'),
   milk: require('../../assets/images/Protein/Dairy.jpg'),
+  whey: require('../../assets/images/Protein/ProteinPowder.jpg'),
 };
 import { PROTEINS } from '../../src/theme';
 
