@@ -48,21 +48,22 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
     caloriesPerServing: 280,
     proteinGPerServing: 40,
     netCarbsG: 4,
+    // Nutrition = whole "2-3 servings" batch (÷ 2.5 = per serving)
     nutrition: {
-      calories: 280,
-      proteinG: 40,
-      fatG: 10,
-      carbsG: 5,
-      fiberG: 1,
-      sugarG: 1,
-      sodiumMg: 420,
-      cholesterolMg: 110,
-      saturatedFatG: 2,
-      ironMg: 3,
-      calciumMg: 40,
+      calories: 700,       // 280 per serving × 2.5
+      proteinG: 100,       // 40 per serving × 2.5
+      fatG: 25,            // 10 per serving × 2.5
+      carbsG: 13,          // 5 per serving × 2.5
+      fiberG: 3,           // 1 per serving × 2.5
+      sugarG: 3,           // 1 per serving × 2.5
+      sodiumMg: 1050,      // 420 per serving × 2.5
+      cholesterolMg: 275,  // 110 per serving × 2.5
+      saturatedFatG: 5,    // 2 per serving × 2.5
+      ironMg: 8,           // 3 per serving × 2.5
+      calciumMg: 100,      // 40 per serving × 2.5
     },
     gradient: ['#5D1E0F', '#C0392B'],
-    chefTip: '40g protein | 280 kcal | 30 min cook. Dry roasting and grinding your own pepper-fennel-cumin blend is what makes this recipe special — the freshly ground masala has unbeatable aroma.',
+    chefTip: '100g protein | 700 kcal per batch (2-3 servings) | 30 min cook. Dry roasting and grinding your own pepper-fennel-cumin blend is what makes this recipe special — the freshly ground masala has unbeatable aroma.',
     createdAt: Date.now(),
     ingredients: {
       '2-3 servings': [

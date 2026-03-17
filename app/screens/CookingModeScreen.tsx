@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
-import { getRecipeById, getCompletionStats, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep } from '../../src/store/recipes';
+import { getRecipeById, getCompletionStats, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep, type QuantityTier } from '../../src/store/recipes';
 import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
 import { getRatings, setRating, getFavourites, setFavourites } from '../../src/store/ratingsFavourites';
 import { submitReview, submitRating as submitCommunityRating } from '../../services/ratingsService';
@@ -147,7 +147,8 @@ const DARK_GREY = '#333333';
 
 export default function CookingModeScreen() {
   const router = useRouter();
-  const { recipeId } = useLocalSearchParams<{ recipeId: string }>();
+  const { recipeId, quantityTier: tierParam } = useLocalSearchParams<{ recipeId: string; quantityTier?: string }>();
+  const selectedTier: QuantityTier = tierParam === '4-6 servings' ? '4-6 servings' : '2-3 servings';
 
   // AI-generated step images (loaded from AsyncStorage)
   const [aiImages, setAiImages] = useState<RecipeImageResults | null>(null);
@@ -481,7 +482,7 @@ export default function CookingModeScreen() {
   const atMax = timerSeconds >= TIMER_MAX_MINUTES * 60;
 
   if (done && recipe) {
-    const stats = getCompletionStats(recipe);
+    const stats = getCompletionStats(recipe, selectedTier);
     const handleCookAnother = () => {
       router.replace('/screens/ProteinSelectionScreen');
     };
@@ -564,7 +565,7 @@ export default function CookingModeScreen() {
               </View>
               <Text style={styles.nutritionBoxArrow}>{showNutritionDetails ? '▲' : '▼'}</Text>
             </View>
-            <Text style={styles.nutritionBoxHint}>per serving  •  {showNutritionDetails ? 'tap to collapse' : 'tap for full nutrition'}</Text>
+            <Text style={styles.nutritionBoxHint}>per serving ({selectedTier})  •  {showNutritionDetails ? 'tap to collapse' : 'tap for full nutrition'}</Text>
 
             {showNutritionDetails && (
               <View style={styles.nutritionDetailsGrid}>
@@ -627,13 +628,17 @@ export default function CookingModeScreen() {
                   <Text style={styles.nutritionDetailVal}>{stats.servings}</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Total Calories</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.calories * stats.servings} kcal</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Calories ({selectedTier})</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.batchCalories} kcal</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Total Protein</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.proteinG * stats.servings}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Protein ({selectedTier})</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.batchProteinG}g</Text>
                 </View>
+                <View style={styles.nutritionDivider} />
+                <Text style={styles.nutritionHelpText}>
+                  ℹ️ This recipe makes {stats.servings} servings. Above values are per serving. Total is for the entire batch ({selectedTier}). Adjust based on how much you eat!
+                </Text>
               </View>
             )}
           </TouchableOpacity>
@@ -1312,6 +1317,14 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.1)',
     marginVertical: 6,
+  },
+  nutritionHelpText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   rateLabel: {
     color: '#999999',

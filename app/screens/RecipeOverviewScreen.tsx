@@ -74,7 +74,8 @@ export default function RecipeOverviewScreen() {
   const ingredients = recipe.ingredients[quantityTier] ?? recipe.ingredients['2-3 servings'] ?? [];
   const timeMinutes = (recipe as BuiltInRecipe).timeMinutes ?? null;
   const nutrition = (recipe as BuiltInRecipe).nutrition ?? null;
-  const proteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
+  // Nutrition is stored as whole "2-3 servings" batch — show batch total
+  const batchProteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
   const gradient: readonly [string, string] = (recipe as BuiltInRecipe).gradient ?? ['#8B4513', '#5D2E0C'];
   const builtInImage = getRecipeCardImage(recipe.id);
   // Image fallback: Supabase/AI URI → built-in static → null (emoji)
@@ -118,10 +119,10 @@ export default function RecipeOverviewScreen() {
                   <Text style={styles.statText}>{timeMinutes} min</Text>
                 </View>
               )}
-              {proteinG != null && (
+              {batchProteinG != null && (
                 <View style={styles.statBadge}>
                   <Text style={styles.statEmoji}>💪</Text>
-                  <Text style={styles.statText}>{proteinG}g protein</Text>
+                  <Text style={styles.statText}>{batchProteinG}g protein</Text>
                 </View>
               )}
               {stepsCount > 0 && (

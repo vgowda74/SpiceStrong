@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 
-import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/store/recipes';
+import { getRecipeById, type SavedRecipe, type QuantityTier, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
@@ -72,9 +72,13 @@ export default function AIRecipeResultScreen() {
   }
 
   const ingredients = recipe.ingredients[quantityTier] ?? recipe.ingredients['2-3 servings'] ?? [];
+  // Nutrition is stored as whole "2-3 servings" batch — divide for per-serving display
   const nutrition = (recipe as BuiltInRecipe).nutrition ?? null;
-  const proteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
-  const calories = nutrition?.calories ?? recipe.aiNutrition?.calories ?? null;
+  const s = SERVINGS_PER_TIER['2-3 servings']; // 2.5
+  const batchProteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
+  const batchCalories = nutrition?.calories ?? recipe.aiNutrition?.calories ?? null;
+  const proteinG = batchProteinG != null ? Math.round(batchProteinG / s) : null;
+  const calories = batchCalories != null ? Math.round(batchCalories / s) : null;
   const steps = recipe.steps ?? [];
 
   return (

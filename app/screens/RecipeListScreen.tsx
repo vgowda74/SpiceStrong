@@ -19,7 +19,7 @@ const screenWidth = Dimensions.get('window').width;
 
 import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../components/RecipeCard';
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
-import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
+import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls } from '../../services/recipeService';
 import { getCachedImageUri } from '../../services/imageCacheService';
@@ -272,7 +272,10 @@ export default function RecipeListScreen() {
       : aiDishUri
         ? { uri: aiDishUri }
         : builtInImage;
+    // Nutrition is stored as whole "2-3 servings" batch — divide by 2.5 for per-serving card display
+    // Nutrition is stored as whole "2-3 servings" batch — show batch values on card
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
+    const batchProteinG = nutritionData?.proteinG ?? item.aiNutrition?.proteinG ?? null;
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
       proteinG: nutritionData.proteinG,
@@ -295,7 +298,7 @@ export default function RecipeListScreen() {
         name={item.name}
         description={description}
         time={timeMinutes != null ? `${timeMinutes} min` : '—'}
-        protein={proteinPer100g != null ? `${proteinPer100g}g protein` : ''}
+        protein={batchProteinG != null ? `${batchProteinG}g protein` : ''}
         difficulty={cardDifficulty}
         rating={ratingString}
         communityCount={ratingCount}
@@ -316,7 +319,7 @@ export default function RecipeListScreen() {
         nutrition={cardNutrition}
         isBuilding={item.status === 'building'}
         actionRow={
-          !builtInIds.has(item.id) ? (
+          !builtInIds.has(item.id) && !item.id.startsWith('spicestrong-') ? (
             <TouchableOpacity
               style={styles.deleteBtn}
               onPress={(e) => {

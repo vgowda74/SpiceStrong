@@ -3,6 +3,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const QUANTITY_TIERS = ['2-3 servings', '4-6 servings'] as const;
 export type QuantityTier = (typeof QUANTITY_TIERS)[number];
 
+/**
+ * Default servings per tier.
+ * Nutrition is stored as the whole "2-3 servings" batch.
+ * "4-6 servings" = 2× the batch (double ingredients = double nutrition).
+ * To get per-serving: batchNutrition × tierFactor ÷ SERVINGS_PER_TIER[tier]
+ */
+export const SERVINGS_PER_TIER: Record<QuantityTier, number> = {
+  '2-3 servings': 2.5,
+  '4-6 servings': 5,
+};
+
+/** Tier multiplier: how many batches of the base "2-3" recipe. */
+export const TIER_FACTOR: Record<QuantityTier, number> = {
+  '2-3 servings': 1,
+  '4-6 servings': 2,
+};
+
 /** Meal type for serving logic — desserts use single-serving mode. */
 export type MealType = 'breakfast' | 'lunch_dinner' | 'snack_dessert';
 
@@ -195,8 +212,17 @@ export async function getRecipeById(recipeId: string): Promise<SavedRecipe | nul
   }
 }
 
-/** Completion stats helper — used by CookingModeScreen. */
-export function getCompletionStats(recipe: SavedRecipe): {
+/**
+ * Completion stats helper — used by CookingModeScreen.
+ *
+ * Nutrition is stored as the whole "2-3 servings" batch.
+ * This function returns PER-SERVING values for the selected tier:
+ *   perServing = batchValue × tierFactor ÷ servingsInTier
+ *
+ * @param recipe   The recipe with nutrition data
+ * @param tier     Selected serving tier (default: '2-3 servings')
+ */
+export function getCompletionStats(recipe: SavedRecipe, tier: QuantityTier = '2-3 servings'): {
   proteinG: number;
   calories: number;
   carbsG: number;
@@ -209,51 +235,65 @@ export function getCompletionStats(recipe: SavedRecipe): {
   ironMg: number;
   calciumMg: number;
   servings: number;
+  batchCalories: number;
+  batchProteinG: number;
 } {
+  const factor = TIER_FACTOR[tier];
+  const servings = SERVINGS_PER_TIER[tier];
+
+  // Helper: convert batch nutrition to per-serving for the selected tier
+  const perServing = (batchVal: number) => Math.round(batchVal * factor / servings);
+
   // Try to get full nutrition from built-in recipe
   const builtIn = BUILTIN_RECIPES.find((r) => r.id === recipe.id);
   if (builtIn?.nutrition) {
     const n = builtIn.nutrition;
     return {
-      proteinG: n.proteinG,
-      calories: n.calories,
-      carbsG: n.carbsG,
-      fatG: n.fatG,
-      fiberG: n.fiberG,
-      sugarG: n.sugarG,
-      sodiumMg: n.sodiumMg,
-      cholesterolMg: n.cholesterolMg ?? 0,
-      saturatedFatG: n.saturatedFatG ?? 0,
-      ironMg: n.ironMg ?? 0,
-      calciumMg: n.calciumMg ?? 0,
-      servings: 1,
+      proteinG: perServing(n.proteinG),
+      calories: perServing(n.calories),
+      carbsG: perServing(n.carbsG),
+      fatG: perServing(n.fatG),
+      fiberG: perServing(n.fiberG),
+      sugarG: perServing(n.sugarG),
+      sodiumMg: perServing(n.sodiumMg),
+      cholesterolMg: perServing(n.cholesterolMg ?? 0),
+      saturatedFatG: perServing(n.saturatedFatG ?? 0),
+      ironMg: perServing(n.ironMg ?? 0),
+      calciumMg: perServing(n.calciumMg ?? 0),
+      servings,
+      batchCalories: n.calories * factor,
+      batchProteinG: n.proteinG * factor,
     };
   }
   // Try AI-generated nutrition data
   if (recipe.aiNutrition) {
     const a = recipe.aiNutrition;
     return {
-      proteinG: a.proteinG,
-      calories: a.calories,
-      carbsG: a.carbsG,
-      fatG: a.fatG,
-      fiberG: a.fiberG,
-      sugarG: a.sugarG,
-      sodiumMg: a.sodiumMg,
+      proteinG: perServing(a.proteinG),
+      calories: perServing(a.calories),
+      carbsG: perServing(a.carbsG),
+      fatG: perServing(a.fatG),
+      fiberG: perServing(a.fiberG),
+      sugarG: perServing(a.sugarG),
+      sodiumMg: perServing(a.sodiumMg),
       cholesterolMg: 0,
       saturatedFatG: 0,
       ironMg: 0,
       calciumMg: 0,
-      servings: 1,
+      servings,
+      batchCalories: a.calories * factor,
+      batchProteinG: a.proteinG * factor,
     };
   }
-  // Fallback: parse from description text
+  // Fallback: parse from description text (treat as batch values)
   const desc = recipe.chefTip || recipe.description || '';
   const proteinMatch = desc.match(/(\d+)g?\s*protein/i);
   const calMatch = desc.match(/(\d+)\s*kcal/i);
+  const batchProtein = proteinMatch ? parseInt(proteinMatch[1], 10) : 0;
+  const batchCal = calMatch ? parseInt(calMatch[1], 10) : 0;
   return {
-    proteinG: proteinMatch ? parseInt(proteinMatch[1], 10) : 0,
-    calories: calMatch ? parseInt(calMatch[1], 10) : 0,
+    proteinG: perServing(batchProtein),
+    calories: perServing(batchCal),
     carbsG: 0,
     fatG: 0,
     fiberG: 0,
@@ -263,6 +303,8 @@ export function getCompletionStats(recipe: SavedRecipe): {
     saturatedFatG: 0,
     ironMg: 0,
     calciumMg: 0,
-    servings: 1,
+    servings,
+    batchCalories: batchCal * factor,
+    batchProteinG: batchProtein * factor,
   };
 }

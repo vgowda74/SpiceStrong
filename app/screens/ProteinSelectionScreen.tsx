@@ -30,7 +30,7 @@ const FILTERS = ['All', 'Non-Veg', 'Vegetarian'] as const;
 type Filter = (typeof FILTERS)[number];
 
 /** Beta-enabled proteins — set to empty array to enable all. */
-const BETA_ENABLED_PROTEINS = ['chicken', 'paneer', 'eggs'];
+const BETA_ENABLED_PROTEINS = ['chicken', 'paneer', 'eggs', 'fish'];
 
 const HEADER_BG = '#2A1005';
 const BODY_BG = '#FAF7F2';
@@ -78,14 +78,10 @@ function ProteinCard({
       <Text style={[styles.proteinName, disabled && styles.proteinNameDisabled]} numberOfLines={1}>
         {item.name}
       </Text>
-      {disabled ? (
+      {disabled && (
         <View style={styles.comingSoonBadge}>
           <Text style={styles.comingSoonText}>🔒 Coming Soon</Text>
         </View>
-      ) : (
-        <Text style={styles.proteinGrams}>
-          {item.proteinPer100g}g protein / 100g
-        </Text>
       )}
     </TouchableOpacity>
   );
@@ -330,7 +326,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 3, height: 6 },
     shadowOpacity: 0.25,
@@ -349,8 +345,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF3E0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 12,
-    marginBottom: 6,
+    marginBottom: 8,
     shadowColor: '#E85D26',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,

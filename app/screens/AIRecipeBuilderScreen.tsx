@@ -27,7 +27,7 @@ const MAX_FREE_AI_RECIPES_PER_PROTEIN = __DEV__ ? 0 : 1;
 const AI_COUNT_KEY_PREFIX = 'aiRecipeCount_';
 
 /** Beta-enabled proteins for AI builder. Empty array = all enabled. */
-const BETA_AI_PROTEINS = ['chicken', 'paneer', 'eggs'];
+const BETA_AI_PROTEINS = ['chicken', 'paneer', 'eggs', 'fish'];
 
 /** Protein emoji & name lookup for the limit modal */
 const PROTEIN_INFO: Record<string, { name: string; emoji: string }> = {
@@ -77,9 +77,11 @@ const MEAT_TYPE_MAP: Record<string, { id: string; label: string }[]> = {
     { id: 'minced', label: '🫕 Minced' },
   ],
   fish: [
-    { id: 'fillet', label: '🐟 Fillet' },
-    { id: 'whole', label: '🐠 Whole' },
-    { id: 'boneless', label: '🥩 Boneless' },
+    { id: 'salmon', label: '🐟 Salmon' },
+    { id: 'tilapia', label: '🐠 Tilapia' },
+    { id: 'cod', label: '🐟 Cod' },
+    { id: 'tuna', label: '🐠 Tuna' },
+    { id: 'mackerel', label: '🐟 Mackerel' },
   ],
   prawns: [
     { id: 'whole', label: '🦐 Whole' },
@@ -93,11 +95,27 @@ const PROTEIN_GOAL_OPTIONS = [
   { id: '30-plus', label: '🔥 30g+' },
 ];
 
-const MEAL_TYPE_OPTIONS = [
+const ALL_MEAL_TYPE_OPTIONS = [
   { id: 'breakfast', label: '🌅 Breakfast' },
   { id: 'lunch-dinner', label: '🥗 Lunch/Dinner' },
   { id: 'snack', label: '🥜 Snack/Dessert/Drink' },
 ];
+
+/** Meal types suitable for each protein. Proteins not listed get all options. */
+const PROTEIN_MEAL_TYPES: Record<string, string[]> = {
+  chicken:  ['breakfast', 'lunch-dinner', 'snack'],
+  paneer:   ['breakfast', 'lunch-dinner', 'snack'],
+  eggs:     ['breakfast', 'lunch-dinner', 'snack'],
+  fish:     ['lunch-dinner'],
+  prawns:   ['lunch-dinner', 'snack'],
+  lamb:     ['lunch-dinner'],
+  goat:     ['lunch-dinner'],
+  pork:     ['breakfast', 'lunch-dinner'],
+  tofu:     ['breakfast', 'lunch-dinner', 'snack'],
+  soy:      ['breakfast', 'lunch-dinner', 'snack'],
+  beans:    ['breakfast', 'lunch-dinner', 'snack'],
+  // milk & whey use DRINK_MEAL_OPTIONS instead, handled separately
+};
 
 const COOKING_TIME_OPTIONS = [
   { id: 'under-20', label: '⚡ Under 20 Min' },
@@ -105,14 +123,23 @@ const COOKING_TIME_OPTIONS = [
   { id: 'slow-cook', label: '🍲 Slow Cook' },
 ];
 
-const SPICE_LEVEL_OPTIONS = [
+const ALL_SPICE_LEVEL_OPTIONS = [
   { id: 'mild', label: '😌 Mild' },
   { id: 'medium', label: '🌶️ Medium' },
   { id: 'hot', label: '🔥 Hot' },
   { id: 'extra-hot', label: '💀 Extra Hot' },
 ];
 
-const DIETARY_OPTIONS = [
+/** Spice levels suitable for each protein. Proteins not listed get all options. */
+const PROTEIN_SPICE_LEVELS: Record<string, string[]> = {
+  fish:     ['mild', 'medium'],          // delicate fish — avoid overpowering
+  prawns:   ['mild', 'medium', 'hot'],
+  tofu:     ['mild', 'medium', 'hot'],   // tofu absorbs spice well but extra-hot uncommon
+  beans:    ['mild', 'medium', 'hot'],
+  soy:      ['mild', 'medium'],
+};
+
+const ALL_DIETARY_OPTIONS = [
   { id: 'low-carb', label: '🥦 Low Carb' },
   { id: 'gluten-free', label: '🌾 Gluten Free' },
   { id: 'low-fat', label: '💧 Low Fat' },
@@ -120,7 +147,22 @@ const DIETARY_OPTIONS = [
   { id: 'dairy-free', label: '🥛 Dairy Free' },
 ];
 
-const CUISINE_OPTIONS = [
+/** Dietary options suitable for each protein. Proteins not listed get contextual defaults. */
+const PROTEIN_DIETARY: Record<string, string[]> = {
+  chicken:  ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
+  fish:     ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
+  prawns:   ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
+  lamb:     ['low-carb', 'gluten-free', 'dairy-free'],
+  goat:     ['low-carb', 'gluten-free', 'dairy-free'],
+  pork:     ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
+  eggs:     ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
+  paneer:   ['low-carb', 'gluten-free', 'vegan'],           // paneer is dairy so no dairy-free
+  tofu:     ['low-carb', 'gluten-free', 'low-fat', 'vegan', 'dairy-free'],
+  soy:      ['low-carb', 'gluten-free', 'low-fat', 'vegan', 'dairy-free'],
+  beans:    ['low-carb', 'gluten-free', 'low-fat', 'vegan', 'dairy-free'],
+};
+
+const ALL_CUISINE_OPTIONS = [
   { id: 'indian', label: '🇮🇳 Indian' },
   { id: 'thai', label: '🇹🇭 Thai' },
   { id: 'mediterranean', label: '🫒 Mediterranean' },
@@ -128,6 +170,21 @@ const CUISINE_OPTIONS = [
   { id: 'mexican', label: '🇲🇽 Mexican' },
   { id: 'american', label: '🇺🇸 American' },
 ];
+
+/** Cuisines suitable for each protein. Proteins not listed get all options. */
+const PROTEIN_CUISINES: Record<string, string[]> = {
+  chicken:  ['indian', 'thai', 'mediterranean', 'chinese', 'mexican', 'american'],
+  paneer:   ['indian', 'mediterranean'],
+  eggs:     ['indian', 'thai', 'mediterranean', 'chinese', 'mexican', 'american'],
+  fish:     ['indian', 'thai', 'mediterranean', 'chinese', 'american'],
+  prawns:   ['indian', 'thai', 'chinese', 'mediterranean', 'american'],
+  lamb:     ['indian', 'mediterranean', 'mexican', 'american'],
+  goat:     ['indian', 'mexican'],
+  pork:     ['thai', 'chinese', 'mexican', 'american'],
+  tofu:     ['indian', 'thai', 'chinese', 'mexican'],
+  soy:      ['indian', 'thai', 'chinese'],
+  beans:    ['indian', 'mexican', 'mediterranean', 'american'],
+};
 
 // Drink/shake-specific options for milk & whey
 const DRINK_MEAL_OPTIONS = [
@@ -236,13 +293,13 @@ Return this exact JSON structure:
   "description": "One line description",
   "cookTime": "25 min",
   "difficulty": "Easy|Medium|Hard",
-  "protein": "32g",
-  "calories": "320 kcal",
-  "fatG": 12,
+  "protein": "92g",
+  "calories": "1100 kcal",
+  "fatG": 30,
   "carbsG": 15,
   "fiberG": 3,
   "sugarG": 4,
-  "sodiumMg": 450,
+  "sodiumMg": 680,
   "mealType": "breakfast|lunch_dinner|snack_dessert",
   ${ingredientStructure},
   "steps": [
@@ -264,6 +321,7 @@ Rules:
 - Return ONLY the JSON object, no other text
 - proteinId must match one of the options exactly
 - mealType must be one of: breakfast, lunch_dinner, snack_dessert
+- IMPORTANT: "protein", "calories", "fatG", "carbsG", "fiberG", "sugarG", "sodiumMg" must be the TOTAL for the entire "2-3 servings" batch, NOT per serving. Example: if each serving has 40g protein and the batch serves 2-3 people, report "protein": "92g" (approx 2.5 servings worth)
 ${servingRule}
 ${constraintsText}`;
 
@@ -463,18 +521,58 @@ export default function AIRecipeBuilderScreen() {
   const [selectedDrinkType, setSelectedDrinkType] = useState<string>('smoothie');
   const [selectedDrinkFlavor, setSelectedDrinkFlavor] = useState<string>('');
 
-  // Filter dietary options contextually
+  // Filter dietary options based on protein suitability
   const visibleDietary = useMemo(() => {
     if (isDrinkProtein) {
-      // For milk/whey: only show relevant dietary options
-      return DIETARY_OPTIONS.filter((d) => ['low-carb', 'low-fat', 'dairy-free'].includes(d.id));
+      return ALL_DIETARY_OPTIONS.filter((d) => ['low-carb', 'low-fat', 'dairy-free'].includes(d.id));
     }
-    if (isVegProtein) {
-      return DIETARY_OPTIONS;
+    const allowed = PROTEIN_DIETARY[paramProteinId ?? ''];
+    if (allowed) return ALL_DIETARY_OPTIONS.filter((d) => allowed.includes(d.id));
+    if (isVegProtein) return ALL_DIETARY_OPTIONS;
+    return ALL_DIETARY_OPTIONS.filter((d) => d.id !== 'vegan');
+  }, [paramProteinId, isVegProtein, isDrinkProtein]);
+
+  // Filter spice levels based on protein suitability
+  const visibleSpiceLevels = useMemo(() => {
+    const allowed = PROTEIN_SPICE_LEVELS[paramProteinId ?? ''];
+    if (!allowed) return ALL_SPICE_LEVEL_OPTIONS;
+    return ALL_SPICE_LEVEL_OPTIONS.filter((o) => allowed.includes(o.id));
+  }, [paramProteinId]);
+
+  // Filter cuisine options based on protein suitability
+  const visibleCuisines = useMemo(() => {
+    const allowed = PROTEIN_CUISINES[paramProteinId ?? ''];
+    if (!allowed) return ALL_CUISINE_OPTIONS;
+    return ALL_CUISINE_OPTIONS.filter((o) => allowed.includes(o.id));
+  }, [paramProteinId]);
+
+  // Filter meal type options based on protein suitability
+  const MEAL_TYPE_OPTIONS = useMemo(() => {
+    const allowed = PROTEIN_MEAL_TYPES[paramProteinId ?? ''];
+    if (!allowed) return ALL_MEAL_TYPE_OPTIONS;
+    return ALL_MEAL_TYPE_OPTIONS.filter((o) => allowed.includes(o.id));
+  }, [paramProteinId]);
+
+  // Reset selections if current choices are not valid for this protein
+  useEffect(() => {
+    const pid = paramProteinId ?? '';
+    const allowedMeals = PROTEIN_MEAL_TYPES[pid];
+    if (allowedMeals && !allowedMeals.includes(selectedMealType)) {
+      setSelectedMealType(allowedMeals[0] ?? 'lunch-dinner');
     }
-    // Non-veg: don't show vegan
-    return DIETARY_OPTIONS.filter((d) => d.id !== 'vegan');
-  }, [isVegProtein, isDrinkProtein]);
+    const allowedSpice = PROTEIN_SPICE_LEVELS[pid];
+    if (allowedSpice && !allowedSpice.includes(selectedSpiceLevel)) {
+      setSelectedSpiceLevel(allowedSpice[0] ?? 'medium');
+    }
+    const allowedCuisine = PROTEIN_CUISINES[pid];
+    if (allowedCuisine && !allowedCuisine.includes(selectedCuisine)) {
+      setSelectedCuisine(allowedCuisine[0] ?? 'indian');
+    }
+    const allowedDietary = PROTEIN_DIETARY[pid];
+    if (allowedDietary) {
+      setSelectedDietary((prev) => prev.filter((d) => allowedDietary.includes(d)));
+    }
+  }, [paramProteinId]);
 
   const toggleDietary = (id: string) => {
     setSelectedDietary((prev) =>
@@ -520,16 +618,16 @@ export default function AIRecipeBuilderScreen() {
         if (ct) tags.push(ct.label);
       }
       if (selectedSpiceLevel) {
-        const sl = SPICE_LEVEL_OPTIONS.find((o) => o.id === selectedSpiceLevel);
+        const sl = ALL_SPICE_LEVEL_OPTIONS.find((o) => o.id === selectedSpiceLevel);
         if (sl) tags.push(sl.label);
       }
       if (selectedCuisine) {
-        const c = CUISINE_OPTIONS.find((o) => o.id === selectedCuisine);
+        const c = ALL_CUISINE_OPTIONS.find((o) => o.id === selectedCuisine);
         if (c) tags.push(c.label);
       }
     }
     selectedDietary.forEach((id) => {
-      const d = DIETARY_OPTIONS.find((o) => o.id === id);
+      const d = ALL_DIETARY_OPTIONS.find((o) => o.id === id);
       if (d) tags.push(d.label);
     });
     return tags;
@@ -635,17 +733,17 @@ export default function AIRecipeBuilderScreen() {
                 mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
                 cookingTime: undefined,
                 spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
-                dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
+                dietary: selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id)),
                 cuisine: '',
               }
             : {
                 meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
                 proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
-                mealType: findLabel(MEAL_TYPE_OPTIONS, selectedMealType),
+                mealType: findLabel(ALL_MEAL_TYPE_OPTIONS, selectedMealType),
                 cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
-                spiceLevel: findLabel(SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
-                dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
-                cuisine: findLabel(CUISINE_OPTIONS, selectedCuisine),
+                spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
+                dietary: selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id)),
+                cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
               },
         );
 
@@ -840,7 +938,7 @@ export default function AIRecipeBuilderScreen() {
                   {/* Spice Level */}
                   <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
                   <ChipRow
-                    options={SPICE_LEVEL_OPTIONS}
+                    options={visibleSpiceLevels}
                     selected={selectedSpiceLevel}
                     onSelect={setSelectedSpiceLevel}
                     disabled={loading}
@@ -865,7 +963,7 @@ export default function AIRecipeBuilderScreen() {
                   {/* Cuisine Style */}
                   <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
                   <ChipRow
-                    options={CUISINE_OPTIONS}
+                    options={visibleCuisines}
                     selected={selectedCuisine}
                     onSelect={setSelectedCuisine}
                     disabled={loading}
