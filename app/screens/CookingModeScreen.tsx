@@ -32,7 +32,7 @@ import { getRecipeStepImage, getRecipeCardImage } from '../../src/data/recipeIma
 import { getIngredientImage } from '../../src/data/ingredientImages';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { getRecipeImageUrls } from '../../services/recipeService';
-import { getCachedImageUri } from '../../services/imageCacheService';
+// imageCacheService no longer needed — expo-image handles caching
 
 
 function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[] {
@@ -248,16 +248,15 @@ export default function CookingModeScreen() {
     if (!recipeId) return;
     getRecipeById(recipeId).then(setRecipe);
     loadRecipeImages(recipeId).then(setAiImages);
-    // Load Supabase step images
-    getRecipeImageUrls(recipeId).then(async (urls) => {
-      const stepImgs: Record<string, string> = {};
-      await Promise.all(
-        Object.entries(urls.stepUrls).map(async ([idx, url]) => {
-          const localUri = await getCachedImageUri(url, `${recipeId}_step_${idx}`);
-          if (localUri) stepImgs[idx] = localUri;
-        })
-      );
-      if (Object.keys(stepImgs).length > 0) setSupabaseStepImages(stepImgs);
+    // Load Supabase step image URLs (expo-image caches automatically)
+    getRecipeImageUrls(recipeId).then((urls) => {
+      if (Object.keys(urls.stepUrls).length > 0) {
+        const stepImgs: Record<string, string> = {};
+        for (const [idx, url] of Object.entries(urls.stepUrls)) {
+          stepImgs[idx] = url;
+        }
+        setSupabaseStepImages(stepImgs);
+      }
     }).catch(() => {});
   }, [recipeId]);
 

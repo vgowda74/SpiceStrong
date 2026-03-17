@@ -23,7 +23,7 @@ import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
 import { submitCookCount } from '../../services/ratingsService';
 import { getRecipeImageUrls } from '../../services/recipeService';
-import { getCachedImageUri } from '../../services/imageCacheService';
+// imageCacheService no longer needed — expo-image handles caching
 import { loadRecipeImages } from '../../services/imageGenerationService';
 
 const ORANGE = '#E85D26';
@@ -47,13 +47,10 @@ export default function RecipeOverviewScreen() {
 
     // Load hero image from Supabase → AI → built-in fallback chain
     (async () => {
-      // Try Supabase hero image
+      // Try Supabase hero image (expo-image caches automatically)
       try {
         const urls = await getRecipeImageUrls(recipeId);
-        if (urls.heroUrl) {
-          const localUri = await getCachedImageUri(urls.heroUrl, `${recipeId}_hero`);
-          if (localUri) { setHeroImageUri(localUri); return; }
-        }
+        if (urls.heroUrl) { setHeroImageUri(urls.heroUrl); return; }
       } catch { /* continue */ }
 
       // Try AI-generated dish image

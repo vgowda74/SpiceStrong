@@ -22,7 +22,7 @@ import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls } from '../../services/recipeService';
-import { getCachedImageUri } from '../../services/imageCacheService';
+// imageCacheService no longer needed — expo-image handles caching
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 import { getRecipeCardImage } from '../../src/data/recipeImages';
@@ -116,13 +116,12 @@ export default function RecipeListScreen() {
           const dishImgs: Record<string, string> = {};
           const heroImgs: Record<string, string> = {};
 
-          // Helper: try loading Supabase hero image
+          // Helper: try loading Supabase hero image URL (expo-image caches automatically)
           const trySupabaseHero = async (id: string) => {
             try {
               const urls = await getRecipeImageUrls(id);
               if (urls.heroUrl) {
-                const localUri = await getCachedImageUri(urls.heroUrl, `${id}_hero`);
-                if (localUri) heroImgs[id] = localUri;
+                heroImgs[id] = urls.heroUrl;
               }
             } catch { /* skip */ }
           };
