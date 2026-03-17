@@ -32,6 +32,7 @@ const AI_ENABLED_PROTEINS: string[] = [];
 /** Protein emoji & name lookup for the limit modal */
 const PROTEIN_INFO: Record<string, { name: string; emoji: string }> = {
   chicken: { name: 'Chicken', emoji: '🍗' },
+  beef: { name: 'Beef', emoji: '🥩' },
   paneer: { name: 'Paneer', emoji: '🧀' },
   eggs: { name: 'Eggs', emoji: '🥚' },
   lamb: { name: 'Lamb', emoji: '🥩' },
@@ -41,9 +42,9 @@ const PROTEIN_INFO: Record<string, { name: string; emoji: string }> = {
   prawns: { name: 'Prawns', emoji: '🦐' },
   tofu: { name: 'Tofu', emoji: '🟫' },
   soy: { name: 'Soy', emoji: '🫘' },
-  beans: { name: 'Beans', emoji: '🫘' },
-  milk: { name: 'Milk', emoji: '🥛' },
-  whey: { name: 'Whey', emoji: '🥤' },
+  beans: { name: 'Beans & Lentils', emoji: '🫘' },
+  milk: { name: 'Dairy', emoji: '🥛' },
+  whey: { name: 'Protein Powder', emoji: '🏋️' },
 };
 
 const ACCENT = '#E85D26';
@@ -57,6 +58,12 @@ const DRINK_PROTEIN_IDS = ['milk', 'whey'];
 const MEAT_TYPE_MAP: Record<string, { id: string; label: string }[]> = {
   chicken: [
     { id: 'drumstick', label: '🍗 Drumstick' },
+    { id: 'boneless', label: '🥩 Boneless' },
+    { id: 'bone-in', label: '🦴 Bone-In' },
+    { id: 'minced', label: '🫕 Minced' },
+  ],
+  beef: [
+    { id: 'steak', label: '🥩 Steak' },
     { id: 'boneless', label: '🥩 Boneless' },
     { id: 'bone-in', label: '🦴 Bone-In' },
     { id: 'minced', label: '🫕 Minced' },

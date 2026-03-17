@@ -19,6 +19,7 @@ import { Image } from 'expo-image';
 /** Custom images for proteins (replaces emoji). */
 const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   chicken: require('../../assets/images/Protein/Chicken.jpg'),
+  beef: require('../../assets/images/Protein/Beef.jpg'),
   lamb: require('../../assets/images/Protein/Lamb.jpg'),
   goat: require('../../assets/images/Protein/goat.jpg'),
   pork: require('../../assets/images/Protein/Pork.jpg'),

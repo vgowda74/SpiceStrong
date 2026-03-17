@@ -23,6 +23,7 @@ export type ProteinCategory = 'NON-VEG' | 'VEG';
 export const PROTEINS = [
   // NON-VEG
   { id: 'chicken', name: 'Chicken', emoji: '🍗', proteinPer100g: 31, category: 'NON-VEG' as ProteinCategory },
+  { id: 'beef', name: 'Beef', emoji: '🥩', proteinPer100g: 26, category: 'NON-VEG' as ProteinCategory },
   { id: 'lamb', name: 'Lamb', emoji: '🥩', proteinPer100g: 26, category: 'NON-VEG' as ProteinCategory },
   { id: 'goat', name: 'Goat', emoji: '🐐', proteinPer100g: 27, category: 'NON-VEG' as ProteinCategory },
   { id: 'pork', name: 'Pork', emoji: '🥩', proteinPer100g: 27, category: 'NON-VEG' as ProteinCategory },
@@ -33,7 +34,7 @@ export const PROTEINS = [
   { id: 'paneer', name: 'Paneer', emoji: '🧀', proteinPer100g: 18, category: 'VEG' as ProteinCategory },
   { id: 'tofu', name: 'Tofu', emoji: '🟫', proteinPer100g: 17, category: 'VEG' as ProteinCategory },
   { id: 'soy', name: 'Soy', emoji: '🫘', proteinPer100g: 36, category: 'VEG' as ProteinCategory },
-  { id: 'beans', name: 'Beans', emoji: '🫘', proteinPer100g: 22, category: 'VEG' as ProteinCategory },
-  { id: 'milk', name: 'Milk', emoji: '🥛', proteinPer100g: 3, category: 'VEG' as ProteinCategory },
-  { id: 'whey', name: 'Whey Protein', emoji: '🏋️', proteinPer100g: 80, category: 'VEG' as ProteinCategory },
+  { id: 'beans', name: 'Beans & Lentils', emoji: '🫘', proteinPer100g: 22, category: 'VEG' as ProteinCategory },
+  { id: 'milk', name: 'Dairy', emoji: '🥛', proteinPer100g: 3, category: 'VEG' as ProteinCategory },
+  { id: 'whey', name: 'Protein Powder', emoji: '🏋️', proteinPer100g: 80, category: 'VEG' as ProteinCategory },
 ];

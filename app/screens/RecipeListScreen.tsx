@@ -32,6 +32,7 @@ import type { ImageSourcePropType } from 'react-native';
 /** Protein header images — keyed by protein ID */
 const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
   chicken: require('../../assets/images/Protein/Chicken.jpg'),
+  beef: require('../../assets/images/Protein/Beef.jpg'),
   lamb: require('../../assets/images/Protein/Lamb.jpg'),
   goat: require('../../assets/images/Protein/goat.jpg'),
   pork: require('../../assets/images/Protein/Pork.jpg'),
