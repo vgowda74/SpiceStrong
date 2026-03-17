@@ -19,6 +19,7 @@ import { Image } from 'expo-image';
 const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   chicken: require('../../assets/images/Protein/Chicken.jpg'),
   paneer: require('../../assets/images/Protein/paneer_small.png'),
+  tofu: require('../../assets/images/Protein/Tofu.jpg'),
 };
 import { PROTEINS } from '../../src/theme';
 

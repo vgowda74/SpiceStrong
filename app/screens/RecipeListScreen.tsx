@@ -33,6 +33,7 @@ import type { ImageSourcePropType } from 'react-native';
 const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
   chicken: require('../../assets/images/Protein/Chicken.jpg'),
   paneer: require('../../assets/images/Protein/paneer.png'),
+  tofu: require('../../assets/images/Protein/Tofu.jpg'),
 };
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
