@@ -37,7 +37,7 @@ import { PROTEINS } from '../../src/theme';
 
 const screenWidth = Dimensions.get('window').width;
 const CARD_WIDTH = (screenWidth - 56) / 2;
-const CARD_HEIGHT = 150;
+const CARD_HEIGHT = 120;
 
 const FILTERS = ['All', 'Non-Veg', 'Vegetarian'] as const;
 type Filter = (typeof FILTERS)[number];

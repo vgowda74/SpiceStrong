@@ -23,11 +23,11 @@ export type ProteinCategory = 'NON-VEG' | 'VEG';
 export const PROTEINS = [
   // NON-VEG
   { id: 'chicken', name: 'Chicken', emoji: '🍗', proteinPer100g: 31, category: 'NON-VEG' as ProteinCategory },
-  { id: 'beef', name: 'Beef', emoji: '🥩', proteinPer100g: 26, category: 'NON-VEG' as ProteinCategory },
+  { id: 'fish', name: 'Fish', emoji: '🐟', proteinPer100g: 22, category: 'NON-VEG' as ProteinCategory },
   { id: 'lamb', name: 'Lamb', emoji: '🥩', proteinPer100g: 26, category: 'NON-VEG' as ProteinCategory },
   { id: 'goat', name: 'Goat', emoji: '🐐', proteinPer100g: 27, category: 'NON-VEG' as ProteinCategory },
   { id: 'pork', name: 'Pork', emoji: '🥩', proteinPer100g: 27, category: 'NON-VEG' as ProteinCategory },
-  { id: 'fish', name: 'Fish', emoji: '🐟', proteinPer100g: 22, category: 'NON-VEG' as ProteinCategory },
+  { id: 'beef', name: 'Beef', emoji: '🥩', proteinPer100g: 26, category: 'NON-VEG' as ProteinCategory },
   { id: 'prawns', name: 'Prawns', emoji: '🦐', proteinPer100g: 24, category: 'NON-VEG' as ProteinCategory },
   { id: 'eggs', name: 'Eggs', emoji: '🥚', proteinPer100g: 13, category: 'NON-VEG' as ProteinCategory },
   // VEG
