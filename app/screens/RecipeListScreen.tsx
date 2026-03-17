@@ -41,6 +41,9 @@ const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
   eggs: require('../../assets/images/Protein/Egg.jpg'),
   paneer: require('../../assets/images/Protein/paneer.png'),
   tofu: require('../../assets/images/Protein/Tofu.jpg'),
+  soy: require('../../assets/images/Protein/Soy.jpg'),
+  beans: require('../../assets/images/Protein/Beans.jpg'),
+  milk: require('../../assets/images/Protein/Dairy.jpg'),
 };
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';

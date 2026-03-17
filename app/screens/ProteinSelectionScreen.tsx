@@ -28,6 +28,9 @@ const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   eggs: require('../../assets/images/Protein/Egg.jpg'),
   paneer: require('../../assets/images/Protein/paneer_small.png'),
   tofu: require('../../assets/images/Protein/Tofu.jpg'),
+  soy: require('../../assets/images/Protein/Soy.jpg'),
+  beans: require('../../assets/images/Protein/Beans.jpg'),
+  milk: require('../../assets/images/Protein/Dairy.jpg'),
 };
 import { PROTEINS } from '../../src/theme';
 
