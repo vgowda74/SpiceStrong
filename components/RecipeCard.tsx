@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   type GestureResponderEvent,
   type ImageSourcePropType,
-  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -17,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 
 const SPACE = 4;
 const CARD_RADIUS = 20;
@@ -116,7 +116,8 @@ export function RecipeCard({
               <Image
                 source={imageSource}
                 style={styles.heroFullImage}
-                resizeMode="cover"
+                contentFit="cover"
+                transition={200}
               />
             ) : (
               <>

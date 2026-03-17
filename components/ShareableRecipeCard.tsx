@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, ImageBackground, Platform } from 'react-native';
+import { View, Text, StyleSheet, ImageBackground, Platform } from 'react-native';
+import { Image } from 'expo-image';
 import type { ImageSourcePropType } from 'react-native';
 import type { SavedRecipe } from '../src/store/recipes';
 

@@ -8,7 +8,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Image,
   ImageBackground,
   Platform,
   ScrollView,
@@ -17,6 +16,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 
 import { getRecipeById, type SavedRecipe, type QuantityTier, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';

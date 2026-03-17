@@ -14,8 +14,8 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Image,
 } from 'react-native';
+import { Image } from 'expo-image';
 
 import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/store/recipes';
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
@@ -101,7 +101,7 @@ export default function RecipeOverviewScreen() {
           <View style={styles.heroWrap}>
             <LinearGradient colors={[gradient[0], gradient[1]]} style={styles.heroGradient}>
               {cardImage ? (
-                <Image source={cardImage} style={styles.heroImage} resizeMode="cover" />
+                <Image source={cardImage} style={styles.heroImage} contentFit="cover" transition={200} />
               ) : (
                 <Text style={styles.heroEmoji}>{recipe.proteinEmoji}</Text>
               )}

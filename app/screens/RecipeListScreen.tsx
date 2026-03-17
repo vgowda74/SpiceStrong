@@ -5,7 +5,6 @@ import {
   Alert,
   Dimensions,
   FlatList,
-  Image,
   ImageBackground,
   Platform,
   ScrollView,
@@ -14,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 
 const screenWidth = Dimensions.get('window').width;
 

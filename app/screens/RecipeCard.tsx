@@ -1,7 +1,6 @@
 import React from 'react'
 import {
   GestureResponderEvent,
-  Image,
   type ImageSourcePropType,
   Platform,
   Pressable,
@@ -9,6 +8,7 @@ import {
   Text,
   View,
 } from 'react-native'
+import { Image } from 'expo-image'
 import { LinearGradient } from 'expo-linear-gradient'
 
 export type RecipeDifficulty = 'Easy' | 'Medium' | 'Hard'
@@ -79,7 +79,7 @@ export default function RecipeCard({
           )}
 
           {imageSource ? (
-            <Image source={imageSource} style={styles.heroImage} resizeMode="cover" />
+            <Image source={imageSource} style={styles.heroImage} contentFit="cover" transition={200} />
           ) : (
             <Text style={styles.emoji}>{emoji}</Text>
           )}

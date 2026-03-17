@@ -8,7 +8,6 @@ import {
   Alert,
   Animated,
   AppState,
-  Image,
   ImageBackground,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -22,6 +21,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import ViewShot from 'react-native-view-shot';
 import { getRecipeById, getCompletionStats, SavedRecipe, BUILTIN_INGREDIENT_GROUPS, type CookingStep, type QuantityTier } from '../../src/store/recipes';
 import { showTimerVolumeWarningOnce } from '../../src/utils/timerWarning';
@@ -888,13 +888,13 @@ export default function CookingModeScreen() {
               <Image
                 source={{ uri: supabaseStepImages[String(currentStep)] }}
                 style={styles.stepImage}
-                resizeMode="cover"
+                contentFit="cover" transition={200}
               />
             ) : getRecipeStepImage(recipe.id, currentStep) ? (
               <Image
                 source={getRecipeStepImage(recipe.id, currentStep)!}
                 style={styles.stepImage}
-                resizeMode="cover"
+                contentFit="cover" transition={200}
               />
             ) : (
               <View style={styles.imageAreaCompact}>
@@ -907,13 +907,13 @@ export default function CookingModeScreen() {
               <Image
                 source={{ uri: aiStepImages[String(currentStep)]! }}
                 style={styles.stepImage}
-                resizeMode="cover"
+                contentFit="cover" transition={200}
               />
             ) : supabaseStepImages[String(currentStep)] ? (
               <Image
                 source={{ uri: supabaseStepImages[String(currentStep)] }}
                 style={styles.stepImage}
-                resizeMode="cover"
+                contentFit="cover" transition={200}
               />
             ) : (
               <View style={styles.imageAreaCompact}>

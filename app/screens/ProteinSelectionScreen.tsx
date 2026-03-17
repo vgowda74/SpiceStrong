@@ -3,7 +3,6 @@ import { useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
-  Image,
   ImageBackground,
   Platform,
   ScrollView,
@@ -14,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
+import { Image } from 'expo-image';
 
 /** Custom images for proteins (replaces emoji). */
 const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
@@ -70,7 +70,7 @@ function ProteinCard({
     >
       <View style={[styles.emojiCircle, disabled && styles.emojiCircleDisabled]}>
         {PROTEIN_IMAGES[item.id] ? (
-          <Image source={PROTEIN_IMAGES[item.id]} style={styles.proteinImage} resizeMode="cover" />
+          <Image source={PROTEIN_IMAGES[item.id]} style={styles.proteinImage} contentFit="cover" transition={200} />
         ) : (
           <Text style={styles.emojiText}>{item.emoji}</Text>
         )}
