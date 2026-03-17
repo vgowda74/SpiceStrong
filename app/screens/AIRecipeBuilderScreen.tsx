@@ -792,7 +792,7 @@ export default function AIRecipeBuilderScreen() {
 
   return (
     <ImageBackground
-      source={require('../../assets/images/splash-bg.png')}
+      source={require('../../assets/images/splash-bg.jpg')}
       style={styles.bg}
       resizeMode="cover"
     >

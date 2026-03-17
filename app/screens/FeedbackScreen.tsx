@@ -150,7 +150,7 @@ export default function FeedbackScreen() {
   );
 
   return (
-    <ImageBackground source={require('../../assets/images/splash-bg.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.75)' }]} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>

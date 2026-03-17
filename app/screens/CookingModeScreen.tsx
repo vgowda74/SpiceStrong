@@ -379,7 +379,7 @@ export default function CookingModeScreen() {
   if (!recipe) {
     return (
       <ImageBackground
-        source={require('../../assets/images/splash-bg.png')}
+        source={require('../../assets/images/splash-bg.jpg')}
         style={{ flex: 1 }}
         resizeMode="cover"
       >
@@ -568,7 +568,7 @@ export default function CookingModeScreen() {
     };
     return (
       <ImageBackground
-        source={require('../../assets/images/splash-bg.png')}
+        source={require('../../assets/images/splash-bg.jpg')}
         style={{ flex: 1 }}
         resizeMode="cover"
       >
@@ -774,7 +774,7 @@ export default function CookingModeScreen() {
   if (!step) {
     return (
       <ImageBackground
-        source={require('../../assets/images/splash-bg.png')}
+        source={require('../../assets/images/splash-bg.jpg')}
         style={{ flex: 1 }}
         resizeMode="cover"
       >
@@ -791,7 +791,7 @@ export default function CookingModeScreen() {
 
   return (
     <ImageBackground
-      source={require('../../assets/images/splash-bg.png')}
+      source={require('../../assets/images/splash-bg.jpg')}
       style={{ flex: 1 }}
       resizeMode="cover"
     >

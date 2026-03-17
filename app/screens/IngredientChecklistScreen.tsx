@@ -191,7 +191,7 @@ export default function IngredientChecklistScreen() {
   if (loading) {
     return (
       <ImageBackground
-        source={require('../../assets/images/splash-bg.png')}
+        source={require('../../assets/images/splash-bg.jpg')}
         style={{ flex: 1 }}
         resizeMode="cover"
       >
@@ -206,7 +206,7 @@ export default function IngredientChecklistScreen() {
   if (!recipeId || !recipe) {
     return (
       <ImageBackground
-        source={require('../../assets/images/splash-bg.png')}
+        source={require('../../assets/images/splash-bg.jpg')}
         style={{ flex: 1 }}
         resizeMode="cover"
       >
@@ -384,7 +384,7 @@ export default function IngredientChecklistScreen() {
 
   return (
     <ImageBackground
-      source={require('../../assets/images/splash-bg.png')}
+      source={require('../../assets/images/splash-bg.jpg')}
       style={{ flex: 1 }}
       resizeMode="cover"
     >

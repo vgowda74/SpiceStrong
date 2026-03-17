@@ -48,7 +48,7 @@ export default function CookingStartScreen() {
   const r = recipe;
   if (!r) {
     return (
-      <ImageBackground source={require('../../assets/images/splash-bg.png')} style={styles.bg} resizeMode="cover">
+      <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
         <View style={styles.overlay} />
         <View style={styles.center}>
           <Text style={styles.loadingText}>Loading...</Text>
@@ -66,7 +66,7 @@ export default function CookingStartScreen() {
   };
 
   return (
-    <ImageBackground source={require('../../assets/images/splash-bg.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
       <View style={styles.overlay} />
       <View style={styles.container}>
         <Animated.Text style={[styles.emoji, { transform: [{ scale: pulseAnim }] }]}>👨‍🍳</Animated.Text>

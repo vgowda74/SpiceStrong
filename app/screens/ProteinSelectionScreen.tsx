@@ -114,7 +114,7 @@ export default function ProteinSelectionScreen() {
 
   return (
     <ImageBackground
-      source={require('../../assets/images/splash-bg.png')}
+      source={require('../../assets/images/splash-bg.jpg')}
       style={{ flex: 1 }}
       resizeMode="cover"
     >
