@@ -38,7 +38,7 @@ export default function ShareableRecipeCard({
   return (
     <View style={styles.cardOuter}>
       <ImageBackground
-        source={require('../assets/images/splash-bg.png')}
+        source={require('../assets/images/splash-bg.jpg')}
         style={styles.bg}
         resizeMode="cover"
       >
