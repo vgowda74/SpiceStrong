@@ -109,39 +109,39 @@ export default function RecipeListScreen() {
         setCookCounts(cookCountsMap);
         setHasLoaded(true);
 
-        // Load AI dish images for non-builtin recipes
+        // Load recipe images with type-aware fallback chains:
+        // Native recipes (curated): Supabase Storage → built-in static → emoji
+        // AI recipes (user-generated): AI-generated → Supabase Storage → emoji
         const loadDishImages = async (allRecipes: SavedRecipe[]) => {
-          const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id));
           const dishImgs: Record<string, string> = {};
           const heroImgs: Record<string, string> = {};
+
+          // Helper: try loading Supabase hero image
+          const trySupabaseHero = async (id: string) => {
+            try {
+              const urls = await getRecipeImageUrls(id);
+              if (urls.heroUrl) {
+                const localUri = await getCachedImageUri(urls.heroUrl, `${id}_hero`);
+                if (localUri) heroImgs[id] = localUri;
+              }
+            } catch { /* skip */ }
+          };
+
+          // Native/curated recipes: Supabase Storage → built-in static → emoji
+          const nativeRecipes = allRecipes.filter((r) => builtInIds.has(r.id) || r.id.startsWith('spicestrong-'));
+          await Promise.all(nativeRecipes.map((r) => trySupabaseHero(r.id)));
+
+          // AI recipes: AI-generated → Supabase Storage → emoji
+          const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id) && !r.id.startsWith('spicestrong-'));
           await Promise.all(aiRecipes.map(async (r) => {
-            // Try local AI images first
             const imgs = await loadRecipeImages(r.id);
             if (imgs?.dishImage) {
               dishImgs[r.id] = imgs.dishImage;
             } else {
-              // Try Supabase hero image
-              try {
-                const urls = await getRecipeImageUrls(r.id);
-                if (urls.heroUrl) {
-                  const localUri = await getCachedImageUri(urls.heroUrl, `${r.id}_hero`);
-                  if (localUri) heroImgs[r.id] = localUri;
-                }
-              } catch { /* skip */ }
+              await trySupabaseHero(r.id);
             }
           }));
-          // Also load Supabase hero images for curated recipes
-          const curatedRecipes = allRecipes.filter((r) => builtInIds.has(r.id) || !dishImgs[r.id]);
-          await Promise.all(curatedRecipes.map(async (r) => {
-            if (heroImgs[r.id]) return; // already loaded
-            try {
-              const urls = await getRecipeImageUrls(r.id);
-              if (urls.heroUrl) {
-                const localUri = await getCachedImageUri(urls.heroUrl, `${r.id}_hero`);
-                if (localUri) heroImgs[r.id] = localUri;
-              }
-            } catch { /* skip */ }
-          }));
+
           if (!cancelled) {
             setAiDishImages(dishImgs);
             setSupabaseHeroImages(heroImgs);
@@ -266,12 +266,12 @@ export default function RecipeListScreen() {
     const builtInImage = getRecipeCardImage(item.id);
     const aiDishUri = aiDishImages[item.id];
     const supabaseHeroUri = supabaseHeroImages[item.id];
-    // Image fallback chain: Supabase hero → AI dish → built-in static → null (emoji)
-    const cardImage = supabaseHeroUri
-      ? { uri: supabaseHeroUri }
-      : aiDishUri
-        ? { uri: aiDishUri }
-        : builtInImage;
+    const isNativeRecipe = builtInIds.has(item.id) || item.id.startsWith('spicestrong-');
+    // Native recipes: Supabase Storage → built-in static → emoji
+    // AI recipes: AI-generated → Supabase Storage → emoji
+    const cardImage = isNativeRecipe
+      ? (supabaseHeroUri ? { uri: supabaseHeroUri } : builtInImage)
+      : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : null);
     // Nutrition is stored as whole "2-3 servings" batch — divide by 2.5 for per-serving card display
     // Nutrition is stored as whole "2-3 servings" batch — show batch values on card
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;

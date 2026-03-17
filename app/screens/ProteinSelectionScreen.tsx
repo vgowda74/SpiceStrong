@@ -29,8 +29,8 @@ const CARD_HEIGHT = 150;
 const FILTERS = ['All', 'Non-Veg', 'Vegetarian'] as const;
 type Filter = (typeof FILTERS)[number];
 
-/** Beta-enabled proteins — set to empty array to enable all. */
-const BETA_ENABLED_PROTEINS = ['chicken', 'paneer', 'eggs', 'fish'];
+/** Enabled proteins — set to empty array to enable all. */
+const ENABLED_PROTEINS: string[] = [];
 
 const HEADER_BG = '#2A1005';
 const BODY_BG = '#FAF7F2';
@@ -181,9 +181,9 @@ export default function ProteinSelectionScreen() {
                   nestedScrollEnabled={true}
                   keyExtractor={(p) => p.id}
                   renderItem={({ item }) => {
-                    const isBetaLocked = BETA_ENABLED_PROTEINS.length > 0 && !BETA_ENABLED_PROTEINS.includes(item.id);
+                    const isLocked = ENABLED_PROTEINS.length > 0 && !ENABLED_PROTEINS.includes(item.id);
                     return (
-                      <ProteinCard item={item} onPress={() => navigateToRecipes(item)} disabled={isBetaLocked} />
+                      <ProteinCard item={item} onPress={() => navigateToRecipes(item)} disabled={isLocked} />
                     );
                   }}
                   columnWrapperStyle={styles.gridRow}
@@ -205,9 +205,9 @@ export default function ProteinSelectionScreen() {
                   nestedScrollEnabled={true}
                   keyExtractor={(p) => p.id}
                   renderItem={({ item }) => {
-                    const isBetaLocked = BETA_ENABLED_PROTEINS.length > 0 && !BETA_ENABLED_PROTEINS.includes(item.id);
+                    const isLocked = ENABLED_PROTEINS.length > 0 && !ENABLED_PROTEINS.includes(item.id);
                     return (
-                      <ProteinCard item={item} onPress={() => navigateToRecipes(item)} disabled={isBetaLocked} />
+                      <ProteinCard item={item} onPress={() => navigateToRecipes(item)} disabled={isLocked} />
                     );
                   }}
                   columnWrapperStyle={styles.gridRow}

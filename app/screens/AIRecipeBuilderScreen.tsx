@@ -26,8 +26,8 @@ const MAX_FREE_AI_RECIPES_PER_PROTEIN = __DEV__ ? 0 : 1;
 /** AsyncStorage key for per-protein AI recipe count */
 const AI_COUNT_KEY_PREFIX = 'aiRecipeCount_';
 
-/** Beta-enabled proteins for AI builder. Empty array = all enabled. */
-const BETA_AI_PROTEINS = ['chicken', 'paneer', 'eggs', 'fish'];
+/** Enabled proteins for AI builder. Empty array = all enabled. */
+const AI_ENABLED_PROTEINS: string[] = [];
 
 /** Protein emoji & name lookup for the limit modal */
 const PROTEIN_INFO: Record<string, { name: string; emoji: string }> = {
@@ -638,8 +638,8 @@ export default function AIRecipeBuilderScreen() {
       Alert.alert('', 'AI is not configured. Set EXPO_PUBLIC_ANTHROPIC_KEY.');
       return;
     }
-    // Beta protein restriction
-    if (BETA_AI_PROTEINS.length > 0 && !BETA_AI_PROTEINS.includes(paramProteinId ?? '')) {
+    // Protein restriction (empty = all enabled)
+    if (AI_ENABLED_PROTEINS.length > 0 && !AI_ENABLED_PROTEINS.includes(paramProteinId ?? '')) {
       Alert.alert('Coming Soon', 'SpiceBuilder recipes for this protein will be available soon!');
       return;
     }
@@ -650,9 +650,9 @@ export default function AIRecipeBuilderScreen() {
         const countStr = await AsyncStorage.getItem(countKey);
         const aiCount = countStr ? parseInt(countStr, 10) : 0;
         if (aiCount >= MAX_FREE_AI_RECIPES_PER_PROTEIN) {
-          // Find other beta proteins the user can still generate for
+          // Find other proteins the user can still generate for
           const others: { id: string; name: string; emoji: string }[] = [];
-          for (const pid of BETA_AI_PROTEINS) {
+          for (const pid of AI_ENABLED_PROTEINS) {
             if (pid === paramProteinId) continue;
             const otherKey = `${AI_COUNT_KEY_PREFIX}${pid}`;
             const otherStr = await AsyncStorage.getItem(otherKey);
@@ -1020,7 +1020,7 @@ export default function AIRecipeBuilderScreen() {
         </ScrollView>
       </View>
 
-      {/* ===== Beta Limit Modal ===== */}
+      {/* ===== Limit Modal ===== */}
       <Modal
         visible={showLimitModal}
         transparent
@@ -1042,13 +1042,13 @@ export default function AIRecipeBuilderScreen() {
             <Text style={styles.modalEmoji}>🚀</Text>
 
             {/* Title */}
-            <Text style={styles.modalTitle}>Beta Limit Reached</Text>
+            <Text style={styles.modalTitle}>Limit Reached</Text>
 
             {/* Message */}
             <Text style={styles.modalMessage}>
-              You've used your beta AI recipe for{' '}
+              You've used your free AI recipe for{' '}
               <Text style={styles.modalProteinHighlight}>{paramProteinName}</Text>.
-              {'\n\n'}Full launch unlocks unlimited AI recipes.{'\n'}Stay tuned! 🚀
+              {'\n\n'}Try generating a recipe for a different protein! 🚀
             </Text>
 
             {/* Other available proteins */}
@@ -1241,7 +1241,7 @@ const styles = StyleSheet.create({
   },
   regenFullBtnText: { color: 'rgba(255,255,255,0.8)', fontWeight: '600', fontSize: 14 },
 
-  // Beta Limit Modal
+  // Limit Modal
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

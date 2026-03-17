@@ -182,25 +182,42 @@ export default function CookingModeScreen() {
     if (!recipe) return { dishImage: null, stepImages: {}, ingredientImages: {} };
     const rid = recipe.id;
 
-    // Dish image: prefer AI, fall back to built-in
+    const isNative = rid.startsWith('spicestrong-');
+
+    // Dish image fallback:
+    // Native: Supabase hero (via supabaseStepImages parent) → built-in static
+    // AI: AI-generated → built-in static
     let dishImg: any = null;
-    if (aiImages?.dishImage) {
-      dishImg = { uri: aiImages.dishImage };
-    } else {
+    if (isNative) {
       const builtIn = getRecipeCardImage(rid);
       if (builtIn) dishImg = builtIn;
+    } else {
+      if (aiImages?.dishImage) {
+        dishImg = { uri: aiImages.dishImage };
+      } else {
+        const builtIn = getRecipeCardImage(rid);
+        if (builtIn) dishImg = builtIn;
+      }
     }
 
-    // Step images: prefer AI, fall back to Supabase, then built-in
+    // Step images fallback:
+    // Native: Supabase Storage → built-in static
+    // AI: AI-generated → Supabase Storage
     const stepImgs: Record<number, any> = {};
     recipe.steps.forEach((_, idx) => {
-      if (aiImages?.stepImages?.[String(idx)]) {
-        stepImgs[idx] = { uri: aiImages.stepImages[String(idx)] };
-      } else if (supabaseStepImages[String(idx)]) {
-        stepImgs[idx] = { uri: supabaseStepImages[String(idx)] };
+      if (isNative) {
+        if (supabaseStepImages[String(idx)]) {
+          stepImgs[idx] = { uri: supabaseStepImages[String(idx)] };
+        } else {
+          const builtIn = getRecipeStepImage(rid, idx);
+          if (builtIn) stepImgs[idx] = builtIn;
+        }
       } else {
-        const builtIn = getRecipeStepImage(rid, idx);
-        if (builtIn) stepImgs[idx] = builtIn;
+        if (aiImages?.stepImages?.[String(idx)]) {
+          stepImgs[idx] = { uri: aiImages.stepImages[String(idx)] };
+        } else if (supabaseStepImages[String(idx)]) {
+          stepImgs[idx] = { uri: supabaseStepImages[String(idx)] };
+        }
       }
     });
 
@@ -861,30 +878,48 @@ export default function CookingModeScreen() {
           </View>
         )}
 
-        {/* Step image: AI image > Supabase image > static image > compact emoji fallback */}
+        {/* Step image fallback:
+            Native recipes: Supabase Storage → built-in static → emoji
+            AI recipes: AI-generated → Supabase Storage → emoji */}
         <View style={styles.imageAreaWrapper}>
-          {aiStepImages[String(currentStep)] ? (
-            <Image
-              source={{ uri: aiStepImages[String(currentStep)]! }}
-              style={styles.stepImage}
-              resizeMode="cover"
-            />
-          ) : supabaseStepImages[String(currentStep)] ? (
-            <Image
-              source={{ uri: supabaseStepImages[String(currentStep)] }}
-              style={styles.stepImage}
-              resizeMode="cover"
-            />
-          ) : getRecipeStepImage(recipe.id, currentStep) ? (
-            <Image
-              source={getRecipeStepImage(recipe.id, currentStep)!}
-              style={styles.stepImage}
-              resizeMode="cover"
-            />
+          {recipe.id.startsWith('spicestrong-') ? (
+            // Native recipe: Supabase Storage → built-in static → emoji
+            supabaseStepImages[String(currentStep)] ? (
+              <Image
+                source={{ uri: supabaseStepImages[String(currentStep)] }}
+                style={styles.stepImage}
+                resizeMode="cover"
+              />
+            ) : getRecipeStepImage(recipe.id, currentStep) ? (
+              <Image
+                source={getRecipeStepImage(recipe.id, currentStep)!}
+                style={styles.stepImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.imageAreaCompact}>
+                <Text style={styles.stepEmojiCompact}>{stepEmoji}</Text>
+              </View>
+            )
           ) : (
-            <View style={styles.imageAreaCompact}>
-              <Text style={styles.stepEmojiCompact}>{stepEmoji}</Text>
-            </View>
+            // AI recipe: AI-generated → Supabase Storage → emoji
+            aiStepImages[String(currentStep)] ? (
+              <Image
+                source={{ uri: aiStepImages[String(currentStep)]! }}
+                style={styles.stepImage}
+                resizeMode="cover"
+              />
+            ) : supabaseStepImages[String(currentStep)] ? (
+              <Image
+                source={{ uri: supabaseStepImages[String(currentStep)] }}
+                style={styles.stepImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.imageAreaCompact}>
+                <Text style={styles.stepEmojiCompact}>{stepEmoji}</Text>
+              </View>
+            )
           )}
         </View>
 
