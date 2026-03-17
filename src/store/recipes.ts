@@ -145,23 +145,54 @@ export function getBuiltInRecipeById(recipeId: string): SavedRecipe | null {
   return _getBuiltIn(recipeId);
 }
 
-/** Get all recipes (saved + built-in) for a given protein. */
+/** Get all recipes for a given protein.
+ *  Delegates to recipeService for Supabase-backed stale-while-revalidate fetching.
+ *  Returns cached/built-in data immediately; Supabase refresh happens in background.
+ */
 export async function getAllRecipesForProtein(proteinId: string): Promise<SavedRecipe[]> {
-  const saved = await getRecipes();
-  const savedForProtein = saved.filter((r) => r.proteinId === proteinId);
-  const builtIn = getBuiltInRecipesForProtein(proteinId);
-  // Merge — built-in first, then user-saved (skip duplicates by id)
-  const ids = new Set(builtIn.map((r) => r.id));
-  const userOnly = savedForProtein.filter((r) => !ids.has(r.id));
-  return [...builtIn, ...userOnly];
+  try {
+    const { fetchRecipesByProtein } = await import('../../services/recipeService');
+    const { recipes } = await fetchRecipesByProtein(proteinId);
+    return recipes;
+  } catch {
+    // Fallback to local-only if recipeService fails to load
+    const saved = await getRecipes();
+    const savedForProtein = saved.filter((r) => r.proteinId === proteinId);
+    const builtIn = getBuiltInRecipesForProtein(proteinId);
+    const ids = new Set(builtIn.map((r) => r.id));
+    const userOnly = savedForProtein.filter((r) => !ids.has(r.id));
+    return [...builtIn, ...userOnly];
+  }
+}
+
+/**
+ * Get all recipes for a protein with stale-while-revalidate support.
+ * Returns cached data + a refresh promise that resolves when Supabase data is ready.
+ */
+export async function getAllRecipesForProteinWithRefresh(proteinId: string): Promise<{
+  recipes: SavedRecipe[];
+  refresh: Promise<SavedRecipe[] | null>;
+}> {
+  try {
+    const { fetchRecipesByProtein } = await import('../../services/recipeService');
+    return await fetchRecipesByProtein(proteinId);
+  } catch {
+    const recipes = await getAllRecipesForProtein(proteinId);
+    return { recipes, refresh: Promise.resolve(null) };
+  }
 }
 
 export async function getRecipeById(recipeId: string): Promise<SavedRecipe | null> {
-  // Check built-in first
-  const builtIn = getBuiltInRecipeById(recipeId);
-  if (builtIn) return builtIn;
-  const saved = await getRecipes();
-  return saved.find((r) => r.id === recipeId) ?? null;
+  try {
+    const { fetchRecipeById } = await import('../../services/recipeService');
+    return await fetchRecipeById(recipeId);
+  } catch {
+    // Fallback to local-only
+    const builtIn = getBuiltInRecipeById(recipeId);
+    if (builtIn) return builtIn;
+    const saved = await getRecipes();
+    return saved.find((r) => r.id === recipeId) ?? null;
+  }
 }
 
 /** Completion stats helper — used by CookingModeScreen. */

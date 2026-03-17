@@ -15,6 +15,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus } from '../../services/recipeService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -592,11 +593,8 @@ export default function AIRecipeBuilderScreen() {
     };
 
     try {
-      // Save placeholder to AsyncStorage
-      const existing = await AsyncStorage.getItem('spicestrong_recipes');
-      const recipes: Record<string, unknown>[] = existing ? JSON.parse(existing) : [];
-      recipes.push({ ...placeholder, isAIGenerated: true });
-      await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(recipes));
+      // Save placeholder to AsyncStorage + Supabase (via recipeService)
+      await saveAIRecipe(placeholder);
 
       // Increment permanent AI recipe counter for this protein
       try {
@@ -654,7 +652,7 @@ export default function AIRecipeBuilderScreen() {
         // Step 2: Save full recipe (update placeholder) — stays in 'building' status
         console.log('[SpiceStrong] Background: recipe generated, saving...');
         saved = await saveRecipeFromAI(result, placeholderId);
-        await upsertRecipe(saved);
+        await saveAIRecipe(saved); // Save to AsyncStorage + sync to Supabase
         console.log('[SpiceStrong] Background: recipe saved, generating images...');
 
         // Step 3: Generate DALL-E images
@@ -666,9 +664,15 @@ export default function AIRecipeBuilderScreen() {
         });
         await saveRecipeImages(saved.id, imageResults);
 
+        // Step 3b: Upload hero image to Supabase Storage (best-effort)
+        if (imageResults.dishImage) {
+          uploadRecipeHeroImage(saved.id, imageResults.dishImage).catch(() => {});
+        }
+
         // Step 4: Mark recipe as ready only after images are done
         saved.status = 'ready';
-        await upsertRecipe(saved);
+        await saveAIRecipe(saved); // Update locally + Supabase
+        updateRecipeStatus(saved.id, 'ready').catch(() => {}); // Explicit status update
         console.log('[SpiceStrong] Background: recipe complete with images!');
       } catch (err) {
         console.error('[SpiceStrong] Background recipe generation failed:', err);
@@ -677,7 +681,7 @@ export default function AIRecipeBuilderScreen() {
           const toFix = saved ?? placeholder;
           toFix.status = 'ready';
           if (!saved) toFix.description = 'Recipe generation failed. Please delete and try again.';
-          await upsertRecipe(toFix);
+          await saveAIRecipe(toFix);
         } catch { /* best effort */ }
       }
     })();

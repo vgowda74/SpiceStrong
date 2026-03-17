@@ -135,7 +135,10 @@
       "Bash(find /c/Users/v_gow/SpiceStrong/services -type f -name *.ts)",
       "Bash(xargs basename:*)",
       "Bash(node create-recipe-template.js)",
-      "Bash(find /c/Users/v_gow/SpiceStrong -name *.env* -o -name .env*)"
+      "Bash(find /c/Users/v_gow/SpiceStrong -name *.env* -o -name .env*)",
+      "Bash(git status:*)",
+      "Bash(find /c/Users/v_gow/SpiceStrong -type f -name *supabase* -o -name *recipeService*)",
+      "Bash(find . -path ./node_modules -prune -o -name *.ts -o -name *.sql)"
     ]
   }
 }

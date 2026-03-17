@@ -19,8 +19,10 @@ const screenWidth = Dimensions.get('window').width;
 
 import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../components/RecipeCard';
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
-import { getAllRecipesForProtein, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
+import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
+import { getRecipeImageUrls } from '../../services/recipeService';
+import { getCachedImageUri } from '../../services/imageCacheService';
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 import { getRecipeCardImage } from '../../src/data/recipeImages';
@@ -73,6 +75,12 @@ export default function RecipeListScreen() {
   // AI dish images for recipe cards (keyed by recipeId -> local URI)
   const [aiDishImages, setAiDishImages] = useState<Record<string, string>>({});
 
+  // Supabase hero image URIs (keyed by recipeId -> local cached URI)
+  const [supabaseHeroImages, setSupabaseHeroImages] = useState<Record<string, string>>({});
+
+  // Loading state for skeleton
+  const [hasLoaded, setHasLoaded] = useState(false);
+
   // Community ratings cache (persists across re-renders, fetched once per recipeId)
   const communityRatingsCache = useRef<Record<string, RecipeRatings>>({});
   const [communityRatings, setCommunityRatings] = useState<Record<string, RecipeRatings>>({});
@@ -86,22 +94,70 @@ export default function RecipeListScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getAllRecipesForProtein(proteinId), getRatings(), getFavourites(), getCookCounts()]).then(async ([allRecipes, ratingsMap, favouritesList, cookCountsMap]) => {
+      const load = async () => {
+        const [result, ratingsMap, favouritesList, cookCountsMap] = await Promise.all([
+          getAllRecipesForProteinWithRefresh(proteinId),
+          getRatings(),
+          getFavourites(),
+          getCookCounts(),
+        ]);
+
         if (cancelled) return;
-        setRecipes(allRecipes);
+        setRecipes(result.recipes);
         setRatings(ratingsMap);
         setFavourites(favouritesList);
         setCookCounts(cookCountsMap);
+        setHasLoaded(true);
 
         // Load AI dish images for non-builtin recipes
-        const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id));
-        const dishImgs: Record<string, string> = {};
-        await Promise.all(aiRecipes.map(async (r) => {
-          const imgs = await loadRecipeImages(r.id);
-          if (imgs?.dishImage) dishImgs[r.id] = imgs.dishImage;
-        }));
-        if (!cancelled) setAiDishImages(dishImgs);
-      });
+        const loadDishImages = async (allRecipes: SavedRecipe[]) => {
+          const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id));
+          const dishImgs: Record<string, string> = {};
+          const heroImgs: Record<string, string> = {};
+          await Promise.all(aiRecipes.map(async (r) => {
+            // Try local AI images first
+            const imgs = await loadRecipeImages(r.id);
+            if (imgs?.dishImage) {
+              dishImgs[r.id] = imgs.dishImage;
+            } else {
+              // Try Supabase hero image
+              try {
+                const urls = await getRecipeImageUrls(r.id);
+                if (urls.heroUrl) {
+                  const localUri = await getCachedImageUri(urls.heroUrl, `${r.id}_hero`);
+                  if (localUri) heroImgs[r.id] = localUri;
+                }
+              } catch { /* skip */ }
+            }
+          }));
+          // Also load Supabase hero images for curated recipes
+          const curatedRecipes = allRecipes.filter((r) => builtInIds.has(r.id) || !dishImgs[r.id]);
+          await Promise.all(curatedRecipes.map(async (r) => {
+            if (heroImgs[r.id]) return; // already loaded
+            try {
+              const urls = await getRecipeImageUrls(r.id);
+              if (urls.heroUrl) {
+                const localUri = await getCachedImageUri(urls.heroUrl, `${r.id}_hero`);
+                if (localUri) heroImgs[r.id] = localUri;
+              }
+            } catch { /* skip */ }
+          }));
+          if (!cancelled) {
+            setAiDishImages(dishImgs);
+            setSupabaseHeroImages(heroImgs);
+          }
+        };
+
+        await loadDishImages(result.recipes);
+
+        // Background refresh from Supabase (stale-while-revalidate)
+        result.refresh.then(async (fresh) => {
+          if (cancelled || !fresh) return;
+          setRecipes(fresh);
+          await loadDishImages(fresh);
+        });
+      };
+      load();
       return () => { cancelled = true; };
     }, [proteinId])
   );
@@ -209,7 +265,13 @@ export default function RecipeListScreen() {
     const gradient: readonly [string, string] = (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
     const builtInImage = getRecipeCardImage(item.id);
     const aiDishUri = aiDishImages[item.id];
-    const cardImage = aiDishUri ? { uri: aiDishUri } : builtInImage;
+    const supabaseHeroUri = supabaseHeroImages[item.id];
+    // Image fallback chain: Supabase hero → AI dish → built-in static → null (emoji)
+    const cardImage = supabaseHeroUri
+      ? { uri: supabaseHeroUri }
+      : aiDishUri
+        ? { uri: aiDishUri }
+        : builtInImage;
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
@@ -368,11 +430,26 @@ export default function RecipeListScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyEmoji}>🍽️</Text>
-            <Text style={styles.emptyTitle}>No recipes yet</Text>
-            <Text style={styles.emptySub}>Use "Build with SpiceBuilder" to create your first {proteinName} recipe!</Text>
-          </View>
+          !hasLoaded ? (
+            <View style={styles.skeletonWrap}>
+              {[1, 2, 3].map((i) => (
+                <View key={i} style={styles.skeletonCard}>
+                  <View style={styles.skeletonImage} />
+                  <View style={styles.skeletonLines}>
+                    <View style={[styles.skeletonLine, { width: '70%' }]} />
+                    <View style={[styles.skeletonLine, { width: '50%' }]} />
+                    <View style={[styles.skeletonLine, { width: '40%' }]} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyWrap}>
+              <Text style={styles.emptyEmoji}>🍽️</Text>
+              <Text style={styles.emptyTitle}>No recipes yet</Text>
+              <Text style={styles.emptySub}>Use "Build with SpiceBuilder" to create your first {proteinName} recipe!</Text>
+            </View>
+          )
         }
         renderItem={({ item }) => renderRecipeCard(item)}
       />
@@ -561,6 +638,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteBtnText: { fontSize: 16 },
+
+  // Loading skeleton
+  skeletonWrap: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 16,
+  },
+  skeletonCard: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: 14,
+    gap: 14,
+  },
+  skeletonImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  skeletonLines: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 10,
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
 
   // Empty state
   emptyWrap: {

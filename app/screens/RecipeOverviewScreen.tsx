@@ -21,6 +21,9 @@ import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/st
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
+import { getRecipeImageUrls } from '../../services/recipeService';
+import { getCachedImageUri } from '../../services/imageCacheService';
+import { loadRecipeImages } from '../../services/imageGenerationService';
 
 const ORANGE = '#E85D26';
 const CARD_WHITE = '#FFFFFF';
@@ -36,9 +39,28 @@ export default function RecipeOverviewScreen() {
   const quantityTier = (params.quantityTier ?? '2-3 servings') as QuantityTier;
 
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
+  const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
 
   useEffect(() => {
     getRecipeById(recipeId).then(setRecipe);
+
+    // Load hero image from Supabase → AI → built-in fallback chain
+    (async () => {
+      // Try Supabase hero image
+      try {
+        const urls = await getRecipeImageUrls(recipeId);
+        if (urls.heroUrl) {
+          const localUri = await getCachedImageUri(urls.heroUrl, `${recipeId}_hero`);
+          if (localUri) { setHeroImageUri(localUri); return; }
+        }
+      } catch { /* continue */ }
+
+      // Try AI-generated dish image
+      try {
+        const aiImgs = await loadRecipeImages(recipeId);
+        if (aiImgs?.dishImage) { setHeroImageUri(aiImgs.dishImage); return; }
+      } catch { /* continue */ }
+    })();
   }, [recipeId]);
 
   if (!recipe) {
@@ -54,7 +76,9 @@ export default function RecipeOverviewScreen() {
   const nutrition = (recipe as BuiltInRecipe).nutrition ?? null;
   const proteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
   const gradient: readonly [string, string] = (recipe as BuiltInRecipe).gradient ?? ['#8B4513', '#5D2E0C'];
-  const cardImage = getRecipeCardImage(recipe.id);
+  const builtInImage = getRecipeCardImage(recipe.id);
+  // Image fallback: Supabase/AI URI → built-in static → null (emoji)
+  const cardImage = heroImageUri ? { uri: heroImageUri } : builtInImage;
   const stepsCount = recipe.steps?.length ?? 0;
 
   return (
