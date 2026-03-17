@@ -61,6 +61,7 @@ interface SupabaseRecipeRow {
   device_id: string | null;
   created_at: string;
   updated_at: string;
+  cook_count?: number;
   recipe_images?: SupabaseImageRow[];
 }
 
@@ -196,6 +197,7 @@ function mapSupabaseRowToRecipe(row: SupabaseRecipeRow): SavedRecipe & Partial<B
     createdAt: new Date(row.created_at).getTime(),
     status: row.status === 'building' ? 'building' : 'ready',
     aiNutrition: aiNutrition,
+    communityCookCount: row.cook_count ?? 0,
 
     // BuiltInRecipe extended fields
     timeMinutes: row.time_minutes ?? undefined,
@@ -565,11 +567,11 @@ export async function refreshRecipeCache(): Promise<void> {
  * Get image URLs for a recipe from cache or Supabase.
  */
 export async function getRecipeImageUrls(recipeId: string): Promise<RecipeImageUrls> {
-  // 1. Check cached URLs
+  // 1. Check cached URLs — only use cache if it has a heroUrl
   const cached = await getCachedImageUrls(recipeId);
-  if (cached) return cached;
+  if (cached?.heroUrl) return cached;
 
-  // 2. Try Supabase
+  // 2. Try Supabase (always re-check if cached heroUrl is null)
   try {
     const isAvailable = await checkRecipeTableAvailable();
     if (isAvailable) {
@@ -586,7 +588,7 @@ export async function getRecipeImageUrls(recipeId: string): Promise<RecipeImageU
     }
   } catch { /* fallback */ }
 
-  return { heroUrl: null, stepUrls: {} };
+  return cached ?? { heroUrl: null, stepUrls: {} };
 }
 
 /**

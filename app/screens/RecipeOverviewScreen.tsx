@@ -21,6 +21,7 @@ import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/st
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
+import { submitCookCount } from '../../services/ratingsService';
 import { getRecipeImageUrls } from '../../services/recipeService';
 import { getCachedImageUri } from '../../services/imageCacheService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
@@ -164,6 +165,7 @@ export default function RecipeOverviewScreen() {
             style={styles.startButton}
             onPress={async () => {
               await incrementCookCount(recipe.id);
+              submitCookCount(recipe.id).catch(() => {}); // Community count (fire-and-forget)
               router.push({
                 pathname: '/screens/IngredientChecklistScreen',
                 params: { recipeId: recipe.id, quantityTier },

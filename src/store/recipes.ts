@@ -60,6 +60,8 @@ export interface SavedRecipe {
   mealType?: MealType;
   /** Recipe generation status: 'building' while AI is generating, undefined/'ready' when complete. */
   status?: 'building' | 'ready';
+  /** Community-wide cook count from Supabase. */
+  communityCookCount?: number;
   /** AI-generated nutrition data (optional). */
   aiNutrition?: {
     calories: number;

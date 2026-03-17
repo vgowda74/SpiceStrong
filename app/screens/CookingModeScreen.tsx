@@ -31,6 +31,8 @@ import ShareableRecipeCard from '../../components/ShareableRecipeCard';
 import { getRecipeStepImage, getRecipeCardImage } from '../../src/data/recipeImages';
 import { getIngredientImage } from '../../src/data/ingredientImages';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { getRecipeImageUrls } from '../../services/recipeService';
+import { getCachedImageUri } from '../../services/imageCacheService';
 
 
 function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[] {
@@ -153,6 +155,8 @@ export default function CookingModeScreen() {
   // AI-generated step images (loaded from AsyncStorage)
   const [aiImages, setAiImages] = useState<RecipeImageResults | null>(null);
   const aiStepImages = aiImages?.stepImages ?? {};
+  // Supabase step images (keyed by step index -> local cached URI)
+  const [supabaseStepImages, setSupabaseStepImages] = useState<Record<string, string>>({});
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(0);
@@ -187,11 +191,13 @@ export default function CookingModeScreen() {
       if (builtIn) dishImg = builtIn;
     }
 
-    // Step images: prefer AI, fall back to built-in
+    // Step images: prefer AI, fall back to Supabase, then built-in
     const stepImgs: Record<number, any> = {};
     recipe.steps.forEach((_, idx) => {
       if (aiImages?.stepImages?.[String(idx)]) {
         stepImgs[idx] = { uri: aiImages.stepImages[String(idx)] };
+      } else if (supabaseStepImages[String(idx)]) {
+        stepImgs[idx] = { uri: supabaseStepImages[String(idx)] };
       } else {
         const builtIn = getRecipeStepImage(rid, idx);
         if (builtIn) stepImgs[idx] = builtIn;
@@ -208,7 +214,7 @@ export default function CookingModeScreen() {
     });
 
     return { dishImage: dishImg, stepImages: stepImgs, ingredientImages: ingImgs };
-  }, [recipe, aiImages]);
+  }, [recipe, aiImages, supabaseStepImages]);
 
   // Poll for background-generated images every 30s until they arrive
   useEffect(() => {
@@ -225,6 +231,17 @@ export default function CookingModeScreen() {
     if (!recipeId) return;
     getRecipeById(recipeId).then(setRecipe);
     loadRecipeImages(recipeId).then(setAiImages);
+    // Load Supabase step images
+    getRecipeImageUrls(recipeId).then(async (urls) => {
+      const stepImgs: Record<string, string> = {};
+      await Promise.all(
+        Object.entries(urls.stepUrls).map(async ([idx, url]) => {
+          const localUri = await getCachedImageUri(url, `${recipeId}_step_${idx}`);
+          if (localUri) stepImgs[idx] = localUri;
+        })
+      );
+      if (Object.keys(stepImgs).length > 0) setSupabaseStepImages(stepImgs);
+    }).catch(() => {});
   }, [recipeId]);
 
   useEffect(() => {
@@ -844,11 +861,17 @@ export default function CookingModeScreen() {
           </View>
         )}
 
-        {/* Step image: AI image > static image > compact emoji fallback */}
+        {/* Step image: AI image > Supabase image > static image > compact emoji fallback */}
         <View style={styles.imageAreaWrapper}>
           {aiStepImages[String(currentStep)] ? (
             <Image
               source={{ uri: aiStepImages[String(currentStep)]! }}
+              style={styles.stepImage}
+              resizeMode="cover"
+            />
+          ) : supabaseStepImages[String(currentStep)] ? (
+            <Image
+              source={{ uri: supabaseStepImages[String(currentStep)] }}
               style={styles.stepImage}
               resizeMode="cover"
             />

@@ -203,6 +203,29 @@ export async function submitReview(
   }
 }
 
+// ─── Community Cook Count ───
+
+/**
+ * Atomically increment the community cook count for a recipe in Supabase.
+ * Uses an RPC function for safe concurrent increments.
+ * Returns the new count, or -1 on failure (caller should ignore failures).
+ */
+export async function submitCookCount(recipeId: string): Promise<number> {
+  try {
+    const { data, error } = await supabase.rpc('increment_cook_count', {
+      p_recipe_id: recipeId,
+    });
+    if (error) {
+      console.warn('[SpiceStrong] submitCookCount failed:', error.message);
+      return -1;
+    }
+    return typeof data === 'number' ? data : -1;
+  } catch (e) {
+    console.warn('[SpiceStrong] submitCookCount error:', e);
+    return -1;
+  }
+}
+
 /**
  * Format relative time (e.g., "2 days ago", "1 week ago")
  */

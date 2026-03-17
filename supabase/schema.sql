@@ -45,10 +45,22 @@ CREATE TABLE IF NOT EXISTS recipes (
   cuisine         TEXT,
   device_id       TEXT,            -- null for curated, set for AI recipes
   status          TEXT CHECK (status IN ('building', 'ready')),
+  cook_count      INT NOT NULL DEFAULT 0, -- community-wide cook count
 
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Atomic increment function for community cook count
+CREATE OR REPLACE FUNCTION increment_cook_count(p_recipe_id TEXT)
+RETURNS INT AS $$
+DECLARE new_count INT;
+BEGIN
+  UPDATE recipes SET cook_count = cook_count + 1 WHERE id = p_recipe_id
+  RETURNING cook_count INTO new_count;
+  RETURN COALESCE(new_count, 0);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Primary query: fetch active recipes by protein
 CREATE INDEX IF NOT EXISTS idx_recipes_protein_active

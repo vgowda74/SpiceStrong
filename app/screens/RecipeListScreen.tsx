@@ -303,7 +303,7 @@ export default function RecipeListScreen() {
         rating={ratingString}
         communityCount={ratingCount}
         communityLoading={isLoading}
-        cookCount={cookCounts[item.id]}
+        cookCount={item.communityCookCount || cookCounts[item.id] || 0}
         emoji={item.proteinEmoji ?? '🍽️'}
         imageSource={cardImage}
         isFavorite={favourites.includes(item.id)}
