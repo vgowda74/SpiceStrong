@@ -138,7 +138,8 @@
       "Bash(find /c/Users/v_gow/SpiceStrong -name *.env* -o -name .env*)",
       "Bash(git status:*)",
       "Bash(find /c/Users/v_gow/SpiceStrong -type f -name *supabase* -o -name *recipeService*)",
-      "Bash(find . -path ./node_modules -prune -o -name *.ts -o -name *.sql)"
+      "Bash(find . -path ./node_modules -prune -o -name *.ts -o -name *.sql)",
+      "Bash(grep -r \"rpc\\\\|function\" /c/Users/v_gow/SpiceStrong/supabase/*.sql)"
     ]
   }
 }

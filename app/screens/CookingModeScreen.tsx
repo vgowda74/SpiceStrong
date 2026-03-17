@@ -559,85 +559,77 @@ export default function CookingModeScreen() {
           >
             <View style={styles.nutritionBoxHeader}>
               <View style={styles.nutritionBoxSummary}>
-                <Text style={styles.nutritionBoxValue}>🔥 {stats.calories} kcal</Text>
+                <Text style={styles.nutritionBoxValue}>🔥 {stats.batchCalories} kcal</Text>
                 <Text style={styles.nutritionBoxDot}>•</Text>
-                <Text style={styles.nutritionBoxValue}>💪 {stats.proteinG}g protein</Text>
+                <Text style={styles.nutritionBoxValue}>💪 {stats.batchProteinG}g protein</Text>
               </View>
               <Text style={styles.nutritionBoxArrow}>{showNutritionDetails ? '▲' : '▼'}</Text>
             </View>
-            <Text style={styles.nutritionBoxHint}>per serving ({selectedTier})  •  {showNutritionDetails ? 'tap to collapse' : 'tap for full nutrition'}</Text>
+            <Text style={styles.nutritionBoxHint}>total for {selectedTier}  •  {showNutritionDetails ? 'tap to collapse' : 'tap for full nutrition'}</Text>
 
             {showNutritionDetails && (
               <View style={styles.nutritionDetailsGrid}>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Calories</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.calories} kcal</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Calories</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.batchCalories} kcal</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Protein</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.proteinG}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Protein</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.batchProteinG}g</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Carbs</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.carbsG}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Carbs</Text>
+                  <Text style={styles.nutritionDetailVal}>{Math.round(stats.carbsG * stats.servings)}g</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Fat</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.fatG}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Fat</Text>
+                  <Text style={styles.nutritionDetailVal}>{Math.round(stats.fatG * stats.servings)}g</Text>
                 </View>
                 {stats.saturatedFatG > 0 && (
                   <View style={styles.nutritionDetailRow}>
                     <Text style={styles.nutritionDetailLabelIndent}>Saturated Fat</Text>
-                    <Text style={styles.nutritionDetailVal}>{stats.saturatedFatG}g</Text>
+                    <Text style={styles.nutritionDetailVal}>{Math.round(stats.saturatedFatG * stats.servings)}g</Text>
                   </View>
                 )}
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Fiber</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.fiberG}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Fiber</Text>
+                  <Text style={styles.nutritionDetailVal}>{Math.round(stats.fiberG * stats.servings)}g</Text>
                 </View>
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Sugar</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.sugarG}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Total Sugar</Text>
+                  <Text style={styles.nutritionDetailVal}>{Math.round(stats.sugarG * stats.servings)}g</Text>
                 </View>
                 <View style={styles.nutritionDivider} />
                 {stats.cholesterolMg > 0 && (
                   <View style={styles.nutritionDetailRow}>
                     <Text style={styles.nutritionDetailLabel}>Cholesterol</Text>
-                    <Text style={styles.nutritionDetailVal}>{stats.cholesterolMg}mg</Text>
+                    <Text style={styles.nutritionDetailVal}>{Math.round(stats.cholesterolMg * stats.servings)}mg</Text>
                   </View>
                 )}
                 <View style={styles.nutritionDetailRow}>
                   <Text style={styles.nutritionDetailLabel}>Sodium</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.sodiumMg}mg</Text>
+                  <Text style={styles.nutritionDetailVal}>{Math.round(stats.sodiumMg * stats.servings)}mg</Text>
                 </View>
                 {stats.ironMg > 0 && (
                   <View style={styles.nutritionDetailRow}>
                     <Text style={styles.nutritionDetailLabel}>Iron</Text>
-                    <Text style={styles.nutritionDetailVal}>{stats.ironMg}mg</Text>
+                    <Text style={styles.nutritionDetailVal}>{Math.round(stats.ironMg * stats.servings)}mg</Text>
                   </View>
                 )}
                 {stats.calciumMg > 0 && (
                   <View style={styles.nutritionDetailRow}>
                     <Text style={styles.nutritionDetailLabel}>Calcium</Text>
-                    <Text style={styles.nutritionDetailVal}>{stats.calciumMg}mg</Text>
+                    <Text style={styles.nutritionDetailVal}>{Math.round(stats.calciumMg * stats.servings)}mg</Text>
                   </View>
                 )}
                 <View style={styles.nutritionDivider} />
                 <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Servings</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.servings}</Text>
-                </View>
-                <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Total Calories ({selectedTier})</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.batchCalories} kcal</Text>
-                </View>
-                <View style={styles.nutritionDetailRow}>
-                  <Text style={styles.nutritionDetailLabel}>Total Protein ({selectedTier})</Text>
-                  <Text style={styles.nutritionDetailVal}>{stats.batchProteinG}g</Text>
+                  <Text style={styles.nutritionDetailLabel}>Serves</Text>
+                  <Text style={styles.nutritionDetailVal}>{stats.servings} servings</Text>
                 </View>
                 <View style={styles.nutritionDivider} />
                 <Text style={styles.nutritionHelpText}>
-                  ℹ️ This recipe makes {stats.servings} servings. Above values are per serving. Total is for the entire batch ({selectedTier}). Adjust based on how much you eat!
+                  ℹ️ These are total values for the entire {selectedTier} batch. Calculate your intake based on how much you actually consume.
                 </Text>
               </View>
             )}
