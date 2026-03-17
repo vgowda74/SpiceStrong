@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useState } from 'react';
 import {
   Dimensions,
@@ -63,22 +64,36 @@ function ProteinCard({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const hasImage = !!PROTEIN_IMAGES[item.id];
+
   return (
     <TouchableOpacity
       style={[styles.card, disabled && styles.cardDisabled]}
       onPress={disabled ? undefined : onPress}
       activeOpacity={disabled ? 1 : 0.8}
     >
-      <View style={[styles.emojiCircle, disabled && styles.emojiCircleDisabled]}>
-        {PROTEIN_IMAGES[item.id] ? (
-          <Image source={PROTEIN_IMAGES[item.id]} style={styles.proteinImage} contentFit="cover" transition={200} />
-        ) : (
-          <Text style={styles.emojiText}>{item.emoji}</Text>
-        )}
-      </View>
-      <Text style={[styles.proteinName, disabled && styles.proteinNameDisabled]} numberOfLines={1}>
-        {item.name}
-      </Text>
+      {hasImage ? (
+        <>
+          <Image source={PROTEIN_IMAGES[item.id]} style={styles.cardFullImage} contentFit="cover" transition={200} />
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.7)']}
+            style={styles.cardGradient}
+            pointerEvents="none"
+          />
+          <Text style={[styles.proteinNameOverlay, disabled && styles.proteinNameDisabled]} numberOfLines={1}>
+            {item.name}
+          </Text>
+        </>
+      ) : (
+        <>
+          <View style={[styles.emojiCircle, disabled && styles.emojiCircleDisabled]}>
+            <Text style={styles.emojiText}>{item.emoji}</Text>
+          </View>
+          <Text style={[styles.proteinName, disabled && styles.proteinNameDisabled]} numberOfLines={1}>
+            {item.name}
+          </Text>
+        </>
+      )}
       {disabled && (
         <View style={styles.comingSoonBadge}>
           <Text style={styles.comingSoonText}>🔒 Coming Soon</Text>
@@ -333,11 +348,40 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 8,
-    overflow: 'visible',
+    overflow: 'hidden',
     borderBottomWidth: 4,
     borderRightWidth: 2,
     borderBottomColor: '#D4D4D4',
     borderRightColor: '#E0E0E0',
+  },
+  cardFullImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  cardGradient: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+  },
+  proteinNameOverlay: {
+    position: 'absolute',
+    bottom: 12,
+    left: 8,
+    right: 8,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    ...Platform.select({
+      ios: {
+        textShadowColor: 'rgba(0,0,0,0.5)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 3,
+      },
+    }),
   },
   emojiCircle: {
     width: 52,
@@ -355,11 +399,6 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 30,
-  },
-  proteinImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
   },
   proteinName: {
     fontSize: 17,
