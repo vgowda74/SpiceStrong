@@ -19,6 +19,7 @@ import {
   type QuantityTier,
   type IngredientGroup,
 } from '../../src/store/recipes';
+import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 const ORANGE = '#E85D26';
 const ORANGE_LIGHT = 'rgba(232, 93, 38, 0.35)';
 const CARD_BG = 'rgba(255,255,255,0.08)';
@@ -139,6 +140,9 @@ export default function IngredientChecklistScreen() {
   const quantityTierParam = typeof params.quantityTier === 'string' ? params.quantityTier : Array.isArray(params.quantityTier) ? params.quantityTier[0] : undefined;
   const initialTier = (quantityTierParam && (QUANTITY_TIERS as readonly string[]).includes(quantityTierParam)) ? quantityTierParam as QuantityTier : '2-3 servings';
 
+  // AI-generated ingredient images (loaded from AsyncStorage)
+  const [aiImages, setAiImages] = useState<RecipeImageResults | null>(null);
+
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState<QuantityTier>(initialTier);
@@ -159,6 +163,13 @@ export default function IngredientChecklistScreen() {
       .catch(() => setRecipe(null))
       .finally(() => setLoading(false));
   }, [recipeId]);
+
+  useEffect(() => {
+    if (!recipeId) return;
+    loadRecipeImages(recipeId).then(setAiImages);
+  }, [recipeId]);
+
+  const aiIngredientImages = aiImages?.ingredientImages ?? {};
 
   const handleStartCooking = () => {
     if (!recipe) return;
@@ -282,6 +293,7 @@ export default function IngredientChecklistScreen() {
     const isChecked = !!checked[`${effectiveTier}-${item.flatIndex}`];
     const emoji = getIngredientEmoji(item.name);
     const ingredientImg = getIngredientImage(item.name);
+    const aiImgUrl = aiIngredientImages[item.name] ?? null;
     return (
       <TouchableOpacity
         style={[styles.ingredientCard, isChecked && styles.ingredientCardChecked]}
@@ -292,9 +304,11 @@ export default function IngredientChecklistScreen() {
         <View style={[styles.radioBtn, isChecked && styles.radioBtnChecked]}>
           {isChecked ? <View style={styles.radioBtnInner} /> : null}
         </View>
-        {/* Ingredient image or emoji fallback */}
+        {/* Ingredient image: AI image > static image > emoji fallback */}
         <View style={[styles.ingredientIcon, isChecked && styles.ingredientIconChecked]}>
-          {ingredientImg ? (
+          {aiImgUrl ? (
+            <Image source={{ uri: aiImgUrl }} style={styles.ingredientIconImage} />
+          ) : ingredientImg ? (
             <Image source={ingredientImg} style={styles.ingredientIconImage} />
           ) : (
             <Text style={styles.ingredientIconEmoji}>{emoji}</Text>

@@ -6,6 +6,7 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import React from 'react';
 import {
+  ActivityIndicator,
   type GestureResponderEvent,
   type ImageSourcePropType,
   Image,
@@ -53,6 +54,7 @@ export interface RecipeCardProps {
   accentColors: readonly [string, string];
   actionRow?: React.ReactNode;
   nutrition?: CardNutrition;
+  isBuilding?: boolean;
 }
 
 export function RecipeCard({
@@ -71,16 +73,32 @@ export function RecipeCard({
   accentColors,
   actionRow,
   imageSource,
+  isBuilding,
 }: RecipeCardProps) {
   const nameParts = name.includes(' (') ? name.split(/ \((.+)\)$/) : [name, ''];
   const recipeTitle = nameParts[0]?.trim() ?? name;
 
   return (
     <Pressable
-      style={({ pressed }) => [styles.cardShell, pressed && styles.cardPressed]}
-      onPress={onPress}
+      style={({ pressed }) => [styles.cardShell, pressed && !isBuilding && styles.cardPressed, isBuilding && styles.cardBuilding]}
+      onPress={isBuilding ? undefined : onPress}
+      disabled={isBuilding}
     >
       <View style={styles.cardInner}>
+        {/* Building overlay */}
+        {isBuilding && (
+          <View style={styles.buildingOverlay}>
+            <Text style={styles.buildingEmoji}>👨‍🍳</Text>
+            <Text style={styles.buildingTitle}>Crafting Your Recipe</Text>
+            <Text style={styles.buildingSubtext}>Our SpiceBuilder chefs are working{'\n'}their magic in the kitchen</Text>
+            <View style={styles.buildingDots}>
+              <View style={styles.buildingDot} />
+              <View style={[styles.buildingDot, styles.buildingDotMid]} />
+              <View style={[styles.buildingDot, styles.buildingDotLast]} />
+            </View>
+            <Text style={styles.buildingComeBack}>Come back soon!</Text>
+          </View>
+        )}
         {/* ——— HERO IMAGE ——— */}
         <View style={styles.heroWrap}>
           <LinearGradient
@@ -204,6 +222,61 @@ const styles = StyleSheet.create({
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
+  },
+  cardBuilding: {
+    opacity: 0.85,
+  },
+  buildingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10,
+    backgroundColor: 'rgba(26,10,0,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: CARD_RADIUS,
+    gap: 4,
+    paddingHorizontal: 20,
+  },
+  buildingEmoji: {
+    fontSize: 36,
+    marginBottom: 4,
+  },
+  buildingTitle: {
+    color: '#FFB347',
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 0.5,
+  },
+  buildingSubtext: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  buildingDots: {
+    flexDirection: 'row',
+    gap: 6,
+    marginVertical: 6,
+  },
+  buildingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFB347',
+    opacity: 1,
+  },
+  buildingDotMid: {
+    opacity: 0.6,
+  },
+  buildingDotLast: {
+    opacity: 0.3,
+  },
+  buildingComeBack: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   cardPressed: {
     transform: [{ scale: 0.98 }],

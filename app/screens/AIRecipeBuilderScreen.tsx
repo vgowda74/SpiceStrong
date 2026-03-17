@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType } from '../../src/store/recipes';
+import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
+import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -21,7 +22,7 @@ const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MAX_FREE_AI_RECIPES = __DEV__ ? 0 : 1;
 
 /** Beta-enabled proteins for AI builder. Empty array = all enabled. */
-const BETA_AI_PROTEINS = ['chicken', 'paneer'];
+const BETA_AI_PROTEINS = ['chicken', 'paneer', 'eggs'];
 
 const ACCENT = '#E85D26';
 const GLASS = 'rgba(255,255,255,0.1)';
@@ -256,7 +257,7 @@ ${constraintsText}`;
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
+      max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     }),
@@ -264,9 +265,12 @@ ${constraintsText}`;
 
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error?.message ?? 'API request failed');
+    const errMsg = data.error?.message ?? JSON.stringify(data);
+    console.error(`[SpiceStrong] Claude API error (${response.status}):`, errMsg);
+    throw new Error(errMsg);
   }
   const text = data.content?.[0]?.text ?? '';
+  console.log('[SpiceStrong] Raw Claude response length:', text.length);
   // Strip markdown fences and any text before/after the JSON object
   let cleaned = text.replace(/```json|```/g, '').trim();
   // Extract JSON object — find first { and last }
@@ -275,7 +279,14 @@ ${constraintsText}`;
   if (firstBrace !== -1 && lastBrace > firstBrace) {
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   }
-  return JSON.parse(cleaned);
+  // Remove control characters that can break JSON.parse
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (ch) => (ch === '\n' || ch === '\r' || ch === '\t' ? ch : ''));
+  try {
+    return JSON.parse(cleaned);
+  } catch (parseErr) {
+    console.error('[SpiceStrong] JSON parse failed. First 500 chars:', cleaned.substring(0, 500));
+    throw parseErr;
+  }
 }
 
 function normalizeAIIngredients(ingredients: unknown): SavedRecipe['ingredients'] {
@@ -307,10 +318,8 @@ function normalizeAIIngredients(ingredients: unknown): SavedRecipe['ingredients'
   return result as SavedRecipe['ingredients'];
 }
 
-async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe> {
-  const existing = await AsyncStorage.getItem('spicestrong_recipes');
-  const recipes: Record<string, unknown>[] = existing ? JSON.parse(existing) : [];
-
+/** Save AI-generated recipe data, updating the placeholder with the given id. */
+async function saveRecipeFromAI(recipe: Record<string, unknown>, existingId: string): Promise<SavedRecipe> {
   const steps = (recipe.steps as { title?: string; description?: string; emoji?: string; tip?: string; timerSeconds?: number }[]) ?? [];
   const stepsNormalized = steps.map((s) => ({
     title: s.title ?? '',
@@ -330,8 +339,8 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
   const parseCalStr = (v: unknown) => parseInt(String(v ?? '0').replace(/[^0-9]/g, ''), 10) || 0;
   const parseProteinStr = (v: unknown) => parseInt(String(v ?? '0').replace(/[^0-9]/g, ''), 10) || 0;
 
-  const newRecipe: SavedRecipe = {
-    id: Date.now().toString(),
+  const fullRecipe: SavedRecipe = {
+    id: existingId,
     name: String(recipe.name ?? 'Untitled'),
     proteinId: String(recipe.proteinId ?? 'chicken'),
     proteinName: String(recipe.proteinName ?? 'Chicken'),
@@ -342,6 +351,7 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
     chefTip: `${String(recipe.protein ?? '0g')} protein | ${String(recipe.calories ?? '0 kcal')} | ${String(recipe.description ?? steps[0]?.tip ?? '')}`,
     createdAt: Date.now(),
     mealType,
+    status: 'building', // still building until images are done
     aiNutrition: {
       calories: parseCalStr(recipe.calories),
       proteinG: parseProteinStr(recipe.protein),
@@ -353,13 +363,8 @@ async function saveRecipe(recipe: Record<string, unknown>): Promise<SavedRecipe>
     },
   };
 
-  const toStore = {
-    ...newRecipe,
-    isAIGenerated: true,
-  };
-  recipes.push(toStore);
-  await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(recipes));
-  return newRecipe;
+  await upsertRecipe(fullRecipe);
+  return fullRecipe;
 }
 
 // Chip row helper
@@ -531,64 +536,117 @@ export default function AIRecipeBuilderScreen() {
         }
       } catch { /* proceed if check fails */ }
     }
-    setLoading(true);
-    setGeneratedRecipe(null);
-    try {
-      const findLabel = (options: { id: string; label: string }[], id: string) =>
-        options.find((o) => o.id === id)?.label.replace(/^.\s/, '') ?? '';
 
-      const result = await callClaudeAPI(
-        paramProteinId ?? 'chicken',
-        paramProteinName ?? 'Chicken',
-        isDrinkProtein
-          ? {
-              meatType: findLabel(DRINK_TYPE_OPTIONS, selectedDrinkType),
-              proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
-              mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
-              cookingTime: undefined,
-              spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
-              dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
-              cuisine: '',
-            }
-          : {
-              meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
-              proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
-              mealType: findLabel(MEAL_TYPE_OPTIONS, selectedMealType),
-              cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
-              spiceLevel: findLabel(SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
-              dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
-              cuisine: findLabel(CUISINE_OPTIONS, selectedCuisine),
-            },
-      );
-      setGeneratedRecipe(result);
-    } catch (e) {
-      console.error(e);
-      const msg =
-        e instanceof SyntaxError ? 'Could not read the recipe, try again' : 'AI is busy, please try again';
-      Alert.alert('', msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const proteinId = paramProteinId ?? 'chicken';
+    const proteinName = paramProteinName ?? 'Chicken';
+    const proteinEmojiVal = proteinEmoji ?? '🍗';
 
-  const handleViewRecipe = async () => {
-    if (!generatedRecipe) return;
+    // Save placeholder recipe immediately with status: 'building'
+    const placeholderId = Date.now().toString();
+    const placeholder: SavedRecipe = {
+      id: placeholderId,
+      name: `Custom ${proteinName} Recipe`,
+      proteinId,
+      proteinName,
+      proteinEmoji: proteinEmojiVal,
+      description: 'Your AI recipe is being crafted...',
+      ingredients: { '2-3 servings': [], '4-6 servings': [] },
+      steps: [],
+      chefTip: '',
+      createdAt: Date.now(),
+      mealType: 'lunch_dinner',
+      status: 'building',
+    };
+
     try {
-      const saved = await saveRecipe(generatedRecipe);
+      // Save placeholder to AsyncStorage
+      const existing = await AsyncStorage.getItem('spicestrong_recipes');
+      const recipes: Record<string, unknown>[] = existing ? JSON.parse(existing) : [];
+      recipes.push({ ...placeholder, isAIGenerated: true });
+      await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(recipes));
+
       // Increment permanent AI recipe counter
       try {
         const countStr = await AsyncStorage.getItem('spicestrong_ai_recipe_count');
         const aiCount = countStr ? parseInt(countStr, 10) : 0;
         await AsyncStorage.setItem('spicestrong_ai_recipe_count', String(aiCount + 1));
       } catch { /* non-critical */ }
-      router.push({
-        pathname: '/screens/RecipeOverviewScreen',
-        params: { recipeId: saved.id, quantityTier: '2-3 servings', fromBuilder: '1' },
-      });
     } catch (e) {
       console.error(e);
       Alert.alert('', 'Could not save recipe, try again');
+      return;
     }
+
+    // Show confirmation and navigate to recipe list
+    Alert.alert(
+      'Recipe is Being Crafted!',
+      `Your custom ${proteinName} recipe will be ready in a few minutes. Check back under ${proteinName} recipes soon!`,
+    );
+    router.back();
+
+    // Fire-and-forget: generate recipe + images in background
+    const findLabel = (options: { id: string; label: string }[], id: string) =>
+      options.find((o) => o.id === id)?.label.replace(/^.\s/, '') ?? '';
+
+    (async () => {
+      let saved: SavedRecipe | null = null;
+      try {
+        // Step 1: Generate recipe via Claude API
+        console.log('[SpiceStrong] Background: generating recipe...');
+        const result = await callClaudeAPI(
+          proteinId,
+          proteinName,
+          isDrinkProtein
+            ? {
+                meatType: findLabel(DRINK_TYPE_OPTIONS, selectedDrinkType),
+                proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+                mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
+                cookingTime: undefined,
+                spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
+                dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
+                cuisine: '',
+              }
+            : {
+                meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
+                proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+                mealType: findLabel(MEAL_TYPE_OPTIONS, selectedMealType),
+                cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
+                spiceLevel: findLabel(SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
+                dietary: selectedDietary.map((id) => findLabel(DIETARY_OPTIONS, id)),
+                cuisine: findLabel(CUISINE_OPTIONS, selectedCuisine),
+              },
+        );
+
+        // Step 2: Save full recipe (update placeholder) — stays in 'building' status
+        console.log('[SpiceStrong] Background: recipe generated, saving...');
+        saved = await saveRecipeFromAI(result, placeholderId);
+        await upsertRecipe(saved);
+        console.log('[SpiceStrong] Background: recipe saved, generating images...');
+
+        // Step 3: Generate DALL-E images
+        const imageResults = await generateAllRecipeImages({
+          id: saved.id,
+          name: String(result.name ?? ''),
+          ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
+          steps: (result.steps as { title?: string; description?: string }[]) ?? [],
+        });
+        await saveRecipeImages(saved.id, imageResults);
+
+        // Step 4: Mark recipe as ready only after images are done
+        saved.status = 'ready';
+        await upsertRecipe(saved);
+        console.log('[SpiceStrong] Background: recipe complete with images!');
+      } catch (err) {
+        console.error('[SpiceStrong] Background recipe generation failed:', err);
+        // Mark as ready so it doesn't stay stuck in building state
+        try {
+          const toFix = saved ?? placeholder;
+          toFix.status = 'ready';
+          if (!saved) toFix.description = 'Recipe generation failed. Please delete and try again.';
+          await upsertRecipe(toFix);
+        } catch { /* best effort */ }
+      }
+    })();
   };
 
   const ingredientCount = generatedRecipe?.ingredients
@@ -603,6 +661,7 @@ export default function AIRecipeBuilderScreen() {
       resizeMode="cover"
     >
       <View style={styles.overlay} />
+
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
@@ -818,48 +877,9 @@ export default function AIRecipeBuilderScreen() {
             </View>
           )}
 
-          {/* After generation: show selected keywords + recipe card */}
-          {generatedRecipe && !loading && (
-            <>
-              {/* Selected keywords summary */}
-              <View style={styles.keywordsWrap}>
-                {selectedKeywords.map((tag, i) => (
-                  <View key={i} style={styles.keywordTag}>
-                    <Text style={styles.keywordTagText}>{tag}</Text>
-                  </View>
-                ))}
-              </View>
-
-              {/* Recipe preview card */}
-              <View style={styles.previewCard}>
-                <Text style={styles.previewName}>{String(generatedRecipe.name)}</Text>
-                <Text style={styles.previewDesc}>{String(generatedRecipe.description ?? '')}</Text>
-                <View style={styles.previewMeta}>
-                  <Text style={styles.previewMetaText}>{String(generatedRecipe.cookTime ?? '')}</Text>
-                  <Text style={styles.previewMetaDot}> · </Text>
-                  <Text style={styles.previewMetaText}>{String(generatedRecipe.difficulty ?? '')}</Text>
-                  <Text style={styles.previewMetaDot}> · </Text>
-                  <Text style={styles.previewMetaText}>{String(generatedRecipe.protein ?? '')}</Text>
-                </View>
-                <Text style={styles.previewCounts}>
-                  {ingredientCount} ingredients · {stepCount} steps
-                </Text>
-                <View style={styles.previewActions}>
-                  <TouchableOpacity style={styles.saveBtn} onPress={handleViewRecipe} activeOpacity={0.85}>
-                    <Text style={styles.saveBtnText}>👀 View Recipe</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.regenBtn}
-                    onPress={() => {
-                      setGeneratedRecipe(null);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.regenBtnText}>✕ Cancel Recipe</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
+          {/* Recipe generation submitted — no preview needed, generating in background */}
+          {false && (
+            <View />
           )}
         </ScrollView>
       </View>

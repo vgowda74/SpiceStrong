@@ -130,7 +130,10 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 120 http://localhost:8085/)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 180 \"http://localhost:8085/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" --max-time 180 http://localhost:8085/)",
-      "Bash(ls -la \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\types\"\" 2>/dev/null || echo \"Directory does not exist \")"
+      "Bash(ls -la \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\types\"\" 2>/dev/null || echo \"Directory does not exist \")",
+      "Bash(ls node_modules/expo-file-system/build/*.d.ts)",
+      "Bash(find /c/Users/v_gow/SpiceStrong/services -type f -name *.ts)",
+      "Bash(xargs basename:*)"
     ]
   }
 }

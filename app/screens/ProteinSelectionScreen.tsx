@@ -30,7 +30,7 @@ const FILTERS = ['All', 'Non-Veg', 'Vegetarian'] as const;
 type Filter = (typeof FILTERS)[number];
 
 /** Beta-enabled proteins — set to empty array to enable all. */
-const BETA_ENABLED_PROTEINS = ['chicken', 'paneer'];
+const BETA_ENABLED_PROTEINS = ['chicken', 'paneer', 'eggs'];
 
 const HEADER_BG = '#2A1005';
 const BODY_BG = '#FAF7F2';

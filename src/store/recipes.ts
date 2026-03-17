@@ -41,6 +41,8 @@ export interface SavedRecipe {
   chefTip: string;
   createdAt: number;
   mealType?: MealType;
+  /** Recipe generation status: 'building' while AI is generating, undefined/'ready' when complete. */
+  status?: 'building' | 'ready';
   /** AI-generated nutrition data (optional). */
   aiNutrition?: {
     calories: number;

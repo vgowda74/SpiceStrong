@@ -29,6 +29,7 @@ import { getRatings, setRating, getFavourites, setFavourites } from '../../src/s
 import { submitReview, submitRating as submitCommunityRating } from '../../services/ratingsService';
 import ShareableRecipeCard from '../../components/ShareableRecipeCard';
 import { getRecipeStepImage } from '../../src/data/recipeImages';
+import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 
 
 function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[] {
@@ -146,6 +147,10 @@ const DARK_GREY = '#333333';
 export default function CookingModeScreen() {
   const router = useRouter();
   const { recipeId } = useLocalSearchParams<{ recipeId: string }>();
+
+  // AI-generated step images (loaded from AsyncStorage)
+  const [aiImages, setAiImages] = useState<RecipeImageResults | null>(null);
+  const aiStepImages = aiImages?.stepImages ?? {};
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [timerSeconds, setTimerSeconds] = useState(0);
@@ -166,9 +171,21 @@ export default function CookingModeScreen() {
   const notificationIdRef = useRef<string | null>(null);
   const shareCardRef = useRef<ViewShot>(null);
 
+  // Poll for background-generated images every 30s until they arrive
+  useEffect(() => {
+    if (!recipeId || aiImages) return;
+    const poll = setInterval(() => {
+      loadRecipeImages(recipeId).then((result) => {
+        if (result) setAiImages(result);
+      });
+    }, 30000);
+    return () => clearInterval(poll);
+  }, [recipeId, aiImages]);
+
   useEffect(() => {
     if (!recipeId) return;
     getRecipeById(recipeId).then(setRecipe);
+    loadRecipeImages(recipeId).then(setAiImages);
   }, [recipeId]);
 
   useEffect(() => {
@@ -786,17 +803,23 @@ export default function CookingModeScreen() {
           </View>
         )}
 
-        {/* Step image or emoji */}
+        {/* Step image: AI image > static image > compact emoji fallback */}
         <View style={styles.imageAreaWrapper}>
-          {getRecipeStepImage(recipe.id, currentStep) ? (
+          {aiStepImages[String(currentStep)] ? (
+            <Image
+              source={{ uri: aiStepImages[String(currentStep)]! }}
+              style={styles.stepImage}
+              resizeMode="cover"
+            />
+          ) : getRecipeStepImage(recipe.id, currentStep) ? (
             <Image
               source={getRecipeStepImage(recipe.id, currentStep)!}
               style={styles.stepImage}
               resizeMode="cover"
             />
           ) : (
-            <View style={styles.imageArea}>
-              <Text style={styles.stepEmoji}>{stepEmoji}</Text>
+            <View style={styles.imageAreaCompact}>
+              <Text style={styles.stepEmojiCompact}>{stepEmoji}</Text>
             </View>
           )}
         </View>
@@ -939,12 +962,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  imageAreaCompact: {
+    backgroundColor: IMAGE_BG,
+    borderRadius: 8,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    width: 40,
+  },
   stepImage: {
     width: '100%',
     height: 260,
     borderRadius: 14,
   },
   stepEmoji: { fontSize: 80 },
+  stepEmojiCompact: { fontSize: 20 },
   stepDescription: {
     color: '#E8D8C8',
     fontSize: 17,

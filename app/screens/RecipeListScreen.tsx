@@ -1,6 +1,6 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -24,6 +24,7 @@ import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecip
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 import { getRecipeCardImage } from '../../src/data/recipeImages';
+import { loadRecipeImages } from '../../services/imageGenerationService';
 import type { ImageSourcePropType } from 'react-native';
 
 /** Protein header images — keyed by protein ID */
@@ -69,6 +70,9 @@ export default function RecipeListScreen() {
   const [favourites, setFavourites] = useState<string[]>([]);
   const [cookCounts, setCookCounts] = useState<CookCountMap>({});
 
+  // AI dish images for recipe cards (keyed by recipeId -> local URI)
+  const [aiDishImages, setAiDishImages] = useState<Record<string, string>>({});
+
   // Community ratings cache (persists across re-renders, fetched once per recipeId)
   const communityRatingsCache = useRef<Record<string, RecipeRatings>>({});
   const [communityRatings, setCommunityRatings] = useState<Record<string, RecipeRatings>>({});
@@ -82,17 +86,50 @@ export default function RecipeListScreen() {
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      Promise.all([getAllRecipesForProtein(proteinId), getRatings(), getFavourites(), getCookCounts()]).then(([allRecipes, ratingsMap, favouritesList, cookCountsMap]) => {
+      Promise.all([getAllRecipesForProtein(proteinId), getRatings(), getFavourites(), getCookCounts()]).then(async ([allRecipes, ratingsMap, favouritesList, cookCountsMap]) => {
         if (cancelled) return;
-        const filtered = allRecipes;
-        setRecipes(filtered);
+        setRecipes(allRecipes);
         setRatings(ratingsMap);
         setFavourites(favouritesList);
         setCookCounts(cookCountsMap);
+
+        // Load AI dish images for non-builtin recipes
+        const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id));
+        const dishImgs: Record<string, string> = {};
+        await Promise.all(aiRecipes.map(async (r) => {
+          const imgs = await loadRecipeImages(r.id);
+          if (imgs?.dishImage) dishImgs[r.id] = imgs.dishImage;
+        }));
+        if (!cancelled) setAiDishImages(dishImgs);
       });
       return () => { cancelled = true; };
     }, [proteinId])
   );
+
+  // Poll for building recipes — refresh when they become ready
+  useEffect(() => {
+    const hasBuilding = recipes.some((r) => r.status === 'building');
+    if (!hasBuilding) return;
+
+    const interval = setInterval(async () => {
+      const allRecipes = await getAllRecipesForProtein(proteinId);
+      const stillBuilding = allRecipes.some((r) => r.status === 'building');
+      setRecipes(allRecipes);
+
+      // Reload AI dish images when recipes finish building
+      if (!stillBuilding) {
+        const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id));
+        const dishImgs: Record<string, string> = {};
+        await Promise.all(aiRecipes.map(async (r) => {
+          const imgs = await loadRecipeImages(r.id);
+          if (imgs?.dishImage) dishImgs[r.id] = imgs.dishImage;
+        }));
+        setAiDishImages(dishImgs);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [recipes, proteinId]);
 
   // Fetch community ratings for visible recipes (cached per recipeId)
   const fetchCommunityRating = useCallback(async (recipeId: string) => {
@@ -170,7 +207,9 @@ export default function RecipeListScreen() {
     const cardDifficulty: RecipeDifficulty =
       difficultyRaw === 'Medium' ? 'Medium' : difficultyRaw === 'Hard' ? 'Hard' : 'Easy';
     const gradient: readonly [string, string] = (item as SavedRecipe & { gradient?: [string, string] }).gradient ?? ['#8B4513', '#5D2E0C'];
-    const cardImage = getRecipeCardImage(item.id);
+    const builtInImage = getRecipeCardImage(item.id);
+    const aiDishUri = aiDishImages[item.id];
+    const cardImage = aiDishUri ? { uri: aiDishUri } : builtInImage;
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
@@ -213,6 +252,7 @@ export default function RecipeListScreen() {
         onRatingPress={() => handleRatingPress(item.id, item.name)}
         accentColors={gradient}
         nutrition={cardNutrition}
+        isBuilding={item.status === 'building'}
         actionRow={
           !builtInIds.has(item.id) ? (
             <TouchableOpacity
