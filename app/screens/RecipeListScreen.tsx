@@ -139,11 +139,11 @@ export default function RecipeListScreen() {
           };
 
           // Native/curated recipes: Supabase Storage → built-in static → emoji
-          const nativeRecipes = allRecipes.filter((r) => builtInIds.has(r.id) || r.id.startsWith('spicestrong-'));
+          const nativeRecipes = allRecipes.filter((r) => builtInIds.has(r.id) || r.id.startsWith('spicestrong-') || r.id.startsWith('curated-'));
           await Promise.all(nativeRecipes.map((r) => trySupabaseHero(r.id)));
 
           // AI recipes: AI-generated → Supabase Storage → emoji
-          const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id) && !r.id.startsWith('spicestrong-'));
+          const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id) && !r.id.startsWith('spicestrong-') && !r.id.startsWith('curated-'));
           await Promise.all(aiRecipes.map(async (r) => {
             const imgs = await loadRecipeImages(r.id);
             if (imgs?.dishImage) {
@@ -276,7 +276,7 @@ export default function RecipeListScreen() {
     const builtInImage = getRecipeCardImage(item.id);
     const aiDishUri = aiDishImages[item.id];
     const supabaseHeroUri = supabaseHeroImages[item.id];
-    const isNativeRecipe = builtInIds.has(item.id) || item.id.startsWith('spicestrong-');
+    const isNativeRecipe = builtInIds.has(item.id) || item.id.startsWith('spicestrong-') || item.id.startsWith('curated-');
     // Native recipes: Supabase Storage → built-in static → emoji
     // AI recipes: AI-generated → Supabase Storage → emoji
     const cardImage = isNativeRecipe
@@ -329,7 +329,7 @@ export default function RecipeListScreen() {
         nutrition={cardNutrition}
         isBuilding={item.status === 'building'}
         actionRow={
-          !builtInIds.has(item.id) && !item.id.startsWith('spicestrong-') ? (
+          !builtInIds.has(item.id) && !item.id.startsWith('spicestrong-') && !item.id.startsWith('curated-') ? (
             <TouchableOpacity
               style={styles.deleteBtn}
               onPress={(e) => {

@@ -27,6 +27,7 @@ const XLSX = require('xlsx');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const { createClient } = require('@supabase/supabase-js');
+const { fal } = require('@fal-ai/client');
 
 // ─── Config ───
 const INPUT_DIR = path.resolve(__dirname, '..', 'recipes', 'input');
@@ -126,6 +127,55 @@ function getMimeType(filePath) {
     '.webp': 'image/webp',
   };
   return types[ext] || 'image/jpeg';
+}
+
+// ─── AI Image Generation ───
+
+/**
+ * Generate an image using fal.ai Nano Banana 2.
+ * @param {string} prompt - Text prompt for image generation
+ * @returns {Promise<Buffer>} - Image as a Buffer
+ */
+async function generateImage(prompt) {
+  const result = await fal.subscribe('fal-ai/nano-banana-2', {
+    input: { prompt, image_size: 'square_hd' },
+  });
+
+  const imageUrl = result.data.images[0].url;
+  const response = await fetch(imageUrl);
+  if (!response.ok) throw new Error(`Failed to download generated image: ${response.status}`);
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+/**
+ * Upload an image buffer to Supabase Storage.
+ * @param {string} recipeId
+ * @param {Buffer} buffer - Image data
+ * @param {string} imageType - 'hero' or 'step'
+ * @param {number|null} stepIndex
+ * @returns {Promise<string>} - Public URL
+ */
+async function uploadImageBuffer(recipeId, buffer, imageType = 'hero', stepIndex = null) {
+  const storageName = imageType === 'hero' ? 'hero.jpg' : `step_${stepIndex}.jpg`;
+  const storagePath = `${recipeId}/${storageName}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('recipe-images')
+    .upload(storagePath, buffer, {
+      contentType: 'image/jpeg',
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new Error(`Storage upload failed: ${uploadError.message}`);
+  }
+
+  const { data: urlData } = supabase.storage
+    .from('recipe-images')
+    .getPublicUrl(storagePath);
+
+  return urlData.publicUrl;
 }
 
 // ─── Core Logic ───
@@ -280,15 +330,12 @@ async function insertRecipe(row) {
 async function insertImageMetadata(recipeId, publicUrl, imageType = 'hero', stepIndex = null) {
   const { error } = await supabase
     .from('recipe_images')
-    .upsert(
-      {
-        recipe_id: recipeId,
-        image_type: imageType,
-        step_index: stepIndex,
-        storage_url: publicUrl,
-      },
-      { onConflict: 'recipe_id,image_type,step_index' },
-    );
+    .insert({
+      recipe_id: recipeId,
+      image_type: imageType,
+      step_index: stepIndex,
+      storage_url: publicUrl,
+    });
 
   if (error) {
     throw new Error(`Image metadata insert failed: ${error.message}`);
@@ -350,48 +397,69 @@ async function processExcelFile(xlsxPath) {
       const recipeId = await insertRecipe(row);
       console.log(`  Recipe inserted: ${recipeId}`);
 
-      // 2. Find and upload hero image
+      // 2. Find or generate hero image
       const imageFilename = strOrNull(row.image_filename);
       const imagePath = findImageFile(imageFilename);
 
       if (imagePath) {
         try {
+          console.log(`  🖼️  Using provided image: ${path.basename(imagePath)}`);
           const publicUrl = await uploadImage(recipeId, imagePath, 'hero', null);
           console.log(`  Hero image uploaded: ${publicUrl}`);
-
           await insertImageMetadata(recipeId, publicUrl, 'hero', null);
-          console.log(`  Hero image metadata saved`);
-
           processedImages.push(imagePath);
         } catch (imgErr) {
           console.warn(`  WARN: Hero image upload failed: ${imgErr.message}`);
         }
-      } else if (imageFilename) {
-        console.warn(`  WARN: Hero image not found: "${imageFilename}" — skipping`);
-        skipCount++;
       } else {
-        console.log(`  No image_filename specified — skipping hero image`);
+        try {
+          const heroLabel = `${recipeName}_hero.jpg`;
+          console.log(`  🤖 No image found, generating via AI: ${heroLabel}`);
+          const prompt = `Professional food photography of ${recipeName}, authentic Indian dish, warm lighting, shallow depth of field, high protein healthy meal, magazine quality`;
+          const buffer = await generateImage(prompt);
+          const publicUrl = await uploadImageBuffer(recipeId, buffer, 'hero', null);
+          console.log(`  AI hero image uploaded: ${publicUrl}`);
+          await insertImageMetadata(recipeId, publicUrl, 'hero', null);
+        } catch (imgErr) {
+          console.warn(`  WARN: AI hero image generation failed: ${imgErr.message}`);
+        }
       }
 
-      // 3. Find and upload step images (step_0_image, step_1_image, ...)
-      const stepImages = getStepImageColumns(row);
-      for (const { index, filename } of stepImages) {
-        const stepPath = findImageFile(filename);
+      // 3. Find or generate step images
+      const steps = safeParseJSON(row.steps, []);
+      const stepImageColumns = getStepImageColumns(row);
+      const stepFileMap = {};
+      for (const { index, filename } of stepImageColumns) {
+        stepFileMap[index] = filename;
+      }
+
+      for (let s = 0; s < steps.length; s++) {
+        const stepFilename = stepFileMap[s];
+        const stepPath = findImageFile(stepFilename);
+
         if (stepPath) {
           try {
-            const stepUrl = await uploadImage(recipeId, stepPath, 'step', index);
-            console.log(`  Step ${index} image uploaded: ${stepUrl}`);
-
-            await insertImageMetadata(recipeId, stepUrl, 'step', index);
-            console.log(`  Step ${index} image metadata saved`);
-
+            console.log(`  🖼️  Using provided image: ${path.basename(stepPath)}`);
+            const stepUrl = await uploadImage(recipeId, stepPath, 'step', s);
+            console.log(`  Step ${s} image uploaded: ${stepUrl}`);
+            await insertImageMetadata(recipeId, stepUrl, 'step', s);
             processedImages.push(stepPath);
           } catch (stepErr) {
-            console.warn(`  WARN: Step ${index} image upload failed: ${stepErr.message}`);
+            console.warn(`  WARN: Step ${s} image upload failed: ${stepErr.message}`);
           }
         } else {
-          console.warn(`  WARN: Step ${index} image not found: "${filename}" — skipping`);
-          skipCount++;
+          try {
+            const stepLabel = `${recipeName}_step_${s}.jpg`;
+            console.log(`  🤖 No image found, generating via AI: ${stepLabel}`);
+            const stepDesc = steps[s].description || steps[s].title || `Step ${s + 1}`;
+            const prompt = `Professional food photography showing ${stepDesc} for ${recipeName}, Indian cuisine, warm kitchen lighting, close-up shot, magazine quality`;
+            const buffer = await generateImage(prompt);
+            const stepUrl = await uploadImageBuffer(recipeId, buffer, 'step', s);
+            console.log(`  AI step ${s} image uploaded: ${stepUrl}`);
+            await insertImageMetadata(recipeId, stepUrl, 'step', s);
+          } catch (stepErr) {
+            console.warn(`  WARN: AI step ${s} image generation failed: ${stepErr.message}`);
+          }
         }
       }
 

@@ -314,11 +314,8 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
     immediate = [...builtIn, ...localOnly];
   }
 
-  // 2. Determine if we need a background refresh
-  const stale = await isCacheStale(proteinId);
-
-  const refresh: Promise<SavedRecipe[] | null> = stale
-    ? (async () => {
+  // 2. Always revalidate in background (true stale-while-revalidate)
+  const refresh: Promise<SavedRecipe[] | null> = (async () => {
         try {
           const isAvailable = await checkRecipeTableAvailable();
           if (!isAvailable) return null;
@@ -351,8 +348,7 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
         } catch {
           return null;
         }
-      })()
-    : Promise.resolve(null);
+      })();
 
   return { recipes: immediate, refresh };
 }
