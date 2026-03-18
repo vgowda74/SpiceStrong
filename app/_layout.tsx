@@ -3,7 +3,8 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeService';
-import { pruneImageCache } from '../services/imageCacheService';
+// pruneImageCache disabled — expo-file-system new API causes TurboModule crash
+// import { pruneImageCache } from '../services/imageCacheService';
 
 // Tell the OS to show notifications even when the app is foregrounded
 Notifications.setNotificationHandler({
@@ -34,10 +35,11 @@ export default function RootLayout() {
       }
     })();
 
-    // Background recipe sync & cache management (fire-and-forget)
+    // Background recipe sync & cache management
     refreshRecipeCache().catch(() => {});
     syncPendingAIRecipes().catch(() => {});
-    pruneImageCache().catch(() => {});
+    // pruneImageCache disabled — causes TurboModule crash
+    // pruneImageCache().catch(() => {});
   }, []);
 
   return (

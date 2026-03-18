@@ -111,6 +111,7 @@ const ALL_MEAL_TYPE_OPTIONS = [
 /** Meal types suitable for each protein. Proteins not listed get all options. */
 const PROTEIN_MEAL_TYPES: Record<string, string[]> = {
   chicken:  ['breakfast', 'lunch-dinner', 'snack'],
+  beef:     ['lunch-dinner'],
   paneer:   ['breakfast', 'lunch-dinner', 'snack'],
   eggs:     ['breakfast', 'lunch-dinner', 'snack'],
   fish:     ['lunch-dinner'],
@@ -139,6 +140,7 @@ const ALL_SPICE_LEVEL_OPTIONS = [
 
 /** Spice levels suitable for each protein. Proteins not listed get all options. */
 const PROTEIN_SPICE_LEVELS: Record<string, string[]> = {
+  beef:     ['mild', 'medium', 'hot', 'extra-hot'],
   fish:     ['mild', 'medium'],          // delicate fish — avoid overpowering
   prawns:   ['mild', 'medium', 'hot'],
   tofu:     ['mild', 'medium', 'hot'],   // tofu absorbs spice well but extra-hot uncommon
@@ -157,13 +159,14 @@ const ALL_DIETARY_OPTIONS = [
 /** Dietary options suitable for each protein. Proteins not listed get contextual defaults. */
 const PROTEIN_DIETARY: Record<string, string[]> = {
   chicken:  ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
+  beef:     ['low-carb', 'gluten-free', 'dairy-free'],
   fish:     ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
   prawns:   ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
   lamb:     ['low-carb', 'gluten-free', 'dairy-free'],
   goat:     ['low-carb', 'gluten-free', 'dairy-free'],
   pork:     ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
   eggs:     ['low-carb', 'gluten-free', 'low-fat', 'dairy-free'],
-  paneer:   ['low-carb', 'gluten-free', 'vegan'],           // paneer is dairy so no dairy-free
+  paneer:   ['low-carb', 'gluten-free', 'low-fat'],         // paneer is dairy — no dairy-free or vegan
   tofu:     ['low-carb', 'gluten-free', 'low-fat', 'vegan', 'dairy-free'],
   soy:      ['low-carb', 'gluten-free', 'low-fat', 'vegan', 'dairy-free'],
   beans:    ['low-carb', 'gluten-free', 'low-fat', 'vegan', 'dairy-free'],
@@ -181,6 +184,7 @@ const ALL_CUISINE_OPTIONS = [
 /** Cuisines suitable for each protein. Proteins not listed get all options. */
 const PROTEIN_CUISINES: Record<string, string[]> = {
   chicken:  ['indian', 'thai', 'mediterranean', 'chinese', 'mexican', 'american'],
+  beef:     ['indian', 'thai', 'chinese', 'mexican', 'american'],
   paneer:   ['indian', 'mediterranean'],
   eggs:     ['indian', 'thai', 'mediterranean', 'chinese', 'mexican', 'american'],
   fish:     ['indian', 'thai', 'mediterranean', 'chinese', 'american'],
@@ -294,7 +298,7 @@ async function callClaudeAPI(
 Return this exact JSON structure:
 {
   "name": "Recipe Name",
-  "proteinId": "chicken|lamb|fish|prawns|pork|goat|paneer|tofu|eggs|soy|beans|milk|whey",
+  "proteinId": "chicken|beef|lamb|fish|prawns|pork|goat|paneer|tofu|eggs|soy|beans|milk|whey",
   "proteinName": "Chicken",
   "proteinEmoji": "🍗",
   "description": "One line description",

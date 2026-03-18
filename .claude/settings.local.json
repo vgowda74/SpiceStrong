@@ -145,7 +145,13 @@
       "Bash(python -c \"from PIL import Image; img = Image.open\\(''C:/Users/v_gow/SpiceStrong/assets/images/splash-bg.png''\\); print\\(f''Size: {img.size}, Mode: {img.mode}''\\)\")",
       "Bash(pip3 install:*)",
       "Bash(sed -i 's/contentFit=\"\"cover\"\" transition={200}/resizeMode=\"\"cover\"\"/g' app/screens/CookingModeScreen.tsx)",
-      "Bash(sed -i '/<Image/{n;/.*/;s/resizeMode=\"\"cover\"\"/contentFit=\"\"cover\"\" transition={200}/}' app/screens/CookingModeScreen.tsx)"
+      "Bash(sed -i '/<Image/{n;/.*/;s/resizeMode=\"\"cover\"\"/contentFit=\"\"cover\"\" transition={200}/}' app/screens/CookingModeScreen.tsx)",
+      "Bash(ls \"C:\\\\Users\\\\v_gow\\\\SpiceStrong/.env\"*)",
+      "Bash(find /c/Users/v_gow/SpiceStrong -maxdepth 3 -name .env* -o -name supabase.json -o -name .supabaserc)",
+      "Bash(node scripts/onboard-recipes.js)",
+      "Read(//c/Users/v_gow/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/3c634e1f-f842-4e2a-9023-6a6b5b119817/5b446117-b05b-4a66-b77c-5ee265202e87/skills/xlsx/**)",
+      "Bash(node scripts/create-template.js)",
+      "Bash(node scripts/gen-pepper-shrimp.js)"
     ]
   }
 }

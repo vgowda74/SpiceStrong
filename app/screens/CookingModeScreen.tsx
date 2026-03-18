@@ -971,8 +971,9 @@ export default function CookingModeScreen() {
           ) : null}
         </View>
 
-        {/* Navigation row */}
-        <View style={styles.navRow}>
+      </ScrollView>
+      {/* Navigation row - pinned at bottom */}
+      <View style={styles.navRow}>
           <TouchableOpacity
             style={[styles.navPrevBtn, currentStep === 0 && styles.navBtnDisabled]}
             onPress={goPrev}
@@ -987,7 +988,6 @@ export default function CookingModeScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
     </View>
     </ImageBackground>
   );
@@ -1219,7 +1219,7 @@ const styles = StyleSheet.create({
   },
   timerStartBtnDisabled: { backgroundColor: DARK_GREY, opacity: 0.6 },
   timerStartBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
-  navRow: { flexDirection: 'row', gap: 12 },
+  navRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 28, backgroundColor: 'rgba(15,15,15,0.95)', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
   navPrevBtn: {
     flex: 0.4,
     backgroundColor: 'rgba(255,255,255,0.08)',
