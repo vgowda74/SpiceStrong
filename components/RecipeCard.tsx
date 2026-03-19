@@ -126,18 +126,14 @@ export function RecipeCard({
               </>
             )}
 
-            {/* ——— Stats overlay on hero image ——— */}
+            {/* ——— Protein pill top-left ——— */}
             <View style={styles.statsOverlay}>
               <View style={styles.statPill}>
                 <Text style={styles.statPillText}>💪 {protein || '—'}</Text>
               </View>
-              {cookCount != null && cookCount > 0 && (
-                <View style={[styles.statPill, styles.statPillGreen]}>
-                  <Text style={styles.statPillText}>🍳 {cookCount} cooked</Text>
-                </View>
-              )}
             </View>
 
+            {/* ——— Rating top-right ——— */}
             <View style={styles.ratingOverlay}>
               {communityLoading ? (
                 <View style={styles.statPill}>
@@ -165,6 +161,11 @@ export function RecipeCard({
                     <Text style={styles.statPillText}>⭐ New</Text>
                   </View>
                 </TouchableOpacity>
+              )}
+              {cookCount != null && cookCount > 0 && (
+                <View style={[styles.statPill, styles.statPillGreen, { marginTop: 4 }]}>
+                  <Text style={styles.statPillText}>🍳 {cookCount} cooked</Text>
+                </View>
               )}
             </View>
 
@@ -301,8 +302,9 @@ const styles = StyleSheet.create({
   ratingOverlay: {
     position: 'absolute',
     top: 10,
-    right: 50,
+    right: 10,
     zIndex: 3,
+    alignItems: 'flex-end',
   },
   statPill: {
     backgroundColor: 'rgba(0,0,0,0.55)',

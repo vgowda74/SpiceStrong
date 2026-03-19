@@ -44,6 +44,8 @@ export interface CookingStep {
   emoji?: string;
   timerMinutes?: number;
   tip?: string;
+  ingredientsUsed?: string;
+  cookingMethod?: string;
 }
 
 export interface SavedRecipe {

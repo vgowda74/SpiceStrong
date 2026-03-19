@@ -154,7 +154,9 @@
       "Bash(node scripts/gen-pepper-shrimp.js)",
       "Bash(node C:Usersv_gowSpiceStrongscriptsgen-pepper-pork.js)",
       "Bash(node scripts/gen-pepper-pork.js)",
-      "Bash(node -e \"const XLSX = require\\(''xlsx''\\); const wb = XLSX.readFile\\(''C:/Users/v_gow/Downloads/indian_pepper_pork_fry_recipe_v3.xlsx''\\); const sheet = wb.Sheets[wb.SheetNames[0]]; const rows = XLSX.utils.sheet_to_json\\(sheet\\); console.log\\(''Sheet names:'', wb.SheetNames\\); console.log\\(''Rows:'', rows.length\\); console.log\\(''Columns:'', Object.keys\\(rows[0] || {}\\)\\); console.log\\(\\); for \\(const [key, val] of Object.entries\\(rows[0] || {}\\)\\) { const d = typeof val === ''string'' && val.length > 150 ? val.substring\\(0, 150\\) + ''...'' : val; console.log\\(key + '':'', d\\); }\")"
+      "Bash(node -e \"const XLSX = require\\(''xlsx''\\); const wb = XLSX.readFile\\(''C:/Users/v_gow/Downloads/indian_pepper_pork_fry_recipe_v3.xlsx''\\); const sheet = wb.Sheets[wb.SheetNames[0]]; const rows = XLSX.utils.sheet_to_json\\(sheet\\); console.log\\(''Sheet names:'', wb.SheetNames\\); console.log\\(''Rows:'', rows.length\\); console.log\\(''Columns:'', Object.keys\\(rows[0] || {}\\)\\); console.log\\(\\); for \\(const [key, val] of Object.entries\\(rows[0] || {}\\)\\) { const d = typeof val === ''string'' && val.length > 150 ? val.substring\\(0, 150\\) + ''...'' : val; console.log\\(key + '':'', d\\); }\")",
+      "Bash(copy \"C:\\\\Users\\\\v_gow\\\\Downloads\\\\indian_pepper_pork_fry_recipe_v3.xlsx\" \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\recipes\\\\input\\\\indian_pepper_pork_fry_recipe_v3.xlsx\")",
+      "Bash(node scripts/onboard-recipes-v2.js)"
     ]
   }
 }

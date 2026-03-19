@@ -134,6 +134,8 @@ function normalizeSteps(raw: unknown): CookingStep[] {
     emoji: s.emoji ? String(s.emoji) : undefined,
     timerMinutes: typeof s.timerMinutes === 'number' ? s.timerMinutes : undefined,
     tip: s.tip ? String(s.tip) : undefined,
+    ingredientsUsed: s.ingredientsUsed ? String(s.ingredientsUsed) : undefined,
+    cookingMethod: s.cookingMethod ? String(s.cookingMethod) : undefined,
   }));
 }
 

@@ -1,13 +1,19 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   ImageBackground,
+  Modal,
+  Platform,
+  Pressable,
   SectionList,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { getIngredientImage } from '../../src/data/ingredientImages';
 import {
@@ -133,6 +139,32 @@ function getIngredientEmoji(name: string): string {
   return '🥘'; // default
 }
 
+/** Categorize ingredients for display tags */
+const INGREDIENT_CATEGORIES: [RegExp, { label: string; color: string }][] = [
+  [/chicken|lamb|mutton|goat|pork|fish|salmon|tuna|cod|prawn|shrimp|beef|turkey/i, { label: 'PROTEIN', color: '#E85D26' }],
+  [/paneer|tofu|egg|whey|protein powder/i, { label: 'PROTEIN', color: '#E85D26' }],
+  [/yogurt|curd|cream|butter|ghee|milk|cheese/i, { label: 'DAIRY', color: '#FFA726' }],
+  [/oil|olive oil|coconut oil/i, { label: 'OIL', color: '#8D6E63' }],
+  [/salt/i, { label: 'ESSENTIAL', color: '#78909C' }],
+  [/cumin|turmeric|haldi|cinnamon|cardamom|clove|mustard seed|fenugreek|fennel|bay leaf|coriander powder|garam masala|masala|paprika|saffron|pepper\b|peppercorn/i, { label: 'SPICE', color: '#EF5350' }],
+  [/chilli|chili|red chili|green chilli|kashmiri/i, { label: 'SPICE', color: '#EF5350' }],
+  [/curry leaves/i, { label: 'HERB', color: '#66BB6A' }],
+  [/coriander|cilantro|mint|pudina|basil|parsley/i, { label: 'HERB', color: '#66BB6A' }],
+  [/onion|garlic|ginger|tomato|potato|carrot|bell pepper|capsicum|spinach|cauliflower|broccoli|mushroom|corn|pea|lettuce|cucumber|avocado/i, { label: 'VEGETABLE', color: '#66BB6A' }],
+  [/lemon|lime|mango|coconut|banana|tamarind/i, { label: 'FRUIT', color: '#FFCA28' }],
+  [/rice|basmati|flour|bread|naan|roti|pasta|noodle|oat/i, { label: 'GRAIN', color: '#D4A056' }],
+  [/cashew|almond|peanut|walnut|sesame/i, { label: 'NUT', color: '#A1887F' }],
+  [/sugar|jaggery|honey/i, { label: 'SWEETENER', color: '#CE93D8' }],
+  [/water|broth|stock|vinegar|soy sauce/i, { label: 'LIQUID', color: '#4FC3F7' }],
+];
+
+function getIngredientCategory(name: string): { label: string; color: string } | null {
+  for (const [pattern, cat] of INGREDIENT_CATEGORIES) {
+    if (pattern.test(name)) return cat;
+  }
+  return null;
+}
+
 export default function IngredientChecklistScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ recipeId: string; quantityTier?: string }>();
@@ -147,6 +179,63 @@ export default function IngredientChecklistScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedTier, setSelectedTier] = useState<QuantityTier>(initialTier);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+
+  // Shopping list state
+  const [cartItems, setCartItems] = useState<Record<string, boolean>>({});
+  const [showCartSheet, setShowCartSheet] = useState(false);
+  const cartSheetAnim = useRef(new Animated.Value(0)).current;
+  const cartBounce = useRef(new Animated.Value(1)).current;
+
+  // Load shopping list from AsyncStorage
+  useEffect(() => {
+    if (!recipeId) return;
+    AsyncStorage.getItem(`shoppingList_${recipeId}`).then((stored) => {
+      if (stored) setCartItems(JSON.parse(stored));
+    });
+  }, [recipeId]);
+
+  // Save shopping list to AsyncStorage
+  const saveCart = useCallback((items: Record<string, boolean>) => {
+    if (!recipeId) return;
+    AsyncStorage.setItem(`shoppingList_${recipeId}`, JSON.stringify(items));
+  }, [recipeId]);
+
+  const toggleCartItem = (key: string) => {
+    setCartItems((prev) => {
+      const updated = { ...prev };
+      if (updated[key]) {
+        delete updated[key];
+      } else {
+        updated[key] = true;
+      }
+      saveCart(updated);
+      // Bounce the header cart icon
+      Animated.sequence([
+        Animated.timing(cartBounce, { toValue: 1.3, duration: 100, useNativeDriver: true }),
+        Animated.timing(cartBounce, { toValue: 1, duration: 100, useNativeDriver: true }),
+      ]).start();
+      return updated;
+    });
+  };
+
+  const clearCart = () => {
+    setCartItems({});
+    if (recipeId) AsyncStorage.removeItem(`shoppingList_${recipeId}`);
+    closeCartSheet();
+  };
+
+  const openCartSheet = () => {
+    setShowCartSheet(true);
+    Animated.timing(cartSheetAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+  };
+
+  const closeCartSheet = () => {
+    Animated.timing(cartSheetAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+      setShowCartSheet(false);
+    });
+  };
+
+  const cartCount = Object.keys(cartItems).length;
 
   useEffect(() => {
     setSelectedTier(initialTier);
@@ -294,6 +383,9 @@ export default function IngredientChecklistScreen() {
     const emoji = getIngredientEmoji(item.name);
     const ingredientImg = getIngredientImage(item.name);
     const aiImgUrl = aiIngredientImages[item.name] ?? null;
+    const category = getIngredientCategory(item.name);
+    const cartKey = `${item.name}|||${item.quantity}`;
+    const inCart = !!cartItems[cartKey];
     return (
       <TouchableOpacity
         style={[styles.ingredientCard, isChecked && styles.ingredientCardChecked]}
@@ -314,7 +406,7 @@ export default function IngredientChecklistScreen() {
             <Text style={styles.ingredientIconEmoji}>{emoji}</Text>
           )}
         </View>
-        {/* Name & subtitle */}
+        {/* Name, quantity & category tag */}
         <View style={styles.ingredientInfo}>
           <Text style={[styles.ingredientName, isChecked && styles.ingredientNameChecked]} numberOfLines={1}>
             {item.name}
@@ -322,11 +414,25 @@ export default function IngredientChecklistScreen() {
           <Text style={[styles.ingredientSubtitle, isChecked && styles.ingredientSubtitleChecked]} numberOfLines={1}>
             {item.quantity}
           </Text>
+          {category && (
+            <View style={[styles.categoryTag, { backgroundColor: category.color + '20' }]}>
+              <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+              <Text style={[styles.categoryText, { color: category.color }]}>{category.label}</Text>
+            </View>
+          )}
         </View>
-        {/* Quantity on the right */}
-        <Text style={[styles.ingredientQtyRight, isChecked && styles.ingredientQtyRightChecked]}>
-          {item.quantity}
-        </Text>
+        {/* Cart button */}
+        <TouchableOpacity
+          style={[styles.cartIconBtn, inCart && styles.cartIconBtnActive]}
+          onPress={(e) => {
+            e.stopPropagation?.();
+            toggleCartItem(cartKey);
+          }}
+          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+        >
+          <Text style={[styles.cartIconSymbol, inCart && styles.cartIconSymbolActive]}>{inCart ? '✓' : '🛒+'}</Text>
+          <Text style={[styles.cartIconLabel, inCart && styles.cartIconLabelActive]}>{inCart ? 'Added' : 'Add'}</Text>
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -373,7 +479,7 @@ export default function IngredientChecklistScreen() {
         {/* Progress */}
         <View style={styles.progressRow}>
           <Text style={styles.progressText}>{checkedCount} of {totalCount} gathered</Text>
-          <Text style={styles.progressPct}>{progressPct}%</Text>
+          <Text style={styles.progressPct}>{progressPct}% Complete</Text>
         </View>
         <View style={styles.progressBarBg}>
           <View style={[styles.progressBarFill, { width: `${progressPct}%` }]} />
@@ -410,12 +516,13 @@ export default function IngredientChecklistScreen() {
                 onPress={() => toggleSection(section.data)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.sectionCheckbox, allSectionChecked && styles.sectionCheckboxChecked]}>
-                  {allSectionChecked ? <Text style={styles.sectionCheckmark}>✓</Text> : null}
-                </View>
                 <Text style={styles.sectionEmoji}>{section.emoji}</Text>
                 <Text style={styles.sectionTitle}>{section.category}</Text>
                 <View style={styles.sectionLine} />
+                <Text style={styles.selectAllText}>Select All</Text>
+                <View style={[styles.sectionCheckbox, allSectionChecked && styles.sectionCheckboxChecked]}>
+                  {allSectionChecked ? <Text style={styles.sectionCheckmark}>✓</Text> : null}
+                </View>
               </TouchableOpacity>
             );
           }}
@@ -424,18 +531,95 @@ export default function IngredientChecklistScreen() {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.startBtn, !allChecked && styles.startBtnNotReady]}
-            onPress={handleStartCooking}
-            activeOpacity={0.8}
-            disabled={!allChecked}
-          >
-            <Text style={styles.startBtnText}>
-              {allChecked ? '🧑‍🍳 Start Cooking' : `🧂 ${totalCount - checkedCount} ingredients remaining`}
-            </Text>
-          </TouchableOpacity>
+          {allChecked ? (
+            <TouchableOpacity
+              style={styles.startBtn}
+              onPress={handleStartCooking}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.startBtnText}>🧑‍🍳 Start Cooking</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.footerRow}>
+              <View style={styles.footerLeft}>
+                <Text style={styles.footerIcon}>🧂</Text>
+                <View>
+                  <Text style={styles.footerRemaining}>{totalCount - checkedCount} ingredients remaining</Text>
+                  <Text style={styles.footerHint}>Tap to add to shopping cart</Text>
+                </View>
+              </View>
+              {cartCount > 0 && (
+                <TouchableOpacity style={styles.viewCartBtn} onPress={openCartSheet} activeOpacity={0.8}>
+                  <Text style={styles.viewCartIcon}>🛒</Text>
+                  <Text style={styles.viewCartText}>View Cart</Text>
+                  <View style={styles.viewCartBadge}>
+                    <Text style={styles.viewCartBadgeText}>{cartCount}</Text>
+                  </View>
+                  <Text style={styles.viewCartArrow}>›</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
       </View>
+
+      {/* Shopping List Bottom Sheet */}
+      <Modal visible={showCartSheet} transparent animationType="none" onRequestClose={closeCartSheet}>
+        <Pressable style={styles.sheetOverlay} onPress={closeCartSheet}>
+          <Animated.View
+            style={[
+              styles.sheetContainer,
+              { transform: [{ translateY: cartSheetAnim.interpolate({ inputRange: [0, 1], outputRange: [500, 0] }) }] },
+            ]}
+          >
+            <Pressable onPress={(e) => e.stopPropagation()}>
+              {/* Handle bar */}
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>🛒 Shopping List</Text>
+              <Text style={styles.sheetSubtitle}>{recipe?.name}</Text>
+
+              {/* Cart items */}
+              <View style={styles.sheetItems}>
+                {Object.keys(cartItems).map((key) => {
+                  const [name, qty] = key.split('|||');
+                  return (
+                    <View key={key} style={styles.sheetItem}>
+                      <Text style={styles.sheetItemBullet}>•</Text>
+                      <Text style={styles.sheetItemText}>{qty} {name}</Text>
+                      <TouchableOpacity onPress={() => toggleCartItem(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <Text style={styles.sheetItemRemove}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Actions */}
+              <View style={styles.sheetActions}>
+                <TouchableOpacity
+                  style={styles.shareBtn}
+                  onPress={async () => {
+                    const items = Object.keys(cartItems).map((key) => {
+                      const [name, qty] = key.split('|||');
+                      return `• ${qty} ${name}`;
+                    }).join('\n');
+                    const message = `🛒 Shopping List - ${recipe?.name ?? 'Recipe'}\n\n${items}\n\nCooked with SpiceStrong 💪`;
+                    try {
+                      await Share.share({ message });
+                    } catch (_) {}
+                  }}
+                >
+                  <Text style={styles.shareBtnText}>📤 Share</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.clearBtn} onPress={clearCart}>
+                  <Text style={styles.clearBtnText}>Clear List</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -627,10 +811,9 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: 'rgba(255,255,255,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 10,
     marginRight: 10,
   },
   sectionCheckboxChecked: {
@@ -743,21 +926,242 @@ const styles = StyleSheet.create({
   ingredientQtyRightChecked: {
     color: 'rgba(255,255,255,0.3)',
   },
+  // Category tag on ingredient
+  categoryTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 3,
+  },
+  categoryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+  },
+  categoryText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  // Cart button on ingredient row
+  cartIconBtn: {
+    marginLeft: 8,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#4CAF50',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(76, 175, 80, 0.5)',
+    ...Platform.select({
+      ios: { shadowColor: '#4CAF50', shadowOpacity: 0.6, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+      android: { elevation: 6 },
+    }),
+  },
+  cartIconEmoji: {
+    fontSize: 20,
+  },
+  cartIconPlus: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  cartIconLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginTop: -1,
+  },
+  cartIconLabelActive: {
+    color: '#FFFFFF',
+  },
+  cartIconBtnActive: {
+    backgroundColor: '#388E3C',
+    borderColor: 'rgba(56, 142, 60, 0.5)',
+  },
+  // Select All text
+  selectAllText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.5)',
+    marginRight: 8,
+  },
+  // Bottom sheet
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheetContainer: {
+    backgroundColor: '#1E1E1E',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    maxHeight: '70%',
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  sheetSubtitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  sheetItems: {
+    marginBottom: 20,
+  },
+  sheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  sheetItemBullet: {
+    color: ORANGE,
+    fontSize: 18,
+    fontWeight: '700',
+    marginRight: 10,
+  },
+  sheetItemText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
+  sheetItemRemove: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 16,
+    fontWeight: '700',
+    padding: 4,
+  },
+  sheetActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  shareBtn: {
+    flex: 1,
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  shareBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  clearBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  clearBtnText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   // Footer
   footer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     paddingBottom: 36,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  footerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  footerIcon: {
+    fontSize: 28,
+    marginRight: 10,
+  },
+  footerRemaining: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  footerHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  viewCartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    borderRadius: 25,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 6,
+  },
+  viewCartIcon: {
+    fontSize: 16,
+  },
+  viewCartText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  viewCartBadge: {
+    backgroundColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  viewCartBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  viewCartArrow: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    marginLeft: -2,
   },
   startBtn: {
     backgroundColor: ORANGE,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
-  },
-  startBtnNotReady: {
-    backgroundColor: ORANGE_LIGHT,
   },
   startBtnText: {
     color: '#FFFFFF',

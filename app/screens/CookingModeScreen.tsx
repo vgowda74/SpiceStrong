@@ -12,7 +12,9 @@ import {
   KeyboardAvoidingView,
   LayoutAnimation,
   Linking,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   Share,
   StyleSheet,
@@ -36,14 +38,24 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 
 
 function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[] {
+  const step = recipe.steps[stepIndex];
+  if (!step) return [];
+
+  // If step has explicit ingredientsUsed from the recipe template, use that directly
+  if (step.ingredientsUsed) {
+    return step.ingredientsUsed
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  // Fallback: heuristic-based matching for older recipes without ingredientsUsed
   const recipeGroups = recipe.id ? BUILTIN_INGREDIENT_GROUPS[recipe.id] : undefined;
   const groups = recipeGroups ? Object.values(recipeGroups as Record<string, { items: { name: string }[] }[]>)[0] : undefined;
   const flat = groups
     ? groups.flatMap((g) => g.items.map((i) => i.name))
     : (recipe.ingredients['2-3 servings'] ?? recipe.ingredients['1lb' as keyof typeof recipe.ingredients] ?? []).filter((i) => i.name.trim()).map((i) => i.name);
   if (flat.length === 0) return [];
-  const step = recipe.steps[stepIndex];
-  const title = (step?.title ?? '').toLowerCase();
   if (stepIndex === 0) {
     const protein = flat.find((n) => n.toLowerCase().includes(recipe.proteinName?.toLowerCase() ?? ''));
     const marinade = flat.filter((n) => /yogurt|marinade|lemon|oil/.test(n.toLowerCase()));
@@ -59,6 +71,39 @@ function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[]
     return spices.slice(0, 3);
   }
   return flat.slice(-3);
+}
+
+/** Match step ingredientsUsed against the full recipe ingredient list to get names + quantities */
+function getStepIngredientsWithQty(
+  recipe: SavedRecipe,
+  stepIndex: number,
+  tier: '2-3 servings' | '4-6 servings',
+): { name: string; quantity: string }[] {
+  const step = recipe.steps[stepIndex];
+  if (!step?.ingredientsUsed) return [];
+
+  const ingredientList = recipe.ingredients[tier] ?? recipe.ingredients['2-3 servings'] ?? [];
+  if (ingredientList.length === 0) return [];
+
+  const usedNames = step.ingredientsUsed.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+  const matched: { name: string; quantity: string }[] = [];
+  for (const usedName of usedNames) {
+    const found = ingredientList.find((ing) => {
+      const ingLower = ing.name.toLowerCase();
+      // Check if ingredient name contains the used name or vice versa
+      return ingLower.includes(usedName) || usedName.includes(ingLower) ||
+        // Also match key words (e.g. "turmeric" matches "Turmeric powder")
+        usedName.split(/\s+/).some((word) => word.length > 3 && ingLower.includes(word));
+    });
+    if (found) {
+      // Avoid duplicates
+      if (!matched.some((m) => m.name === found.name)) {
+        matched.push({ name: found.name, quantity: found.quantity });
+      }
+    }
+  }
+  return matched;
 }
 
 function getSuggestedTimerMinutes(step: CookingStep | undefined): number | null {
@@ -159,6 +204,7 @@ export default function CookingModeScreen() {
   const [supabaseStepImages, setSupabaseStepImages] = useState<Record<string, string>>({});
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
+  const [ingredientsModalVisible, setIngredientsModalVisible] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [initialTimerSeconds, setInitialTimerSeconds] = useState(0);
@@ -467,6 +513,7 @@ export default function CookingModeScreen() {
     Linking.openURL('clock-timer://stop').catch(() => null);
     if (intervalRef.current) clearInterval(intervalRef.current);
     setTimerRunning(false);
+    setIngredientsModalVisible(false);
     if (currentStep < totalSteps - 1) {
       setCurrentStep((s) => s + 1);
     } else {
@@ -478,6 +525,7 @@ export default function CookingModeScreen() {
     Linking.openURL('clock-timer://stop').catch(() => null);
     if (intervalRef.current) clearInterval(intervalRef.current);
     setTimerRunning(false);
+    setIngredientsModalVisible(false);
     if (currentStep > 0) setCurrentStep(currentStep - 1);
   };
 
@@ -863,19 +911,60 @@ export default function CookingModeScreen() {
         {/* Step description */}
         <Text style={styles.stepDescription}>{step.description}</Text>
 
-        {/* Ingredient pills */}
+        {/* Ingredients for this step — opens modal */}
         {stepIngredients.length > 0 && (
-          <View style={styles.ingredientsRow}>
-            <Text style={styles.ingredientsLabel}>You'll need:</Text>
-            <View style={styles.ingredientsPillsRow}>
-              {stepIngredients.map((name, i) => (
-                <View key={i} style={styles.ingredientPill}>
-                  <Text style={styles.ingredientPillText}>{name}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
+          <TouchableOpacity
+            style={styles.ingredientsToggle}
+            activeOpacity={0.7}
+            onPress={() => setIngredientsModalVisible(true)}
+          >
+            <Text style={styles.ingredientsToggleIcon}>🧺</Text>
+            <Text style={styles.ingredientsToggleText}>Ingredients for this step</Text>
+            <Text style={styles.ingredientsToggleArrow}>›</Text>
+          </TouchableOpacity>
         )}
+
+        {/* Ingredients modal — tap outside to dismiss */}
+        <Modal
+          visible={ingredientsModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setIngredientsModalVisible(false)}
+        >
+          <Pressable
+            style={styles.ingredientModalBackdrop}
+            onPress={() => setIngredientsModalVisible(false)}
+          >
+            <Pressable style={styles.ingredientModalContent} onPress={() => {}}>
+              <View style={styles.ingredientModalHandle} />
+              <Text style={styles.ingredientModalTitle}>🧺 Step {stepNum} — Ingredients</Text>
+              <Text style={styles.ingredientModalSubtitle}>{step.title}</Text>
+              {(() => {
+                const withQty = getStepIngredientsWithQty(recipe, currentStep, selectedTier);
+                if (withQty.length > 0) {
+                  return withQty.map((ing, i) => (
+                    <View key={i} style={styles.ingredientModalRow}>
+                      <Text style={styles.ingredientModalName}>{ing.name}</Text>
+                      <Text style={styles.ingredientModalQty}>{ing.quantity}</Text>
+                    </View>
+                  ));
+                }
+                // Fallback: show names only if no quantity match
+                return stepIngredients.map((name, i) => (
+                  <View key={i} style={styles.ingredientModalRow}>
+                    <Text style={styles.ingredientModalName}>{name}</Text>
+                  </View>
+                ));
+              })()}
+              <TouchableOpacity
+                style={styles.ingredientModalClose}
+                onPress={() => setIngredientsModalVisible(false)}
+              >
+                <Text style={styles.ingredientModalCloseText}>Got it</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         {/* Step image fallback:
             Native recipes: Supabase Storage → built-in static → emoji
@@ -1083,32 +1172,99 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   // Ingredient pills — compact horizontal row
-  ingredientsRow: {
+  ingredientsToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  ingredientsLabel: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-    fontWeight: '500',
-    marginRight: 2,
-  },
-  ingredientsPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  ingredientPill: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 16,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginBottom: 14,
   },
-  ingredientPillText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 12,
+  ingredientsToggleIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  ingredientsToggleText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  ingredientsToggleArrow: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  ingredientModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  ingredientModalContent: {
+    backgroundColor: '#2A1810',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  ingredientModalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  ingredientModalTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  ingredientModalSubtitle: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
     fontWeight: '500',
+    marginBottom: 18,
+  },
+  ingredientModalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  ingredientModalName: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  ingredientModalQty: {
+    color: '#D4A574',
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 12,
+  },
+  ingredientModalClose: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 18,
+  },
+  ingredientModalCloseText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
   },
   // Chef's Tip — cream/beige card like reference
   tipCard: {

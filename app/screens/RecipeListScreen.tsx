@@ -6,7 +6,9 @@ import {
   Dimensions,
   FlatList,
   ImageBackground,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -80,6 +82,10 @@ export default function RecipeListScreen() {
   const [recipes, setRecipes] = useState<SavedRecipe[]>([]);
   const [selectedTierByRecipeId, setSelectedTierByRecipeId] = useState<Record<string, QuantityTier>>({});
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
+  const [filterSpice, setFilterSpice] = useState<string | null>(null);
+  const [filterTime, setFilterTime] = useState<string | null>(null);
   const [ratings, setRatings] = useState<RatingsMap>({});
   const [favourites, setFavourites] = useState<string[]>([]);
   const [cookCounts, setCookCounts] = useState<CookCountMap>({});
@@ -282,10 +288,9 @@ export default function RecipeListScreen() {
     const cardImage = isNativeRecipe
       ? (supabaseHeroUri ? { uri: supabaseHeroUri } : builtInImage)
       : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : null);
-    // Nutrition is stored as whole "2-3 servings" batch — divide by 2.5 for per-serving card display
-    // Nutrition is stored as whole "2-3 servings" batch — show batch values on card
+    // Nutrition values are per serving
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
-    const batchProteinG = nutritionData?.proteinG ?? item.aiNutrition?.proteinG ?? null;
+    const perServingProteinG = nutritionData?.proteinG ?? item.aiNutrition?.proteinG ?? null;
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
       proteinG: nutritionData.proteinG,
@@ -308,7 +313,7 @@ export default function RecipeListScreen() {
         name={item.name}
         description={description}
         time={timeMinutes != null ? `${timeMinutes} min` : '—'}
-        protein={batchProteinG != null ? `${batchProteinG}g protein` : ''}
+        protein={perServingProteinG != null ? `${perServingProteinG}g protein` : ''}
         difficulty={cardDifficulty}
         rating={ratingString}
         communityCount={ratingCount}
@@ -345,6 +350,8 @@ export default function RecipeListScreen() {
     );
   };
 
+  const activeFilterCount = [filterDifficulty, filterSpice, filterTime].filter(Boolean).length;
+
   const listData = useMemo(() => {
     let filtered: SavedRecipe[];
     if (activeFilter === 'all') {
@@ -360,8 +367,32 @@ export default function RecipeListScreen() {
       // favourites
       filtered = recipes.filter((r) => favourites.includes(r.id));
     }
+
+    // Apply advanced filters
+    if (filterDifficulty) {
+      filtered = filtered.filter((r) => {
+        const d = (r as SavedRecipe & { difficulty?: string }).difficulty;
+        return d?.toLowerCase() === filterDifficulty.toLowerCase();
+      });
+    }
+    if (filterSpice) {
+      filtered = filtered.filter((r) => {
+        const s = (r as SavedRecipe & { spiceLevel?: string }).spiceLevel;
+        return s?.toLowerCase() === filterSpice.toLowerCase();
+      });
+    }
+    if (filterTime) {
+      filtered = filtered.filter((r) => {
+        const t = (r as SavedRecipe & { timeMinutes?: number }).timeMinutes ?? 0;
+        if (filterTime === 'quick') return t <= 15;
+        if (filterTime === 'medium') return t > 15 && t <= 30;
+        if (filterTime === 'long') return t > 30;
+        return true;
+      });
+    }
+
     return filtered;
-  }, [recipes, activeFilter, ratings, favourites]);
+  }, [recipes, activeFilter, ratings, favourites, filterDifficulty, filterSpice, filterTime]);
 
   return (
     <ImageBackground
@@ -406,6 +437,32 @@ export default function RecipeListScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={[styles.tabsContent, { paddingHorizontal: 16 }]}
           >
+            {/* Advanced filter icon */}
+            <TouchableOpacity
+              style={[styles.filterIconBtn, activeFilterCount > 0 && styles.filterIconBtnActive]}
+              onPress={() => setFilterModalVisible(true)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.filterSliderIcon}>
+                <View style={styles.filterSliderRow}>
+                  <View style={styles.filterSliderBar} />
+                  <View style={[styles.filterSliderDot, { left: '65%' }]} />
+                </View>
+                <View style={styles.filterSliderRow}>
+                  <View style={styles.filterSliderBar} />
+                  <View style={[styles.filterSliderDot, { left: '30%' }]} />
+                </View>
+                <View style={styles.filterSliderRow}>
+                  <View style={styles.filterSliderBar} />
+                  <View style={[styles.filterSliderDot, { left: '55%' }]} />
+                </View>
+              </View>
+              {activeFilterCount > 0 && (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
             {FILTER_TABS.map((tab) => (
               <TouchableOpacity
                 key={tab.key}
@@ -420,6 +477,96 @@ export default function RecipeListScreen() {
             ))}
           </ScrollView>
         </View>
+
+        {/* Advanced Filter Modal */}
+        <Modal
+          visible={filterModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setFilterModalVisible(false)}
+        >
+          <Pressable
+            style={styles.filterModalBackdrop}
+            onPress={() => setFilterModalVisible(false)}
+          >
+            <Pressable style={styles.filterModalContent} onPress={() => {}}>
+              <View style={styles.filterModalHandle} />
+              <Text style={styles.filterModalTitle}>Advanced Filters</Text>
+
+              {/* Difficulty */}
+              <Text style={styles.filterSectionLabel}>Difficulty</Text>
+              <View style={styles.filterOptionsRow}>
+                {['Easy', 'Medium', 'Hard'].map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    style={[styles.filterOption, filterDifficulty === d && styles.filterOptionActive]}
+                    onPress={() => setFilterDifficulty(filterDifficulty === d ? null : d)}
+                  >
+                    <Text style={[styles.filterOptionText, filterDifficulty === d && styles.filterOptionTextActive]}>
+                      {d === 'Easy' ? '🟢' : d === 'Medium' ? '🟡' : '🔴'} {d}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Spice Level */}
+              <Text style={styles.filterSectionLabel}>Spice Level</Text>
+              <View style={styles.filterOptionsRow}>
+                {['Mild', 'Medium', 'Hot'].map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.filterOption, filterSpice === s && styles.filterOptionActive]}
+                    onPress={() => setFilterSpice(filterSpice === s ? null : s)}
+                  >
+                    <Text style={[styles.filterOptionText, filterSpice === s && styles.filterOptionTextActive]}>
+                      {s === 'Mild' ? '🌶️' : s === 'Medium' ? '🌶️🌶️' : '🌶️🌶️🌶️'} {s}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Cooking Time */}
+              <Text style={styles.filterSectionLabel}>Cooking Time</Text>
+              <View style={styles.filterOptionsRow}>
+                {[
+                  { key: 'quick', label: '⚡ Under 15 min' },
+                  { key: 'medium', label: '⏱️ 15–30 min' },
+                  { key: 'long', label: '🍲 Over 30 min' },
+                ].map((t) => (
+                  <TouchableOpacity
+                    key={t.key}
+                    style={[styles.filterOption, filterTime === t.key && styles.filterOptionActive]}
+                    onPress={() => setFilterTime(filterTime === t.key ? null : t.key)}
+                  >
+                    <Text style={[styles.filterOptionText, filterTime === t.key && styles.filterOptionTextActive]}>
+                      {t.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Action buttons */}
+              <View style={styles.filterActionRow}>
+                <TouchableOpacity
+                  style={styles.filterClearBtn}
+                  onPress={() => {
+                    setFilterDifficulty(null);
+                    setFilterSpice(null);
+                    setFilterTime(null);
+                  }}
+                >
+                  <Text style={styles.filterClearText}>Clear All</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.filterApplyBtn}
+                  onPress={() => setFilterModalVisible(false)}
+                >
+                  <Text style={styles.filterApplyText}>Apply Filters</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <View style={styles.actionBtnRow}>
           <TouchableOpacity
@@ -442,6 +589,7 @@ export default function RecipeListScreen() {
         data={listData}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           !hasLoaded ? (
             <View style={styles.skeletonWrap}>
@@ -596,26 +744,20 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: 'rgba(232, 93, 38, 0.85)',
+    backgroundColor: 'rgba(232, 93, 38, 0.15)',
     borderRadius: 16,
     height: 88,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
     paddingVertical: 10,
-    borderBottomWidth: 4,
-    borderRightWidth: 2,
-    borderBottomColor: '#D4D4D4',
-    borderRightColor: '#E0E0E0',
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 4, shadowOffset: { width: 3, height: 6 } },
-      android: { elevation: 8 },
-    }),
+    borderWidth: 1.5,
+    borderColor: '#E85D26',
   },
   actionCardEmoji: { fontSize: 28, marginBottom: 4 },
   actionCardIcon: { width: 36, height: 36, borderRadius: 18, marginBottom: 4 },
-  actionCardTitle: { color: '#FFFFFF', fontWeight: '900', fontSize: 17, textAlign: 'center' },
-  actionCardSub: { color: 'rgba(255,255,255,0.8)', fontWeight: '700', fontSize: 13, textAlign: 'center', marginTop: 2 },
+  actionCardTitle: { color: '#E85D26', fontWeight: '900', fontSize: 17, textAlign: 'center' },
+  actionCardSub: { color: 'rgba(255,255,255,0.55)', fontWeight: '700', fontSize: 13, textAlign: 'center', marginTop: 2 },
   tabPill: {
     paddingHorizontal: 18,
     paddingVertical: 12,
@@ -639,7 +781,161 @@ const styles = StyleSheet.create({
   tabPillText: { fontSize: 14, color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
   tabPillTextActive: { color: '#FFFFFF', fontWeight: '700' },
 
-  list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 44 },
+  // Advanced filter icon button
+  filterIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#1A0A00',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterIconBtnActive: {
+    backgroundColor: 'rgba(232,93,38,0.2)',
+    borderColor: 'rgba(232,93,38,0.5)',
+  },
+  filterSliderIcon: {
+    width: 20,
+    height: 16,
+    justifyContent: 'space-between',
+  },
+  filterSliderRow: {
+    height: 2,
+    width: '100%',
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  filterSliderBar: {
+    height: 2,
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 1,
+  },
+  filterSliderDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+    top: -2,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#E85D26',
+    borderRadius: 10,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+
+  // Filter modal
+  filterModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  filterModalContent: {
+    backgroundColor: '#2A1810',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderBottomWidth: 0,
+  },
+  filterModalHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  filterModalTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  filterSectionLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 10,
+    marginTop: 8,
+  },
+  filterOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  filterOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  filterOptionActive: {
+    backgroundColor: 'rgba(232,93,38,0.2)',
+    borderColor: 'rgba(232,93,38,0.6)',
+  },
+  filterOptionText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterOptionTextActive: {
+    color: '#FFFFFF',
+  },
+  filterActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  filterClearBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  filterClearText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  filterApplyBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: '#E85D26',
+    alignItems: 'center',
+  },
+  filterApplyText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 80 },
   actionRow: { flexDirection: 'row', gap: 10 },
   deleteBtn: {
     width: 36,
