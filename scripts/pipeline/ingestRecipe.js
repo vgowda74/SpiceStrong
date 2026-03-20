@@ -214,7 +214,7 @@ async function ingestRecipe(payload, options = {}) {
       cook_time_bucket: classification.cook_time_bucket,
       meal_type_tags: classification.meal_type,
       dietary_tags: classification.dietary_tags,
-      allergens: classification.allergens,
+      allergen_tags: classification.allergen_tags,
       cooking_method: classification.cooking_method,
       fitness_goal: classification.fitness_goal,
       storage_tags: classification.storage_tags,
@@ -227,7 +227,6 @@ async function ingestRecipe(payload, options = {}) {
       carbs_g: nutrition.carbs_g,
       fat_g: nutrition.fat_g,
       fiber_g: nutrition.fiber_g,
-      macro_tags: nutrition.macro_tags,
     }),
 
   };
@@ -256,8 +255,8 @@ async function ingestRecipe(payload, options = {}) {
         const safeRow = { ...recipeRow };
         const optionalColumns = [
           'cuisine_type', 'cook_time_bucket', 'meal_type_tags', 'dietary_tags',
-          'allergens', 'cooking_method', 'fitness_goal', 'storage_tags',
-          'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g', 'macro_tags',
+          'allergen_tags', 'cooking_method', 'fitness_goal', 'storage_tags',
+          'calories', 'protein_g', 'carbs_g', 'fat_g', 'fiber_g',
           'community_rating', 'review_count', 'is_ai_generated', 'is_published',
           'serving_size', 'recipe_source',
         ];

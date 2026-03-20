@@ -2,7 +2,8 @@
  * getNutrition.js — SpiceStrong Edamam Nutrition Analyzer
  *
  * Calls the Edamam Nutrition Analysis API to compute per-serving
- * nutrition values and derives macro tags for recipe filtering.
+ * nutrition values. Returns raw numbers only — no tag derivation.
+ * The app handles filtering dynamically from these numbers.
  *
  * API docs: https://developer.edamam.com/edamam-nutrition-api
  *
@@ -20,35 +21,6 @@ const EDAMAM_APP_KEY = process.env.EDAMAM_APP_KEY;
 const EDAMAM_API_URL = 'https://api.edamam.com/api/nutrition-details';
 
 /**
- * Derives macro_tags array from per-serving nutrition values.
- *
- * Rules:
- *   - protein_g >= 40 → "40g+ protein"
- *   - protein_g >= 30 → "30g+ protein"
- *   - calories < 300 → "Under 300 cal"
- *   - calories < 500 → "Under 500 cal"
- *   - carbs_g < 20 → "Under 20g carbs"
- *   - fat_g < 10 → "Under 10g fat"
- *
- * @param {Object} nutrition - Per-serving nutrition values
- * @returns {string[]} Array of macro tag strings
- */
-function deriveMacroTags({ calories, protein_g, carbs_g, fat_g }) {
-  const tags = [];
-
-  if (protein_g >= 40) tags.push('40g+ protein');
-  else if (protein_g >= 30) tags.push('30g+ protein');
-
-  if (calories < 300) tags.push('Under 300 cal');
-  else if (calories < 500) tags.push('Under 500 cal');
-
-  if (carbs_g < 20) tags.push('Under 20g carbs');
-  if (fat_g < 10) tags.push('Under 10g fat');
-
-  return tags;
-}
-
-/**
  * Calls the Edamam Nutrition Analysis API to get per-serving nutrition.
  *
  * @param {string[]} ingredients - Array of ingredient strings with quantities
@@ -61,7 +33,6 @@ function deriveMacroTags({ calories, protein_g, carbs_g, fat_g }) {
  *     carbs_g: number,        // per serving, 1 decimal
  *     fat_g: number,          // per serving, 1 decimal
  *     fiber_g: number,        // per serving, 1 decimal
- *     macro_tags: string[]    // derived tags
  *   }
  * @throws {Error} If Edamam API call fails or returns an error
  */
@@ -136,7 +107,7 @@ async function getNutrition(ingredients, servings = 1) {
       }
     }
 
-    // Per-serving values
+    // Per-serving values (raw numbers only — no tag derivation)
     const perServing = {
       calories: Math.round(totalCalories / servings),
       protein_g: parseFloat((totalProtein / servings).toFixed(1)),
@@ -145,15 +116,9 @@ async function getNutrition(ingredients, servings = 1) {
       fiber_g: parseFloat((totalFiber / servings).toFixed(1)),
     };
 
-    // Derive macro tags
-    const macro_tags = deriveMacroTags(perServing);
-
     console.log('[getNutrition] Nutrition analysis complete (Edamam USDA data)');
 
-    return {
-      ...perServing,
-      macro_tags,
-    };
+    return perServing;
   } catch (err) {
     if (err.message.includes('Edamam API returned')) {
       throw err;
@@ -162,4 +127,4 @@ async function getNutrition(ingredients, servings = 1) {
   }
 }
 
-module.exports = { getNutrition, deriveMacroTags };
+module.exports = { getNutrition };

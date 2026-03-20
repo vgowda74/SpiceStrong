@@ -105,7 +105,7 @@ async function main() {
       console.log(`   Method:       ${result.recipe.cooking_method || 'N/A'}`);
       console.log(`   Meal types:   ${JSON.stringify(result.recipe.meal_type_tags) || 'N/A'}`);
       console.log(`   Dietary:      ${JSON.stringify(result.recipe.dietary_tags) || 'N/A'}`);
-      console.log(`   Allergens:    ${JSON.stringify(result.recipe.allergens) || 'N/A'}`);
+      console.log(`   Allergen tags: ${JSON.stringify(result.recipe.allergen_tags) || 'N/A'}`);
       console.log(`   Fitness:      ${JSON.stringify(result.recipe.fitness_goal) || 'N/A'}`);
       console.log(`   Storage:      ${JSON.stringify(result.recipe.storage_tags) || 'N/A'}`);
       console.log();
@@ -114,7 +114,6 @@ async function main() {
       console.log(`   Carbs:        ${result.recipe.carbs_g || 'N/A'}g/serving`);
       console.log(`   Fat:          ${result.recipe.fat_g || 'N/A'}g/serving`);
       console.log(`   Fiber:        ${result.recipe.fiber_g || 'N/A'}g/serving`);
-      console.log(`   Macro tags:   ${JSON.stringify(result.recipe.macro_tags) || 'N/A'}`);
       console.log();
       console.log(`   Published:    ${result.recipe.is_published}`);
       console.log(`   Fingerprint:  ${result.recipe.fingerprint?.substring(0, 16)}...`);

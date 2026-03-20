@@ -24,6 +24,8 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 const { createClient } = require('@supabase/supabase-js');
 const { fal } = require('@fal-ai/client');
 const { generateRecipeFingerprint, getFingerprintInput } = require('./lib/recipeFingerprint');
+const { classifyRecipe } = require('./pipeline/classifyRecipe');
+const { getNutrition } = require('./pipeline/getNutrition');
 
 // ─── Config ───
 const INPUT_DIR = path.resolve(__dirname, '..', 'recipes', 'input');
