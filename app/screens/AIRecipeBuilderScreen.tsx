@@ -15,7 +15,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
-import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus } from '../../services/recipeService';
+import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, type RecipeSyncResult } from '../../services/recipeService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -761,7 +761,14 @@ export default function AIRecipeBuilderScreen() {
         // Step 2: Save full recipe (update placeholder) — stays in 'building' status
         console.log('[SpiceStrong] Background: recipe generated, saving...');
         saved = await saveRecipeFromAI(result, placeholderId);
-        await saveAIRecipe(saved); // Save to AsyncStorage + sync to Supabase
+        const syncResult = await saveAIRecipe(saved);
+
+        // Handle duplicate detection — recipe is already saved locally,
+        // but Supabase rejected it because a similar recipe exists
+        if (syncResult.duplicate) {
+          console.log('[SpiceStrong] Duplicate detected, saving with override...');
+          await saveAIRecipe(saved, true); // Override: insert with null fingerprint
+        }
         console.log('[SpiceStrong] Background: recipe saved, generating images...');
 
         // Step 3: Generate DALL-E images

@@ -47,9 +47,23 @@ CREATE TABLE IF NOT EXISTS recipes (
   status          TEXT CHECK (status IN ('building', 'ready')),
   cook_count      INT NOT NULL DEFAULT 0, -- community-wide cook count
 
+  -- Deduplication fingerprint: SHA-256 of normalized ingredients + step count
+  -- NULL allowed for user-overridden duplicates
+  fingerprint     TEXT,
+
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Unique constraint on fingerprint (only non-null values)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recipes_fingerprint_unique
+  ON recipes (fingerprint)
+  WHERE fingerprint IS NOT NULL;
+
+-- Fast lookup index for dedup checks
+CREATE INDEX IF NOT EXISTS idx_recipes_fingerprint
+  ON recipes (fingerprint)
+  WHERE fingerprint IS NOT NULL;
 
 -- Atomic increment function for community cook count
 CREATE OR REPLACE FUNCTION increment_cook_count(p_recipe_id TEXT)

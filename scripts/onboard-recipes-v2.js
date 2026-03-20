@@ -23,6 +23,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const { createClient } = require('@supabase/supabase-js');
 const { fal } = require('@fal-ai/client');
+const { generateRecipeFingerprint, getFingerprintInput } = require('./lib/recipeFingerprint');
 
 // ─── Config ───
 const INPUT_DIR = path.resolve(__dirname, '..', 'recipes', 'input');
@@ -376,6 +377,22 @@ async function recipeExists(recipeId) {
   return !!data;
 }
 
+/**
+ * Check if a recipe with the given fingerprint already exists in Supabase.
+ * Returns the existing recipe's id and name if found, null otherwise.
+ *
+ * @param {string} fingerprint - SHA-256 hex string
+ * @returns {Promise<{id: string, name: string}|null>}
+ */
+async function findRecipeByFingerprint(fingerprint) {
+  const { data } = await supabase
+    .from('recipes')
+    .select('id, name')
+    .eq('fingerprint', fingerprint)
+    .maybeSingle();
+  return data || null;
+}
+
 async function getUniqueRecipeId(baseId) {
   if (!(await recipeExists(baseId))) return baseId;
   console.log(`  ID "${baseId}" already exists — finding unique suffix...`);
@@ -425,12 +442,30 @@ async function processExcelFile(xlsxPath) {
   console.log(`Steps: ${steps.length}`);
   console.log(`Nutrition: ${nutrition ? Object.keys(nutrition).length + ' fields' : 'none'}`);
 
-  // 3. Generate recipe ID
+  // 3. Fingerprint deduplication check
+  const recipeForFingerprint = {
+    ingredients: { '2-3 servings': ingredientsSmall },
+    steps,
+  };
+  const fingerprint = generateRecipeFingerprint(recipeForFingerprint);
+  const fpInput = getFingerprintInput(recipeForFingerprint);
+  console.log(`Fingerprint: ${fingerprint.substring(0, 16)}...`);
+  console.log(`  Input: ${fpInput.substring(0, 80)}${fpInput.length > 80 ? '...' : ''}`);
+
+  const existingMatch = await findRecipeByFingerprint(fingerprint);
+  if (existingMatch) {
+    console.log(`  DUPLICATE DETECTED — matches existing recipe:`);
+    console.log(`    ID:   ${existingMatch.id}`);
+    console.log(`    Name: ${existingMatch.name}`);
+    return { status: 'duplicate', matchedRecipe: existingMatch.name };
+  }
+
+  // 4. Generate recipe ID
   const baseId = generateRecipeId(recipeName, protein.id);
   const recipeId = await getUniqueRecipeId(baseId);
   console.log(`Recipe ID: ${recipeId}`);
 
-  // 4. Parse optional fields
+  // 5. Parse optional fields
   const cookingTime = numOrNull(info['Cooking Time']) || numOrNull(info['Total Time']);
   const difficulty = strOrNull(info['Difficulty']) || 'Medium';
   const spiceLevel = strOrNull(info['Spice Level']) || 'Medium';
@@ -477,7 +512,7 @@ async function processExcelFile(xlsxPath) {
     }
   }
 
-  // 5. Insert recipe
+  // 6. Insert recipe
   const recipeRow = {
     id: recipeId,
     name: recipeName,
@@ -505,20 +540,27 @@ async function processExcelFile(xlsxPath) {
     tags: tags.length > 0 ? tags : null,
     status: 'ready',
     device_id: null,
+    fingerprint,
   };
 
-  // Try insert with all columns; if cuisine/tags columns don't exist, retry without them
+  // Try insert with all columns; if cuisine/tags/fingerprint columns don't exist, retry without them
   let { error: insertError } = await supabase.from('recipes').insert(recipeRow);
   if (insertError && insertError.message.includes('schema cache')) {
-    console.log('  NOTE: cuisine/tags columns not in DB yet — inserting without them');
+    console.log('  NOTE: Some columns not in DB yet — inserting without cuisine/tags/fingerprint');
     delete recipeRow.cuisine;
     delete recipeRow.tags;
+    delete recipeRow.fingerprint;
     ({ error: insertError } = await supabase.from('recipes').insert(recipeRow));
+  }
+  // Handle duplicate fingerprint at DB level (belt + suspenders with pre-check)
+  if (insertError && insertError.code === '23505' && insertError.message?.includes('fingerprint')) {
+    console.log(`  DUPLICATE detected at DB level — skipping`);
+    return { status: 'duplicate', matchedRecipe: recipeName };
   }
   if (insertError) throw new Error(`Recipe insert failed: ${insertError.message}`);
   console.log(`  Recipe inserted: ${recipeId}`);
 
-  // 6. Handle hero image
+  // 7. Handle hero image
   const heroFilename = strOrNull(info['Hero Image']) || strOrNull(info['Hero Image Filename']) || strOrNull(info['image_filename']);
   const heroPath = findImageFile(IMAGES_DIR, heroFilename);
 
@@ -548,7 +590,7 @@ async function processExcelFile(xlsxPath) {
     }
   }
 
-  // 7. Handle step images
+  // 8. Handle step images
   // Check folder: recipes/input/images/steps/[recipe_slug]/step_N.jpg
   const stepImagesDir = path.join(IMAGES_DIR, 'steps', slugForImage);
 
@@ -607,10 +649,10 @@ async function main() {
     process.exit(1);
   }
 
-  // Find .xlsx files NOT containing "_onboarded"
+  // Find .xlsx files NOT containing "_onboarded" or "_duplicate"
   const allFiles = fs.readdirSync(INPUT_DIR);
   const xlsxFiles = allFiles.filter(
-    f => f.endsWith('.xlsx') && !f.includes('_onboarded') && !f.startsWith('~$')
+    f => f.endsWith('.xlsx') && !f.includes('_onboarded') && !f.includes('_duplicate') && !f.startsWith('~$')
   );
 
   if (xlsxFiles.length === 0) {
@@ -623,12 +665,30 @@ async function main() {
   xlsxFiles.forEach(f => console.log(`  - ${f}`));
 
   let successCount = 0;
+  let duplicateCount = 0;
   let failCount = 0;
 
   for (const file of xlsxFiles) {
     const filePath = path.join(INPUT_DIR, file);
     try {
-      await processExcelFile(filePath);
+      const result = await processExcelFile(filePath);
+
+      // Handle duplicate detection — skip and rename to _duplicate
+      if (result && result.status === 'duplicate') {
+        duplicateCount++;
+        try {
+          const dir = path.dirname(filePath);
+          const ext = path.extname(filePath);
+          const base = path.basename(filePath, ext);
+          const dupPath = path.join(dir, `${base}_duplicate${ext}`);
+          fs.renameSync(filePath, dupPath);
+          console.log(`Renamed: ${file} -> ${path.basename(dupPath)} (matches: ${result.matchedRecipe})`);
+        } catch (e) {
+          console.warn(`WARN: Could not rename ${file}: ${e.message}`);
+        }
+        continue;
+      }
+
       successCount++;
 
       // Rename to _onboarded on success
@@ -647,8 +707,9 @@ async function main() {
   console.log(`\n========================================`);
   console.log(`ONBOARDING COMPLETE`);
   console.log(`========================================`);
-  console.log(`Recipes inserted: ${successCount}`);
-  console.log(`Failures:         ${failCount}`);
+  console.log(`Recipes inserted:  ${successCount}`);
+  console.log(`Duplicates skipped: ${duplicateCount}`);
+  console.log(`Failures:          ${failCount}`);
   console.log();
 
   if (failCount > 0) process.exit(1);

@@ -25,6 +25,7 @@ import {
   getBuiltInRecipesForProtein,
   getBuiltInRecipeById,
 } from '../src/data/builtInRecipes';
+import { generateRecipeFingerprint } from '../src/utils/recipeFingerprint';
 
 // ─── Cache Constants ───
 const CACHE_KEY_PREFIX = 'spicestrong_recipe_cache_';
@@ -405,28 +406,76 @@ export async function fetchRecipeById(recipeId: string): Promise<SavedRecipe | n
 /**
  * Save an AI-generated recipe to both AsyncStorage (immediate) and Supabase (background).
  * If Supabase upsert fails, recipe ID is added to pending sync list.
+ *
+ * @param recipe - The recipe to save
+ * @param overrideDuplicate - If true, allows saving even if a duplicate fingerprint exists
+ * @returns RecipeSyncResult — check `.duplicate` to show user-facing message
  */
-export async function saveAIRecipe(recipe: SavedRecipe): Promise<void> {
+export async function saveAIRecipe(
+  recipe: SavedRecipe,
+  overrideDuplicate = false
+): Promise<RecipeSyncResult> {
   // 1. Save locally — immediate, offline-safe
   await localSaveRecipe(recipe);
 
-  // 2. Sync to Supabase in background (best-effort)
-  syncRecipeToSupabase(recipe).catch(() => {
-    // Mark as pending sync
+  // 2. Sync to Supabase — check for duplicates
+  try {
+    const result = await syncRecipeToSupabase(recipe, overrideDuplicate);
+    if (result.duplicate) {
+      return result; // Caller decides whether to show UI and retry with override
+    }
+    return { success: true };
+  } catch {
+    // Network error — mark as pending sync
     addToPendingSync(recipe.id).catch(() => {});
-  });
+    return { success: true }; // Local save succeeded, sync will retry later
+  }
 }
 
 /**
- * Upload a recipe to Supabase.
+ * Result of a recipe insert/sync operation.
+ * `duplicate: true` means a recipe with the same fingerprint already exists.
  */
-async function syncRecipeToSupabase(recipe: SavedRecipe): Promise<void> {
+export interface RecipeSyncResult {
+  success: boolean;
+  duplicate?: boolean;
+  message?: string;
+}
+
+/**
+ * Upload a recipe to Supabase with fingerprint-based deduplication.
+ *
+ * Generates a SHA-256 fingerprint from the recipe's ingredients + step count.
+ * If a recipe with the same fingerprint already exists (Postgres error 23505),
+ * returns `{ duplicate: true }` instead of throwing.
+ *
+ * @param recipe - The recipe to sync
+ * @param overrideDuplicate - If true, inserts with null fingerprint to bypass dedup
+ * @returns RecipeSyncResult indicating success or duplicate
+ */
+async function syncRecipeToSupabase(
+  recipe: SavedRecipe,
+  overrideDuplicate = false
+): Promise<RecipeSyncResult> {
   const isAvailable = await checkRecipeTableAvailable();
   if (!isAvailable) throw new Error('Supabase not available');
 
   const deviceId = await getDeviceId();
 
-  const row = {
+  // Generate fingerprint (null if user is overriding a detected duplicate)
+  let fingerprint: string | null = null;
+  if (!overrideDuplicate) {
+    try {
+      fingerprint = await generateRecipeFingerprint({
+        ingredients: recipe.ingredients,
+        steps: recipe.steps,
+      });
+    } catch (err) {
+      console.warn('[SpiceStrong] Fingerprint generation failed, proceeding without:', err);
+    }
+  }
+
+  const row: Record<string, unknown> = {
     id: recipe.id,
     name: recipe.name,
     protein_id: recipe.proteinId,
@@ -443,6 +492,7 @@ async function syncRecipeToSupabase(recipe: SavedRecipe): Promise<void> {
     status: recipe.status ?? 'ready',
     device_id: deviceId,
     ai_nutrition: recipe.aiNutrition ?? null,
+    fingerprint,
     updated_at: new Date().toISOString(),
   };
 
@@ -450,12 +500,19 @@ async function syncRecipeToSupabase(recipe: SavedRecipe): Promise<void> {
     .from('recipes')
     .upsert(row, { onConflict: 'id' });
 
+  // Handle duplicate fingerprint (unique constraint violation)
+  if (error && error.code === '23505' && error.message?.includes('fingerprint')) {
+    console.log(`[SpiceStrong] Duplicate recipe detected: ${recipe.name}`);
+    return { success: false, duplicate: true, message: 'A similar recipe already exists in SpiceStrong!' };
+  }
+
   if (error) {
     console.error('[SpiceStrong] Failed to sync recipe to Supabase:', error.message);
     throw error;
   }
 
   console.log(`[SpiceStrong] Recipe synced to Supabase: ${recipe.id}`);
+  return { success: true };
 }
 
 /**
