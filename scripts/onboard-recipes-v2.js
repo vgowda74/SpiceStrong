@@ -411,10 +411,14 @@ async function processExcelFile(xlsxPath) {
 
   console.log(`\nRecipe: ${recipeName}`);
 
-  // 2. Resolve protein
+  // 2. Resolve protein — try explicit field first, then detect from recipe name
   const proteinInput = info['Protein'] || info['Protein Type'] || info['protein'];
-  const protein = resolveProtein(proteinInput);
-  if (!protein) throw new Error(`Could not resolve protein: "${proteinInput}". Must be one of: ${PROTEINS.map(p => p.name).join(', ')}`);
+  let protein = resolveProtein(proteinInput);
+  if (!protein) {
+    // Fallback: try to detect protein from recipe name
+    protein = resolveProtein(recipeName);
+  }
+  if (!protein) throw new Error(`Could not resolve protein: "${proteinInput || recipeName}". Must be one of: ${PROTEINS.map(p => p.name).join(', ')}`);
 
   console.log(`Protein: ${protein.name} (${protein.id})`);
   console.log(`Ingredients: ${ingredientsSmall.length} items`);

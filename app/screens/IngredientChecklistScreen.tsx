@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { getIngredientImage } from '../../src/data/ingredientImages';
@@ -430,7 +431,11 @@ export default function IngredientChecklistScreen() {
           }}
           hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
-          <Text style={[styles.cartIconSymbol, inCart && styles.cartIconSymbolActive]}>{inCart ? '✓' : '🛒+'}</Text>
+          {inCart ? (
+            <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
+          ) : (
+            <Ionicons name="cart" size={20} color="#FFFFFF" />
+          )}
           <Text style={[styles.cartIconLabel, inCart && styles.cartIconLabelActive]}>{inCart ? 'Added' : 'Add'}</Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -550,8 +555,8 @@ export default function IngredientChecklistScreen() {
               </View>
               {cartCount > 0 && (
                 <TouchableOpacity style={styles.viewCartBtn} onPress={openCartSheet} activeOpacity={0.8}>
-                  <Text style={styles.viewCartIcon}>🛒</Text>
-                  <Text style={styles.viewCartText}>View Cart</Text>
+                  <Ionicons name="cart" size={18} color="#FFFFFF" style={styles.viewCartIcon} />
+                  <Text style={styles.viewCartText}>View</Text>
                   <View style={styles.viewCartBadge}>
                     <Text style={styles.viewCartBadgeText}>{cartCount}</Text>
                   </View>
@@ -963,17 +968,6 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
     }),
   },
-  cartIconEmoji: {
-    fontSize: 20,
-  },
-  cartIconPlus: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
   cartIconLabel: {
     fontSize: 9,
     fontWeight: '800',
@@ -1130,7 +1124,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   viewCartIcon: {
-    fontSize: 16,
+    marginRight: -2,
   },
   viewCartText: {
     color: '#FFFFFF',
