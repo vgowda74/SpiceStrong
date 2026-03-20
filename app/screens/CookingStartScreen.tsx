@@ -29,15 +29,16 @@ export default function CookingStartScreen() {
   const recipeId = typeof params.recipeId === 'string' ? params.recipeId : Array.isArray(params.recipeId) ? params.recipeId[0] : undefined;
   const quantityTier = typeof params.quantityTier === 'string' ? params.quantityTier : Array.isArray(params.quantityTier) ? params.quantityTier?.[0] : undefined;
 
+  const GLOBAL_CART_KEY = 'globalShoppingList';
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
-  const [cartItems, setCartItems] = useState<Record<string, boolean>>({});
+  const [cartItems, setCartItems] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!recipeId) return;
     getRecipeById(recipeId).then((r) => setRecipe(r ?? null));
-    // Load shopping list from AsyncStorage
-    AsyncStorage.getItem(`shoppingList_${recipeId}`).then((stored) => {
+    // Load global shopping list from AsyncStorage
+    AsyncStorage.getItem(GLOBAL_CART_KEY).then((stored) => {
       if (stored) setCartItems(JSON.parse(stored));
     });
   }, [recipeId]);
@@ -77,14 +78,25 @@ export default function CookingStartScreen() {
   };
 
   const handleShareCart = async () => {
-    const items = cartKeys.map((key) => {
+    // Group by recipe for sharing
+    const grouped: Record<string, string[]> = {};
+    Object.entries(cartItems).forEach(([key, recipeName]) => {
+      if (!grouped[recipeName]) grouped[recipeName] = [];
       const [name, qty] = key.split('|||');
-      return `• ${qty} ${name}`;
-    }).join('\n');
-    const message = `🛒 Shopping List — ${r.name}\n\n${items}\n\nCooked with SpiceStrong 💪`;
+      grouped[recipeName].push(`  • ${qty} ${name}`);
+    });
+    const sections = Object.entries(grouped).map(([recipeName, items]) =>
+      `📌 ${recipeName}\n${items.join('\n')}`
+    ).join('\n\n');
+    const message = `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪`;
     try {
       await Share.share({ message });
     } catch (_) {}
+  };
+
+  const handleClearCart = () => {
+    setCartItems({});
+    AsyncStorage.removeItem(GLOBAL_CART_KEY);
   };
 
   return (
@@ -116,14 +128,21 @@ export default function CookingStartScreen() {
         </View>
 
         {hasCart && (
-          <TouchableOpacity style={styles.shareCartBtn} onPress={handleShareCart} activeOpacity={0.8}>
-            <Ionicons name="cart" size={20} color="#4CAF50" />
-            <Text style={styles.shareCartText}>Share Shopping List</Text>
-            <View style={styles.shareCartBadge}>
-              <Text style={styles.shareCartBadgeText}>{cartKeys.length}</Text>
-            </View>
-            <Ionicons name="share-outline" size={18} color="rgba(255,255,255,0.6)" style={{ marginLeft: 4 }} />
-          </TouchableOpacity>
+          <View style={styles.cartActionsRow}>
+            <TouchableOpacity style={styles.shareCartBtn} onPress={handleShareCart} activeOpacity={0.8}>
+              <Ionicons name="cart" size={20} color="#4CAF50" />
+              <Text style={styles.shareCartText}>Share List</Text>
+              <View style={styles.shareCartBadge}>
+                <Text style={styles.shareCartBadgeText}>{cartKeys.length}</Text>
+              </View>
+              <Ionicons name="share-outline" size={18} color="rgba(255,255,255,0.6)" style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.clearCartBtn} onPress={handleClearCart} activeOpacity={0.8}>
+              <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+              <Text style={styles.clearCartText}>Clear</Text>
+            </TouchableOpacity>
+          </View>
         )}
 
         <TouchableOpacity style={styles.btnWrap} onPress={handleStart} activeOpacity={0.85}>
@@ -188,20 +207,42 @@ const styles = StyleSheet.create({
   },
   tipLabel: { color: ORANGE, fontWeight: '700', fontSize: 13, marginBottom: 6 },
   tipText: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
-  shareCartBtn: {
+  cartActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'stretch',
+    marginHorizontal: 24,
+    marginTop: 20,
+    gap: 10,
+  },
+  shareCartBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(76, 175, 80, 0.15)',
     borderWidth: 1.5,
     borderColor: 'rgba(76, 175, 80, 0.4)',
     borderRadius: 14,
     paddingVertical: 14,
-    paddingHorizontal: 20,
-    marginHorizontal: 24,
-    marginTop: 20,
+    paddingHorizontal: 16,
     gap: 8,
+  },
+  clearCartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.12)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 6,
+  },
+  clearCartText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    fontWeight: '700',
   },
   shareCartText: {
     color: '#FFFFFF',

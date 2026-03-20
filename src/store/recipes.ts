@@ -157,6 +157,7 @@ import {
   BUILTIN_INGREDIENT_GROUPS as _BUILTIN_GROUPS,
   getBuiltInRecipeById as _getBuiltIn,
   getBuiltInRecipesForProtein,
+  type NutritionInfo,
 } from '../data/builtInRecipes';
 
 export const BUILTIN_INGREDIENT_GROUPS = _BUILTIN_GROUPS;
@@ -248,7 +249,7 @@ export function getCompletionStats(recipe: SavedRecipe, tier: QuantityTier = '2-
   // Helper: convert batch nutrition to per-serving for the selected tier
   const perServing = (batchVal: number) => Math.round(batchVal * factor / servings);
 
-  // Try to get full nutrition from built-in recipe
+  // Try to get full nutrition from built-in recipe (stored as batch totals)
   const builtIn = BUILTIN_RECIPES.find((r) => r.id === recipe.id);
   if (builtIn?.nutrition) {
     const n = builtIn.nutrition;
@@ -267,6 +268,27 @@ export function getCompletionStats(recipe: SavedRecipe, tier: QuantityTier = '2-
       servings,
       batchCalories: n.calories * factor,
       batchProteinG: n.proteinG * factor,
+    };
+  }
+  // Try Supabase-loaded nutrition (stored as per-serving values)
+  const supabaseNutrition = (recipe as unknown as { nutrition?: NutritionInfo }).nutrition;
+  if (supabaseNutrition && supabaseNutrition.calories > 0) {
+    const n = supabaseNutrition;
+    return {
+      proteinG: Math.round(n.proteinG * factor),
+      calories: Math.round(n.calories * factor),
+      carbsG: Math.round(n.carbsG * factor),
+      fatG: Math.round(n.fatG * factor),
+      fiberG: Math.round(n.fiberG * factor),
+      sugarG: Math.round(n.sugarG * factor),
+      sodiumMg: Math.round(n.sodiumMg * factor),
+      cholesterolMg: Math.round((n.cholesterolMg ?? 0) * factor),
+      saturatedFatG: Math.round((n.saturatedFatG ?? 0) * factor),
+      ironMg: Math.round((n.ironMg ?? 0) * factor),
+      calciumMg: Math.round((n.calciumMg ?? 0) * factor),
+      servings,
+      batchCalories: Math.round(n.calories * servings * factor),
+      batchProteinG: Math.round(n.proteinG * servings * factor),
     };
   }
   // Try AI-generated nutrition data

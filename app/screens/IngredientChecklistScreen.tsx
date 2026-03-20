@@ -181,25 +181,24 @@ export default function IngredientChecklistScreen() {
   const [selectedTier, setSelectedTier] = useState<QuantityTier>(initialTier);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
 
-  // Shopping list state
-  const [cartItems, setCartItems] = useState<Record<string, boolean>>({});
+  // Global shopping list state — value is recipe name for grouping
+  const GLOBAL_CART_KEY = 'globalShoppingList';
+  const [cartItems, setCartItems] = useState<Record<string, string>>({});
   const [showCartSheet, setShowCartSheet] = useState(false);
   const cartSheetAnim = useRef(new Animated.Value(0)).current;
   const cartBounce = useRef(new Animated.Value(1)).current;
 
-  // Load shopping list from AsyncStorage
+  // Load global shopping list from AsyncStorage
   useEffect(() => {
-    if (!recipeId) return;
-    AsyncStorage.getItem(`shoppingList_${recipeId}`).then((stored) => {
+    AsyncStorage.getItem(GLOBAL_CART_KEY).then((stored) => {
       if (stored) setCartItems(JSON.parse(stored));
     });
-  }, [recipeId]);
+  }, []);
 
-  // Save shopping list to AsyncStorage
-  const saveCart = useCallback((items: Record<string, boolean>) => {
-    if (!recipeId) return;
-    AsyncStorage.setItem(`shoppingList_${recipeId}`, JSON.stringify(items));
-  }, [recipeId]);
+  // Save global shopping list to AsyncStorage
+  const saveCart = useCallback((items: Record<string, string>) => {
+    AsyncStorage.setItem(GLOBAL_CART_KEY, JSON.stringify(items));
+  }, []);
 
   const toggleCartItem = (key: string) => {
     setCartItems((prev) => {
@@ -207,7 +206,7 @@ export default function IngredientChecklistScreen() {
       if (updated[key]) {
         delete updated[key];
       } else {
-        updated[key] = true;
+        updated[key] = recipe?.name ?? 'Recipe';
       }
       saveCart(updated);
       // Bounce the header cart icon
@@ -221,7 +220,7 @@ export default function IngredientChecklistScreen() {
 
   const clearCart = () => {
     setCartItems({});
-    if (recipeId) AsyncStorage.removeItem(`shoppingList_${recipeId}`);
+    AsyncStorage.removeItem(GLOBAL_CART_KEY);
     closeCartSheet();
   };
 
@@ -583,20 +582,33 @@ export default function IngredientChecklistScreen() {
               <Text style={styles.sheetTitle}>🛒 Shopping List</Text>
               <Text style={styles.sheetSubtitle}>{recipe?.name}</Text>
 
-              {/* Cart items */}
+              {/* Cart items grouped by recipe */}
               <View style={styles.sheetItems}>
-                {Object.keys(cartItems).map((key) => {
-                  const [name, qty] = key.split('|||');
-                  return (
-                    <View key={key} style={styles.sheetItem}>
-                      <Text style={styles.sheetItemBullet}>•</Text>
-                      <Text style={styles.sheetItemText}>{qty} {name}</Text>
-                      <TouchableOpacity onPress={() => toggleCartItem(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                        <Text style={styles.sheetItemRemove}>✕</Text>
-                      </TouchableOpacity>
+                {(() => {
+                  // Group cart items by recipe name
+                  const grouped: Record<string, string[]> = {};
+                  Object.entries(cartItems).forEach(([key, recipeName]) => {
+                    if (!grouped[recipeName]) grouped[recipeName] = [];
+                    grouped[recipeName].push(key);
+                  });
+                  return Object.entries(grouped).map(([recipeName, keys]) => (
+                    <View key={recipeName}>
+                      <Text style={styles.sheetRecipeGroup}>{recipeName}</Text>
+                      {keys.map((key) => {
+                        const [name, qty] = key.split('|||');
+                        return (
+                          <View key={key} style={styles.sheetItem}>
+                            <Text style={styles.sheetItemBullet}>•</Text>
+                            <Text style={styles.sheetItemText}>{qty} {name}</Text>
+                            <TouchableOpacity onPress={() => toggleCartItem(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                              <Text style={styles.sheetItemRemove}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
                     </View>
-                  );
-                })}
+                  ));
+                })()}
               </View>
 
               {/* Actions */}
@@ -604,11 +616,17 @@ export default function IngredientChecklistScreen() {
                 <TouchableOpacity
                   style={styles.shareBtn}
                   onPress={async () => {
-                    const items = Object.keys(cartItems).map((key) => {
+                    // Group by recipe for sharing
+                    const grouped: Record<string, string[]> = {};
+                    Object.entries(cartItems).forEach(([key, recipeName]) => {
+                      if (!grouped[recipeName]) grouped[recipeName] = [];
                       const [name, qty] = key.split('|||');
-                      return `• ${qty} ${name}`;
-                    }).join('\n');
-                    const message = `🛒 Shopping List - ${recipe?.name ?? 'Recipe'}\n\n${items}\n\nCooked with SpiceStrong 💪`;
+                      grouped[recipeName].push(`  • ${qty} ${name}`);
+                    });
+                    const sections = Object.entries(grouped).map(([recipeName, items]) =>
+                      `📌 ${recipeName}\n${items.join('\n')}`
+                    ).join('\n\n');
+                    const message = `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪`;
                     try {
                       await Share.share({ message });
                     } catch (_) {}
@@ -618,7 +636,7 @@ export default function IngredientChecklistScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.clearBtn} onPress={clearCart}>
-                  <Text style={styles.clearBtnText}>Clear List</Text>
+                  <Text style={styles.clearBtnText}>Clear All</Text>
                 </TouchableOpacity>
               </View>
             </Pressable>
@@ -1024,6 +1042,14 @@ const styles = StyleSheet.create({
   },
   sheetItems: {
     marginBottom: 20,
+  },
+  sheetRecipeGroup: {
+    color: ORANGE,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: 12,
+    marginBottom: 4,
   },
   sheetItem: {
     flexDirection: 'row',
