@@ -1,10 +1,13 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   ImageBackground,
   Platform,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -28,10 +31,15 @@ export default function CookingStartScreen() {
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
+  const [cartItems, setCartItems] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!recipeId) return;
     getRecipeById(recipeId).then((r) => setRecipe(r ?? null));
+    // Load shopping list from AsyncStorage
+    AsyncStorage.getItem(`shoppingList_${recipeId}`).then((stored) => {
+      if (stored) setCartItems(JSON.parse(stored));
+    });
   }, [recipeId]);
 
   useEffect(() => {
@@ -59,10 +67,24 @@ export default function CookingStartScreen() {
 
   const cookTime = getCookTimeMin(r);
   const difficulty = 'Medium';
+  const cartKeys = Object.keys(cartItems);
+  const hasCart = cartKeys.length > 0;
+
   const handleStart = () => {
     const query: Record<string, string> = { recipeId: r.id };
     if (quantityTier) query.quantityTier = quantityTier;
     router.replace({ pathname: '/screens/CookingModeScreen', params: query });
+  };
+
+  const handleShareCart = async () => {
+    const items = cartKeys.map((key) => {
+      const [name, qty] = key.split('|||');
+      return `• ${qty} ${name}`;
+    }).join('\n');
+    const message = `🛒 Shopping List — ${r.name}\n\n${items}\n\nCooked with SpiceStrong 💪`;
+    try {
+      await Share.share({ message });
+    } catch (_) {}
   };
 
   return (
@@ -92,6 +114,17 @@ export default function CookingStartScreen() {
             Read each step once before starting the timer — it makes cooking much smoother.
           </Text>
         </View>
+
+        {hasCart && (
+          <TouchableOpacity style={styles.shareCartBtn} onPress={handleShareCart} activeOpacity={0.8}>
+            <Ionicons name="cart" size={20} color="#4CAF50" />
+            <Text style={styles.shareCartText}>Share Shopping List</Text>
+            <View style={styles.shareCartBadge}>
+              <Text style={styles.shareCartBadgeText}>{cartKeys.length}</Text>
+            </View>
+            <Ionicons name="share-outline" size={18} color="rgba(255,255,255,0.6)" style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity style={styles.btnWrap} onPress={handleStart} activeOpacity={0.85}>
           <LinearGradient colors={['#F07030', '#C84A10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.btn}>
@@ -155,6 +188,40 @@ const styles = StyleSheet.create({
   },
   tipLabel: { color: ORANGE, fontWeight: '700', fontSize: 13, marginBottom: 6 },
   tipText: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
+  shareCartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(76, 175, 80, 0.4)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginHorizontal: 24,
+    marginTop: 20,
+    gap: 8,
+  },
+  shareCartText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  shareCartBadge: {
+    backgroundColor: '#4CAF50',
+    borderRadius: 10,
+    minWidth: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  shareCartBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   btnWrap: {
     marginHorizontal: 24,
     marginBottom: 40,
