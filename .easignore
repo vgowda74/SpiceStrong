@@ -1,0 +1,6 @@
+ScreenShot/
+docs/
+scripts/
+dist/
+*.md
+.claude/

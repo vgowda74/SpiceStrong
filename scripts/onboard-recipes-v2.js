@@ -334,6 +334,186 @@ async function generateImage(prompt) {
   return Buffer.from(arrayBuffer);
 }
 
+/**
+ * Build a context-aware, progressive prompt for AI step image generation.
+ *
+ * Creates realistic food photography prompts that:
+ *   - Show exact ingredients with quantities for the current step
+ *   - Remember what happened in previous steps (accumulated state in the pan/pot)
+ *   - Specify the correct cooking vessel and method
+ *   - Describe the visual state of food (color, texture, doneness)
+ *
+ * @param {string} recipeName - Full recipe name
+ * @param {Object[]} allSteps - All parsed cooking steps
+ * @param {number} stepIndex - Current step index (0-based)
+ * @param {Object[]} ingredients - Full ingredients list [{name, quantity}]
+ * @returns {string} Detailed AI image generation prompt
+ */
+function buildStepImagePrompt(recipeName, allSteps, stepIndex, ingredients) {
+  const currentStep = allSteps[stepIndex];
+  const stepNum = stepIndex + 1;
+  const totalSteps = allSteps.length;
+  const stepDesc = currentStep.description || '';
+  const stepTitle = currentStep.title || `Step ${stepNum}`;
+  const cookingMethod = currentStep.cookingMethod || null;
+  const ingredientsUsed = currentStep.ingredientsUsed || null;
+
+  // ── Detect the cooking vessel from step descriptions ──
+  const allDescs = allSteps.slice(0, stepIndex + 1).map(s => s.description.toLowerCase()).join(' ');
+  let vessel = 'pan';
+  if (allDescs.includes('pot') || allDescs.includes('pressure cook') || allDescs.includes('boil'))
+    vessel = 'pot';
+  else if (allDescs.includes('kadai') || allDescs.includes('karahi') || allDescs.includes('wok'))
+    vessel = 'kadai (Indian wok)';
+  else if (allDescs.includes('tawa') || allDescs.includes('griddle') || allDescs.includes('flat pan'))
+    vessel = 'tawa (flat griddle)';
+  else if (allDescs.includes('oven') || allDescs.includes('bake'))
+    vessel = 'oven tray';
+  else if (allDescs.includes('skillet'))
+    vessel = 'cast iron skillet';
+  else if (allDescs.includes('deep fry') || allDescs.includes('deep-fry'))
+    vessel = 'deep frying pan with oil';
+
+  // ── Build ingredient detail for this step (always with quantities) ──
+  // Helper: find the full ingredient entry (with quantity) from the master list
+  function findIngredientWithQty(ingNameRaw) {
+    const target = ingNameRaw.toLowerCase().trim();
+    // Exact name match first
+    let match = ingredients.find(ing => (ing.name || '').toLowerCase().trim() === target);
+    if (match) return match;
+    // Partial match: ingredient list name contains the target or vice versa
+    match = ingredients.find(ing => {
+      const fullName = (ing.name || '').toLowerCase();
+      return fullName.includes(target) || target.includes(fullName.split('(')[0].trim());
+    });
+    if (match) return match;
+    // Word-level match: any significant word matches
+    const targetWords = target.split(/\s+/).filter(w => w.length > 2);
+    match = ingredients.find(ing => {
+      const fullName = (ing.name || '').toLowerCase();
+      return targetWords.some(w => fullName.includes(w));
+    });
+    return match || null;
+  }
+
+  let stepIngredientDetail = '';
+  if (ingredientsUsed) {
+    // ingredientsUsed is a comma-separated string like "Onion, Tomato, Green chili"
+    // Look up each one in the master ingredients list to get the full quantity
+    const usedNames = ingredientsUsed.split(',').map(s => s.trim()).filter(Boolean);
+    const resolved = usedNames.map(usedName => {
+      const found = findIngredientWithQty(usedName);
+      if (found && found.quantity) {
+        return `${found.quantity} ${found.name || usedName}`;
+      }
+      return usedName; // fallback: name only if no match
+    });
+    stepIngredientDetail = resolved.join(', ');
+  } else {
+    // Auto-match: find ingredients mentioned in the step description
+    const descLower = stepDesc.toLowerCase();
+    const matched = ingredients.filter(ing => {
+      const ingName = (ing.name || '').toLowerCase();
+      // Check if any significant word from the ingredient name appears in the step description
+      const words = ingName.split(/[\s()]/g).filter(w => w.length > 2);
+      return words.some(w => descLower.includes(w));
+    });
+    if (matched.length > 0) {
+      stepIngredientDetail = matched.map(ing =>
+        ing.quantity ? `${ing.quantity} ${ing.name}` : ing.name
+      ).join(', ');
+    }
+  }
+
+  // ── Summarize what happened in previous steps (accumulated state) ──
+  let previousContext = '';
+  if (stepIndex > 0) {
+    const prevSummaries = [];
+    for (let p = 0; p < stepIndex; p++) {
+      const prev = allSteps[p];
+      const prevDesc = prev.description || prev.title;
+      // Create a short past-tense summary of what's already in the vessel
+      prevSummaries.push(prevDesc);
+    }
+    previousContext = `Previous steps already done: ${prevSummaries.join('; ')}. The ${vessel} already contains the result of these steps.`;
+  }
+
+  // ── Determine the visual state based on cooking action keywords ──
+  const descLower = stepDesc.toLowerCase();
+  let visualState = '';
+  if (descLower.includes('sear') || descLower.includes('brown'))
+    visualState = 'showing golden-brown seared surface with caramelization';
+  else if (descLower.includes('sauté') || descLower.includes('saute') || descLower.includes('fry'))
+    visualState = 'showing sizzling ingredients with light oil sheen';
+  else if (descLower.includes('boil'))
+    visualState = 'showing bubbling liquid with steam rising';
+  else if (descLower.includes('simmer') || descLower.includes('low heat'))
+    visualState = 'showing gentle bubbles with rich sauce coating the ingredients';
+  else if (descLower.includes('golden') || descLower.includes('translucent'))
+    visualState = 'showing softened, golden translucent onions';
+  else if (descLower.includes('marinate') || descLower.includes('coat') || descLower.includes('mix'))
+    visualState = 'showing ingredients well-coated and mixed in a bowl';
+  else if (descLower.includes('garnish') || descLower.includes('serve') || descLower.includes('plate'))
+    visualState = 'beautifully plated with fresh garnish, ready to serve';
+  else if (descLower.includes('chop') || descLower.includes('slice') || descLower.includes('dice') || descLower.includes('cut'))
+    visualState = 'showing neatly cut ingredients on a wooden cutting board';
+  else if (descLower.includes('roast') || descLower.includes('char') || descLower.includes('grill'))
+    visualState = 'showing charred edges with smoky appearance';
+  else if (descLower.includes('cover') || descLower.includes('steam'))
+    visualState = 'with lid partially lifted showing steam escaping';
+  else if (descLower.includes('temper') || descLower.includes('tadka') || descLower.includes('splutter'))
+    visualState = 'showing seeds and spices crackling in hot oil';
+
+  // ── Determine if this is a prep, cooking, or final step ──
+  let stageHint = '';
+  if (stepIndex === 0) {
+    stageHint = 'This is the very first step — show a clean kitchen setup with fresh raw ingredients.';
+  } else if (stepIndex === totalSteps - 1) {
+    stageHint = 'This is the FINAL step — show the completed dish looking appetizing and restaurant-quality.';
+  } else if (stepIndex <= 1) {
+    stageHint = 'Early cooking stage — ingredients are still relatively fresh and just starting to cook.';
+  } else if (stepIndex >= totalSteps - 2) {
+    stageHint = 'Late cooking stage — the dish is nearly complete, colors are rich and deep.';
+  }
+
+  // ── Assemble the full prompt ──
+  const parts = [
+    `Professional food photography, top-down close-up shot of step ${stepNum} of ${totalSteps} for "${recipeName}".`,
+    `Step: "${stepTitle}" — ${stepDesc}`,
+  ];
+
+  if (stepIngredientDetail) {
+    parts.push(`Ingredients being added in this step: ${stepIngredientDetail}.`);
+  }
+
+  if (previousContext) {
+    parts.push(previousContext);
+  }
+
+  parts.push(`Cooking vessel: ${vessel}.`);
+
+  if (cookingMethod) {
+    parts.push(`Cooking method: ${cookingMethod}.`);
+  }
+
+  if (visualState) {
+    parts.push(`Visual: ${visualState}.`);
+  }
+
+  if (stageHint) {
+    parts.push(stageHint);
+  }
+
+  parts.push(
+    'Warm kitchen lighting, shallow depth of field, authentic Indian home cooking.',
+    'Realistic food textures — no plastic or artificial look. Magazine-quality photography.',
+    'Show realistic quantities matching a home-cooked meal for 2-3 people.',
+    'No text, no watermarks, no UI elements.'
+  );
+
+  return parts.join(' ');
+}
+
 // ─── Supabase Operations ───
 
 async function uploadImageFile(recipeId, imagePath, imageType = 'hero', stepIndex = null) {
@@ -469,7 +649,9 @@ async function processExcelFile(xlsxPath) {
 
   // 5. Parse optional fields
   const cookingTime = numOrNull(info['Cooking Time']) || numOrNull(info['Total Time']);
-  const difficulty = strOrNull(info['Difficulty']) || 'Medium';
+  const DIFFICULTY_MAP_EXCEL = { 'beginner': 'Easy', 'intermediate': 'Medium', 'advanced': 'Hard', 'chef level': 'Hard' };
+  const rawDifficulty = strOrNull(info['Difficulty']) || 'Medium';
+  const difficulty = DIFFICULTY_MAP_EXCEL[rawDifficulty.toLowerCase()] || rawDifficulty;
   const spiceLevel = strOrNull(info['Spice Level']) || 'Medium';
   const description = strOrNull(info['Description']) || '';
   const chefTip = strOrNull(info['Chef Tip']) || null;
@@ -562,6 +744,84 @@ async function processExcelFile(xlsxPath) {
   if (insertError) throw new Error(`Recipe insert failed: ${insertError.message}`);
   console.log(`  Recipe inserted: ${recipeId}`);
 
+  // 6b. Run Claude classification + Edamam nutrition pipeline
+  //     Extract flat ingredient strings and instruction strings for the APIs
+  const flatIngredients = ingredientsSmall.map(ing =>
+    ing.quantity ? `${ing.quantity} ${ing.name}` : ing.name
+  );
+  const flatInstructions = steps.map(s => s.description);
+  const servingsCount = numOrNull(info['Servings']) || 2;  // default 2 servings
+
+  let classificationData = null;
+  let nutritionData = null;
+
+  try {
+    console.log(`\n  Running Claude classification + Edamam nutrition...`);
+    [classificationData, nutritionData] = await Promise.all([
+      classifyRecipe(recipeName, flatIngredients, flatInstructions),
+      getNutrition(flatIngredients, servingsCount),
+    ]);
+  } catch (parallelErr) {
+    console.warn(`  WARN: Parallel pipeline failed: ${parallelErr.message}`);
+    console.log(`  Retrying individually...`);
+    try {
+      classificationData = await classifyRecipe(recipeName, flatIngredients, flatInstructions);
+    } catch (classErr) {
+      console.warn(`  WARN: Classification failed: ${classErr.message}`);
+    }
+    try {
+      nutritionData = await getNutrition(flatIngredients, servingsCount);
+    } catch (nutrErr) {
+      console.warn(`  WARN: Nutrition analysis failed: ${nutrErr.message}`);
+    }
+  }
+
+  // Build the update payload with classification + nutrition results
+  const DIFFICULTY_MAP = { 'Beginner': 'Easy', 'Intermediate': 'Medium', 'Advanced': 'Hard', 'Chef level': 'Hard' };
+  const pipelineUpdate = {};
+
+  if (classificationData) {
+    console.log(`  Classification: cuisine=${classificationData.cuisine_type}, spice=${classificationData.spice_level}, difficulty=${classificationData.difficulty}`);
+    Object.assign(pipelineUpdate, {
+      cuisine_type: classificationData.cuisine_type,
+      spice_level: classificationData.spice_level,
+      difficulty: DIFFICULTY_MAP[classificationData.difficulty] || classificationData.difficulty,
+      cook_time_bucket: classificationData.cook_time_bucket,
+      meal_type_tags: classificationData.meal_type,
+      dietary_tags: classificationData.dietary_tags,
+      allergen_tags: classificationData.allergen_tags,
+      cooking_method: classificationData.cooking_method,
+      fitness_goal: classificationData.fitness_goal,
+      storage_tags: classificationData.storage_tags,
+    });
+  }
+
+  if (nutritionData) {
+    console.log(`  Nutrition: ${nutritionData.calories} kcal, ${nutritionData.protein_g}g protein, ${nutritionData.carbs_g}g carbs, ${nutritionData.fat_g}g fat`);
+    Object.assign(pipelineUpdate, {
+      calories: nutritionData.calories,
+      protein_g: nutritionData.protein_g,
+      carbs_g: nutritionData.carbs_g,
+      fat_g: nutritionData.fat_g,
+      fiber_g: nutritionData.fiber_g,
+    });
+  }
+
+  // Update the recipe row with classification + nutrition data
+  if (Object.keys(pipelineUpdate).length > 0) {
+    const { error: updateError } = await supabase
+      .from('recipes')
+      .update(pipelineUpdate)
+      .eq('id', recipeId);
+
+    if (updateError) {
+      // If columns don't exist yet, warn but don't fail the whole onboarding
+      console.warn(`  WARN: Pipeline update failed (${updateError.message}) — recipe inserted with core fields only`);
+    } else {
+      console.log(`  Pipeline data saved: ${Object.keys(pipelineUpdate).length} fields updated`);
+    }
+  }
+
   // 7. Handle hero image
   const heroFilename = strOrNull(info['Hero Image']) || strOrNull(info['Hero Image Filename']) || strOrNull(info['image_filename']);
   const heroPath = findImageFile(IMAGES_DIR, heroFilename);
@@ -582,7 +842,12 @@ async function processExcelFile(xlsxPath) {
   } else {
     try {
       console.log(`  No hero image found, generating via AI...`);
-      const prompt = `Professional food photography of ${recipeName}, authentic Indian dish, warm lighting, shallow depth of field, high protein healthy meal, magazine quality`;
+      // Build a detailed hero prompt with key ingredients visible
+      const topIngredients = ingredientsSmall.slice(0, 5).map(ing =>
+        ing.quantity ? `${ing.quantity} ${ing.name}` : ing.name
+      ).join(', ');
+      const cuisineHint = classificationData?.cuisine_type ? `authentic ${classificationData.cuisine_type}` : 'authentic Indian';
+      const prompt = `Professional food photography of "${recipeName}", ${cuisineHint} dish beautifully plated and ready to serve. Key ingredients visible: ${topIngredients}. Warm natural lighting, shallow depth of field, overhead angle, high protein healthy meal. Realistic food textures, home-cooked feel, magazine quality. No text, no watermarks.`;
       const buffer = await generateImage(prompt);
       const publicUrl = await uploadImageBuffer(recipeId, buffer, 'hero');
       console.log(`  AI hero image uploaded: ${publicUrl}`);
@@ -613,9 +878,9 @@ async function processExcelFile(xlsxPath) {
       }
     } else {
       try {
-        const stepDesc = steps[s].description || steps[s].title || `Step ${s + 1}`;
         console.log(`  No step ${s + 1} image found, generating via AI...`);
-        const prompt = `Professional food photography showing ${stepDesc} for ${recipeName}, Indian cuisine, warm kitchen lighting, close-up shot, magazine quality`;
+        const prompt = buildStepImagePrompt(recipeName, steps, s, ingredientsSmall);
+        console.log(`  Prompt: ${prompt.substring(0, 120)}...`);
         const buffer = await generateImage(prompt);
         const stepUrl = await uploadImageBuffer(recipeId, buffer, 'step', s);
         console.log(`  AI step ${s} image uploaded: ${stepUrl}`);

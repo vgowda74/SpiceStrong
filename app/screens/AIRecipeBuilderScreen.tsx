@@ -15,7 +15,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
-import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, type RecipeSyncResult } from '../../services/recipeService';
+import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -769,6 +769,16 @@ export default function AIRecipeBuilderScreen() {
           console.log('[SpiceStrong] Duplicate detected, saving with override...');
           await saveAIRecipe(saved, true); // Override: insert with null fingerprint
         }
+
+        // Step 2b: Classify recipe and update Supabase with category columns
+        // (cuisine_type, dietary_tags, allergen_tags, fitness_goal, cooking_method, etc.)
+        console.log('[SpiceStrong] Background: classifying recipe...');
+        try {
+          await classifyAndEnrichRecipe(saved);
+        } catch (classErr) {
+          console.warn('[SpiceStrong] Classification failed (non-fatal):', classErr);
+        }
+
         console.log('[SpiceStrong] Background: recipe saved, generating images...');
 
         // Step 3: Generate DALL-E images

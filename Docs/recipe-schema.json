@@ -1,0 +1,121 @@
+{
+  "$schema": "SpiceStrong Recipe Data Structure",
+  "description": "Complete JSONB data structures used in Supabase recipes table",
+
+  "RecipeRow": {
+    "description": "Full recipe row as stored in Supabase",
+    "fields": {
+      "id": { "type": "string", "example": "curated-chicken-pepper-chicken", "format": "{source}-{protein_id}-{slug}" },
+      "name": { "type": "string", "example": "SpiceStrong Pepper Chicken" },
+      "protein_id": { "type": "string", "enum": ["chicken", "fish", "lamb", "goat", "pork", "beef", "prawns", "eggs", "paneer", "tofu", "soy", "beans", "milk", "whey"] },
+      "protein_name": { "type": "string", "example": "Chicken" },
+      "protein_emoji": { "type": "string", "enum": ["🍗", "🐟", "🍖", "🐐", "🥓", "🥩", "🦐", "🥚", "🧀", "🌱", "🫘", "🫛", "🥛", "💪"] },
+      "description": { "type": "string|null" },
+      "chef_tip": { "type": "string|null" },
+      "meal_type": { "type": "string", "enum": ["breakfast", "lunch_dinner", "snack_dessert"] },
+      "ingredients": { "type": "JSONB", "$ref": "#/IngredientsByTier" },
+      "steps": { "type": "JSONB", "$ref": "#/CookingSteps" },
+      "time_minutes": { "type": "number|null", "example": 30 },
+      "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"], "note": "DB CHECK constraint — map Beginner→Easy, Intermediate→Medium, Advanced/Chef level→Hard" },
+      "protein_per_100g": { "type": "number", "example": 31 },
+      "gradient": { "type": "[string, string]", "example": ["#8B4513", "#5D2E0C"] },
+      "nutrition": { "type": "JSONB", "$ref": "#/NutritionInfo" },
+      "source": { "type": "string", "enum": ["curated", "ai"] },
+      "is_active": { "type": "boolean", "default": true },
+      "is_pro": { "type": "boolean", "default": false },
+      "spice_level": { "type": "string|null", "enum": ["Mild", "Medium", "Hot"] },
+      "cuisine": { "type": "string|null", "example": "Indian" },
+      "status": { "type": "string", "enum": ["ready", "building"] },
+      "device_id": { "type": "string|null", "note": "null for curated, set for AI recipes" },
+      "cook_count": { "type": "number", "default": 0 },
+      "fingerprint": { "type": "string|null", "note": "SHA-256 hex hash for deduplication" }
+    }
+  },
+
+  "IngredientsByTier": {
+    "description": "Ingredients grouped by serving size tier",
+    "structure": {
+      "2-3 servings": [
+        { "name": "Chicken breast", "quantity": "500 g" },
+        { "name": "Ginger-garlic paste", "quantity": "1 tsp" }
+      ],
+      "4-6 servings": [
+        { "name": "Chicken breast", "quantity": "1 kg" },
+        { "name": "Ginger-garlic paste", "quantity": "2 tsp" }
+      ]
+    },
+    "alternateFormat": {
+      "description": "Pipeline-inserted recipes may use flat string array",
+      "example": ["400g chicken breast", "2 tsp black pepper", "1 tbsp olive oil"]
+    }
+  },
+
+  "CookingStep": {
+    "description": "Single cooking step in the steps array",
+    "fields": {
+      "title": { "type": "string", "example": "Saut\u00e9 Aromatics", "required": true },
+      "description": { "type": "string", "example": "Heat oil and add cumin seeds until they splutter", "required": true },
+      "emoji": { "type": "string", "example": "\ud83e\uddc5", "required": false },
+      "timerMinutes": { "type": "number", "example": 5, "required": false },
+      "tip": { "type": "string", "example": "Don't let garlic burn", "required": false },
+      "ingredientsUsed": { "type": "string", "example": "Oil, Cumin seeds, Onion", "note": "Comma-separated ingredient names (no quantities)" },
+      "cookingMethod": { "type": "string", "example": "stir-fry", "required": false }
+    }
+  },
+
+  "NutritionInfo": {
+    "description": "Nutrition values for the 2-3 servings batch (divide by 2.5 for per-serving)",
+    "fields": {
+      "calories": { "type": "number", "example": 750 },
+      "proteinG": { "type": "number", "example": 82 },
+      "fatG": { "type": "number", "example": 28 },
+      "carbsG": { "type": "number", "example": 22 },
+      "fiberG": { "type": "number", "example": 4 },
+      "sugarG": { "type": "number", "example": 6 },
+      "sodiumMg": { "type": "number", "example": 980 },
+      "cholesterolMg": { "type": "number", "required": false },
+      "saturatedFatG": { "type": "number", "required": false },
+      "ironMg": { "type": "number", "required": false },
+      "calciumMg": { "type": "number", "required": false }
+    }
+  },
+
+  "ClassificationFields": {
+    "description": "Added by Claude API classification pipeline (separate UPDATE after insert)",
+    "fields": {
+      "cuisine_type": { "type": "string", "example": "North Indian" },
+      "cook_time_bucket": { "type": "string", "enum": ["Under 15 min", "15-30 min", "30-45 min", "45-60 min", "Over 60 min"] },
+      "meal_type_tags": { "type": "string[]", "example": ["Lunch", "Dinner"] },
+      "dietary_tags": { "type": "string[]", "example": ["High protein", "Gluten free"], "note": "Threshold: High protein only if >= 30g/serving" },
+      "allergen_tags": { "type": "string[]", "example": ["Dairy free", "Nut free"], "note": "Free-from labels, NOT renamed from 'allergens'" },
+      "cooking_method": { "type": "string", "example": "Stir fry" },
+      "fitness_goal": { "type": "string[]", "example": ["Muscle gain", "Fat loss"] },
+      "storage_tags": { "type": "string[]", "example": ["Freezer friendly", "Kid friendly", "Office lunch"] },
+      "calories": { "type": "number", "note": "Per serving, from Edamam USDA data" },
+      "protein_g": { "type": "number", "note": "Per serving" },
+      "carbs_g": { "type": "number" },
+      "fat_g": { "type": "number" },
+      "fiber_g": { "type": "number" }
+    }
+  },
+
+  "RecipeImage": {
+    "description": "Row in recipe_images table",
+    "fields": {
+      "id": { "type": "UUID" },
+      "recipe_id": { "type": "string", "note": "FK to recipes.id" },
+      "image_type": { "type": "string", "enum": ["hero", "step", "ingredient"] },
+      "step_index": { "type": "number|null", "note": "0-based for step images, null for hero" },
+      "storage_url": { "type": "string", "note": "Supabase Storage public URL" }
+    }
+  },
+
+  "RecipeSyncResult": {
+    "description": "Return type from saveAIRecipe() and syncRecipeToSupabase()",
+    "fields": {
+      "success": { "type": "boolean" },
+      "duplicate": { "type": "boolean", "note": "true if fingerprint collision (23505)" },
+      "message": { "type": "string" }
+    }
+  }
+}

@@ -160,7 +160,25 @@
       "Bash(node -e \"const XLSX=require\\(''xlsx''\\); const wb=XLSX.readFile\\(''Recipes/input/high_protein_paneer_bhurji.xlsx''\\); const sheet=wb.Sheets[''Recipe Info'']; const rows=XLSX.utils.sheet_to_json\\(sheet,{header:1}\\); rows.forEach\\(\\(r,i\\)=>console.log\\(i,JSON.stringify\\(r\\)\\)\\);\")",
       "Bash(node -e \"require\\(''dotenv''\\).config\\(\\); console.log\\(''ANTHROPIC:'', process.env.EXPO_PUBLIC_ANTHROPIC_KEY ? ''SET'' : ''MISSING''\\); console.log\\(''EDAMAM_APP_ID:'', process.env.EDAMAM_APP_ID ? ''SET'' : ''MISSING''\\); console.log\\(''EDAMAM_APP_KEY:'', process.env.EDAMAM_APP_KEY ? ''SET'' : ''MISSING''\\);\")",
       "Bash(node -e \"require\\(''dotenv''\\).config\\(\\); console.log\\(''ANTHROPIC:'', process.env.EXPO_PUBLIC_ANTHROPIC_KEY ? ''SET'' : ''MISSING''\\); console.log\\(''EDAMAM_APP_ID:'', process.env.EDAMAM_APP_ID ? ''SET \\('' + process.env.EDAMAM_APP_ID.length + '' chars\\)'' : ''MISSING''\\); console.log\\(''EDAMAM_APP_KEY:'', process.env.EDAMAM_APP_KEY ? ''SET \\('' + process.env.EDAMAM_APP_KEY.length + '' chars\\)'' : ''MISSING''\\); console.log\\(''SUPABASE:'', process.env.EXPO_PUBLIC_SUPABASE_URL ? ''SET'' : ''MISSING''\\);\")",
-      "Bash(node scripts/pipeline/ingest-test.js --force)"
+      "Bash(node scripts/pipeline/ingest-test.js --force)",
+      "Read(//mnt/c/Users/v_gow/**)",
+      "Bash(node scripts/regenerate-step-images.js --dry-run)",
+      "Bash(node scripts/regenerate-step-images.js)",
+      "Bash(python3:*)",
+      "Bash(grep -E \"\\\\.\\(json|ts|js|md\\)$\")",
+      "Bash(ls -la /c/Users/v_gow/SpiceStrong/*.json)",
+      "Bash(find C:/Users/v_gow/SpiceStrong/supabase -type f -name *.sql)",
+      "Bash(find /c/Users/v_gow/SpiceStrong -name *theme* -type f)",
+      "Bash(grep -n \"colors=\\\\[\" /c/Users/v_gow/SpiceStrong/app/screens/*.tsx)",
+      "Bash(grep -A 2 \"LinearGradient colors\" /c/Users/v_gow/SpiceStrong/app/screens/*.tsx)",
+      "Bash(grep -n \"is_pro\\\\|isPro\\\\|premium\" app/screens/*.tsx services/*.ts)",
+      "Bash(grep -n \"v1\\\\.\" Docs/*.md)",
+      "Bash(grep -r \"TODO\\\\|FIXME\" app services src --include=*.ts --include=*.tsx)",
+      "Bash(wc -l C:Usersv_gowSpiceStrongappscreens/*.tsx C:Usersv_gowSpiceStrongservices/*.ts C:Usersv_gowSpiceStrongscripts/*.js)",
+      "Bash(find /c/Users/v_gow/SpiceStrong -name schema.sql -o -name *.sql)",
+      "WebFetch(domain:cosylab.iiitd.edu.in)",
+      "Bash(dir)",
+      "Bash(node -e \"const sharp = require\\(''sharp''\\); sharp\\(''C:/Users/v_gow/SpiceStrong/ScreenShot/SpiceStron_iPhone/1.0.1/Spice_1.jpeg''\\).metadata\\(\\).then\\(m => console.log\\(m.width + '' x '' + m.height\\)\\)\")"
     ]
   }
 }

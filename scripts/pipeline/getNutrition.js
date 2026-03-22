@@ -36,6 +36,36 @@ const EDAMAM_API_URL = 'https://api.edamam.com/api/nutrition-details';
  *   }
  * @throws {Error} If Edamam API call fails or returns an error
  */
+/**
+ * Cleans ingredient strings to improve Edamam parsing accuracy.
+ * - Strips prep notes in parentheses: "Paneer (crumbled)" → "Paneer"
+ * - Strips trailing prep phrases: "Onion finely chopped" → "Onion"
+ * - Removes vague quantities Edamam can't parse: "to taste", "as needed", "for garnish"
+ * - Ensures quantity comes first: "250 g chicken breast"
+ */
+function cleanForEdamam(ingredients) {
+  const SKIP_PATTERNS = /^(water|ice|salt to taste|salt$)/i;
+  const PREP_PHRASES = /\s*\(([^)]*)\)\s*/g;  // Remove (crumbled), (finely chopped), etc.
+  const VAGUE_QTY = /\b(to taste|as needed|for garnish|for serving|optional|a pinch|a handful)\b/gi;
+  const TRAILING_PREP = /\s*,?\s*(finely |roughly |thinly )?(chopped|sliced|diced|minced|crushed|grated|cubed|julienned|deveined|peeled|rinsed|soaked|drained)\s*$/gi;
+
+  return ingredients
+    .filter(ing => !SKIP_PATTERNS.test(ing.trim()))
+    .map(ing => {
+      let clean = ing
+        .replace(PREP_PHRASES, ' ')   // Remove (parenthetical prep notes)
+        .replace(VAGUE_QTY, '')        // Remove "to taste", "as needed"
+        .replace(TRAILING_PREP, '')    // Remove trailing "finely chopped" etc.
+        .replace(/\s+/g, ' ')         // Collapse whitespace
+        .trim();
+
+      // Skip empty or quantity-only strings
+      if (!clean || clean.length < 3) return null;
+      return clean;
+    })
+    .filter(Boolean);
+}
+
 async function getNutrition(ingredients, servings = 1) {
   if (!EDAMAM_APP_ID || !EDAMAM_APP_KEY) {
     throw new Error(
@@ -52,11 +82,19 @@ async function getNutrition(ingredients, servings = 1) {
     throw new Error('[getNutrition] Servings must be >= 1');
   }
 
+  // Clean ingredient strings for Edamam compatibility
+  const cleanedIngredients = cleanForEdamam(ingredients);
+  console.log(`[getNutrition] Cleaned ${ingredients.length} → ${cleanedIngredients.length} ingredients for Edamam`);
+
+  if (cleanedIngredients.length === 0) {
+    throw new Error('[getNutrition] No valid ingredients after cleaning');
+  }
+
   const url = `${EDAMAM_API_URL}?app_id=${EDAMAM_APP_ID}&app_key=${EDAMAM_APP_KEY}`;
 
   const payload = {
     title: 'SpiceStrong Recipe',
-    ingr: ingredients,
+    ingr: cleanedIngredients,
     yield: servings,
   };
 

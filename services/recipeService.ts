@@ -493,7 +493,6 @@ async function syncRecipeToSupabase(
     device_id: deviceId,
     ai_nutrition: recipe.aiNutrition ?? null,
     fingerprint,
-    updated_at: new Date().toISOString(),
   };
 
   const { error } = await supabase
@@ -753,6 +752,221 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
     return true;
   } catch (e) {
     console.error('[SpiceStrong] Recipe deletion failed:', e);
+    return false;
+  }
+}
+
+// ─── Classification System Prompt ───
+// Mirrors scripts/pipeline/classifyRecipe.js — keep in sync
+const CLASSIFICATION_SYSTEM_PROMPT = `You are a recipe classification engine for SpiceStrong, a high-protein cooking app.
+
+Given a recipe name, ingredients list, and cooking instructions, you must classify the recipe across 10 dimensions.
+
+Return ONLY valid JSON — no preamble, no markdown backticks, no explanation. Just the raw JSON object.
+
+The JSON must have this exact shape:
+{
+  "cuisine_type": string,
+  "spice_level": string,
+  "difficulty": string,
+  "cook_time_bucket": string,
+  "meal_type": string[],
+  "dietary_tags": string[],
+  "allergen_tags": string[],
+  "cooking_method": string,
+  "fitness_goal": string[],
+  "storage_tags": string[]
+}
+
+ALLOWED VALUES for each field:
+
+1. cuisine_type (pick exactly ONE):
+   "Indian", "South Indian", "Korean", "Japanese", "Chinese",
+   "Vietnamese", "Thai", "Filipino", "Mediterranean", "Italian", "Greek",
+   "Lebanese", "Turkish", "American", "Mexican", "Brazilian", "AI Fusion"
+
+2. spice_level (pick exactly ONE):
+   "No spice", "Mild", "Medium", "Hot", "Extra hot"
+
+3. difficulty (pick exactly ONE):
+   "Beginner", "Intermediate", "Advanced", "Chef level"
+
+4. cook_time_bucket (pick exactly ONE):
+   "Under 15 min", "15-30 min", "30-60 min", "1-2 hours", "2+ hours"
+
+5. meal_type (pick 1-4 from this list):
+   "Breakfast", "Lunch", "Dinner", "Snack", "Pre-workout", "Post-workout", "Meal prep", "Bulk cooking"
+
+6. dietary_tags (pick ALL that apply):
+   "High protein", "Low fat", "Low carb", "Keto", "Low calorie", "Low cholesterol", "Low sodium", "Low sugar", "High fiber"
+   Threshold rules:
+   — "High protein": >= 30g protein per serving
+   — "High fiber": >= 5g fiber per serving
+   — "Low carb": < 25g carbs per serving
+   — "Keto": carbs < 20g AND fat is dominant macro
+   — "Low fat": fat < 10g per serving
+   — "Low calorie": calories < 400 per serving
+
+7. allergen_tags (pick ALL that apply — "free-from" labels):
+   "Gluten free", "Dairy free", "Nut free", "Egg free", "Soy free", "Shellfish free", "Vegetarian", "Vegan", "Paleo", "Whole30"
+
+8. cooking_method (pick exactly ONE):
+   "Grilled", "Baked", "Stovetop", "Air fryer", "Slow cooker", "Instant pot", "Steamed", "Stir-fried", "Raw / No cook", "Smoked", "Broiled", "Pan-seared"
+
+9. fitness_goal (pick ALL that apply):
+   "Muscle gain", "Fat loss", "Maintenance", "Endurance", "Recovery", "Weight loss", "Body recomp"
+
+10. storage_tags (pick ALL that apply, empty array if none):
+    "Freezer friendly", "Fridge 3-5 days", "Make ahead", "Meal prep ready", "Kid friendly", "Office lunch"
+
+IMPORTANT: Return ONLY the JSON object. No other text.`;
+
+/**
+ * Difficulty mapping: Claude returns Beginner/Intermediate/Advanced/Chef level,
+ * DB CHECK constraint allows only Easy/Medium/Hard.
+ */
+const DIFFICULTY_MAP: Record<string, string> = {
+  'Beginner': 'Easy',
+  'Intermediate': 'Medium',
+  'Advanced': 'Hard',
+  'Chef level': 'Hard',
+};
+
+/**
+ * Classify an AI-generated recipe and update its Supabase row with the new
+ * category columns (cuisine_type, dietary_tags, allergen_tags, fitness_goal, etc.)
+ * and Edamam-style nutrition columns (calories, protein_g, carbs_g, fat_g, fiber_g).
+ *
+ * This runs client-side using the EXPO_PUBLIC_ANTHROPIC_KEY that's already
+ * available for the AI recipe builder.
+ *
+ * @param recipe - The saved recipe to classify
+ * @returns true if classification succeeded, false otherwise
+ */
+export async function classifyAndEnrichRecipe(recipe: SavedRecipe): Promise<boolean> {
+  const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+  if (!apiKey) {
+    console.warn('[SpiceStrong] No EXPO_PUBLIC_ANTHROPIC_KEY — skipping classification');
+    return false;
+  }
+
+  try {
+    const isAvailable = await checkRecipeTableAvailable();
+    if (!isAvailable) return false;
+
+    // Extract flat ingredient strings and instruction strings
+    const ingredientTier = recipe.ingredients['2-3 servings'] ?? [];
+    const flatIngredients = ingredientTier.map(
+      (ing) => (ing.quantity ? `${ing.quantity} ${ing.name}` : ing.name)
+    );
+    const flatInstructions = recipe.steps.map((s) => s.description);
+
+    if (flatIngredients.length === 0 || flatInstructions.length === 0) {
+      console.warn('[SpiceStrong] Recipe has no ingredients or steps — skipping classification');
+      return false;
+    }
+
+    // ─── Step 1: Call Claude for classification ───
+    console.log(`[SpiceStrong] Classifying recipe: ${recipe.name}...`);
+
+    const userMessage = `Classify this recipe:
+
+Recipe Name: ${recipe.name}
+
+Ingredients:
+${flatIngredients.map((ing, i) => `${i + 1}. ${ing}`).join('\n')}
+
+Instructions:
+${flatInstructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: CLASSIFICATION_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[SpiceStrong] Classification API error (${response.status}):`, errorText);
+      return false;
+    }
+
+    const data = await response.json();
+    let rawText = (data.content?.[0]?.text ?? '').trim();
+
+    // Strip markdown fences if present
+    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const firstBrace = rawText.indexOf('{');
+    const lastBrace = rawText.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      rawText = rawText.substring(firstBrace, lastBrace + 1);
+    }
+
+    const classification = JSON.parse(rawText);
+
+    // ─── Step 2: Build the update payload ───
+    const updatePayload: Record<string, unknown> = {};
+
+    if (classification.cuisine_type) updatePayload.cuisine_type = classification.cuisine_type;
+    if (classification.spice_level) updatePayload.spice_level = classification.spice_level;
+    if (classification.difficulty) {
+      updatePayload.difficulty = DIFFICULTY_MAP[classification.difficulty] || classification.difficulty;
+    }
+    if (classification.cook_time_bucket) updatePayload.cook_time_bucket = classification.cook_time_bucket;
+    if (classification.meal_type) updatePayload.meal_type_tags = classification.meal_type;
+    if (classification.dietary_tags) updatePayload.dietary_tags = classification.dietary_tags;
+    if (classification.allergen_tags) updatePayload.allergen_tags = classification.allergen_tags;
+    if (classification.cooking_method) updatePayload.cooking_method = classification.cooking_method;
+    if (classification.fitness_goal) updatePayload.fitness_goal = classification.fitness_goal;
+    if (classification.storage_tags) updatePayload.storage_tags = classification.storage_tags;
+
+    // ─── Step 3: Map AI nutrition to the normalized nutrition columns ───
+    // AI recipes store nutrition in aiNutrition (total for 2-3 servings batch).
+    // Normalize to per-serving (divide by 2.5 as default serving count)
+    if (recipe.aiNutrition) {
+      const servings = 2.5; // 2-3 servings tier midpoint
+      const ai = recipe.aiNutrition;
+      if (ai.calories > 0) updatePayload.calories = Math.round(ai.calories / servings);
+      if (ai.proteinG > 0) updatePayload.protein_g = parseFloat((ai.proteinG / servings).toFixed(1));
+      if (ai.carbsG > 0) updatePayload.carbs_g = parseFloat((ai.carbsG / servings).toFixed(1));
+      if (ai.fatG > 0) updatePayload.fat_g = parseFloat((ai.fatG / servings).toFixed(1));
+      if (ai.fiberG > 0) updatePayload.fiber_g = parseFloat((ai.fiberG / servings).toFixed(1));
+    }
+
+    // Mark as AI-generated
+    updatePayload.is_ai_generated = true;
+    updatePayload.recipe_source = 'ai';
+
+    // ─── Step 4: Update the Supabase row ───
+    if (Object.keys(updatePayload).length > 0) {
+      const { error: updateError } = await supabase
+        .from('recipes')
+        .update(updatePayload)
+        .eq('id', recipe.id);
+
+      if (updateError) {
+        console.warn(`[SpiceStrong] Classification update failed: ${updateError.message}`);
+        return false;
+      }
+
+      console.log(`[SpiceStrong] Recipe classified: ${recipe.name} — ${Object.keys(updatePayload).length} fields updated`);
+      console.log(`[SpiceStrong]   cuisine=${classification.cuisine_type}, spice=${classification.spice_level}, method=${classification.cooking_method}`);
+      return true;
+    }
+
+    return false;
+  } catch (err) {
+    console.warn('[SpiceStrong] Classification failed:', err);
     return false;
   }
 }
