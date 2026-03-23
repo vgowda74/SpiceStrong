@@ -38,6 +38,12 @@ export default function RootLayout() {
           sound: 'default',
           lightColor: '#E85D26',
         });
+        await Notifications.setNotificationChannelAsync('recipe-review', {
+          name: 'Recipe Reviews',
+          importance: Notifications.AndroidImportance.HIGH,
+          sound: 'default',
+          lightColor: '#E85D26',
+        });
       }
     })();
 

@@ -8,7 +8,11 @@
     "scheme": "spicestrong",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "platforms": ["ios", "android", "web"], 
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "plugins": [
       "expo-router",
       [
@@ -29,14 +33,28 @@
         {
           "sounds": []
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "SpiceStrong needs access to your photos for recipe images.",
+          "cameraPermission": "SpiceStrong needs camera access to take recipe photos."
+        }
+      ],
+      "expo-speech-recognition"
     ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.spicestrong.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "NSCameraUsageDescription": "SpiceStrong needs camera access to take recipe photos.",
+        "NSPhotoLibraryUsageDescription": "SpiceStrong needs photo library access for recipe images.",
+        "NSMicrophoneUsageDescription": "SpiceStrong needs microphone access for voice recipe input.",
+        "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition for hands-free recipe dictation."
       }
     },
     "android": {
@@ -45,7 +63,9 @@
       "permissions": [
         "VIBRATE",
         "RECEIVE_BOOT_COMPLETED",
-        "SCHEDULE_EXACT_ALARM"
+        "SCHEDULE_EXACT_ALARM",
+        "CAMERA",
+        "RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

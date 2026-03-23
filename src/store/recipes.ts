@@ -46,6 +46,10 @@ export interface CookingStep {
   tip?: string;
   ingredientsUsed?: string;
   cookingMethod?: string;
+  /** Local file URI for user-uploaded step photo. */
+  photoUri?: string;
+  /** Supabase Storage URL after upload. */
+  photoStorageUrl?: string;
 }
 
 export interface SavedRecipe {
@@ -60,8 +64,22 @@ export interface SavedRecipe {
   chefTip: string;
   createdAt: number;
   mealType?: MealType;
-  /** Recipe generation status: 'building' while AI is generating, undefined/'ready' when complete. */
-  status?: 'building' | 'ready';
+  /** Recipe generation/review status. */
+  status?: 'building' | 'ready' | 'pending_review' | 'rejected';
+  /** Recipe source: curated (onboarded), ai (AI builder), user (user-submitted). */
+  source?: 'curated' | 'ai' | 'user';
+  /** Difficulty level. */
+  difficulty?: 'Easy' | 'Medium' | 'Hard';
+  /** Cuisine type (Indian, Thai, etc.). */
+  cuisine?: string;
+  /** Cook time in minutes. */
+  timeMinutes?: number;
+  /** Review result from Claude review engine (for user-submitted recipes). */
+  reviewResult?: {
+    score: number;
+    issues: string[];
+    suggestions: string[];
+  };
   /** Community-wide cook count from Supabase. */
   communityCookCount?: number;
   /** AI-generated nutrition data (optional). */

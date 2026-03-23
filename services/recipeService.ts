@@ -976,7 +976,7 @@ ${flatInstructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
  */
 export async function updateRecipeStatus(
   recipeId: string,
-  status: 'building' | 'ready',
+  status: 'building' | 'ready' | 'pending_review' | 'rejected',
 ): Promise<void> {
   try {
     const isAvailable = await checkRecipeTableAvailable();
@@ -988,5 +988,58 @@ export async function updateRecipeStatus(
       .eq('id', recipeId);
   } catch {
     // non-critical
+  }
+}
+
+/**
+ * Upload a user-submitted step photo to Supabase Storage.
+ * Follows the same pattern as uploadRecipeHeroImage.
+ */
+export async function uploadRecipeStepImage(
+  recipeId: string,
+  stepIndex: number,
+  localUri: string,
+): Promise<string | null> {
+  try {
+    const isAvailable = await checkRecipeTableAvailable();
+    if (!isAvailable) return null;
+
+    const response = await fetch(localUri);
+    const blob = await response.blob();
+
+    const storagePath = `${recipeId}/step_${stepIndex}.png`;
+    const { error: uploadError } = await supabase.storage
+      .from('recipe-images')
+      .upload(storagePath, blob, {
+        contentType: 'image/png',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error(`[SpiceStrong] Step ${stepIndex} image upload failed:`, uploadError.message);
+      return null;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('recipe-images')
+      .getPublicUrl(storagePath);
+
+    const publicUrl = urlData.publicUrl;
+
+    await supabase.from('recipe_images').upsert(
+      {
+        recipe_id: recipeId,
+        image_type: 'step',
+        step_index: stepIndex,
+        storage_url: publicUrl,
+      },
+      { onConflict: 'recipe_id,image_type,step_index' },
+    );
+
+    console.log(`[SpiceStrong] Step ${stepIndex} image uploaded: ${recipeId} -> ${publicUrl}`);
+    return publicUrl;
+  } catch (e) {
+    console.warn(`[SpiceStrong] Step ${stepIndex} image upload failed:`, e);
+    return null;
   }
 }

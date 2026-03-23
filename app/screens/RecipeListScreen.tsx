@@ -594,6 +594,20 @@ export default function RecipeListScreen() {
             <Text style={styles.actionCardTitle}>Build with SpiceBuilder</Text>
             <Text style={styles.actionCardSub}>Generate a custom recipe</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() =>
+              router.push({
+                pathname: '/screens/AddRecipeScreen',
+                params: { proteinId, proteinName, proteinEmoji },
+              })
+            }
+            activeOpacity={0.85}
+          >
+            <Ionicons name="create-outline" size={18} color="#E85D26" style={{ marginBottom: 4 }} />
+            <Text style={styles.actionCardTitle}>Add Your Recipe</Text>
+            <Text style={styles.actionCardSub}>Share your own creation</Text>
+          </TouchableOpacity>
         </View>
 
       <FlatList

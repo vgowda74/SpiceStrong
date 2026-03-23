@@ -180,7 +180,10 @@
       "Bash(dir)",
       "Bash(node -e \"const sharp = require\\(''sharp''\\); sharp\\(''C:/Users/v_gow/SpiceStrong/ScreenShot/SpiceStron_iPhone/1.0.1/Spice_1.jpeg''\\).metadata\\(\\).then\\(m => console.log\\(m.width + '' x '' + m.height\\)\\)\")",
       "Bash(ls \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\src\\\\data\"\" && ls \"C:Usersv_gowSpiceStrongsrcutils\"\")",
-      "Bash(grep -ri \"pepper.*chicken\\\\|chicken.*pepper\" Recipes/input/ --include=*.xlsx -l)"
+      "Bash(grep -ri \"pepper.*chicken\\\\|chicken.*pepper\" Recipes/input/ --include=*.xlsx -l)",
+      "Bash(npm uninstall:*)",
+      "Bash(node -e \"try { require.resolve\\(''expo-speech-recognition''\\); console.log\\(''INSTALLED''\\) } catch { console.log\\(''NOT INSTALLED''\\) }\")",
+      "Bash(node -e \"const pkg = require\\(''C:/Users/v_gow/SpiceStrong/node_modules/expo-speech-recognition/package.json''\\); console.log\\(pkg.main || pkg.module || ''index.js''\\)\")"
     ]
   }
 }
