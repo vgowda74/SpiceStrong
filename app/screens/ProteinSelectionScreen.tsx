@@ -52,9 +52,9 @@ const ORANGE = '#E85D26';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
-  if (hour < 12) return 'GOOD MORNING, CHEF';
-  if (hour < 17) return 'GOOD AFTERNOON, CHEF';
-  return 'GOOD EVENING, CHEF';
+  if (hour < 12) return 'Good morning, Chef';
+  if (hour < 17) return 'Good afternoon, Chef';
+  return 'Good evening, Chef';
 }
 
 function filterMatches(filter: Filter, category: 'NON-VEG' | 'VEG'): boolean {
@@ -268,11 +268,10 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   greeting: {
-    fontSize: 12,
-    letterSpacing: 3,
-    color: '#9CA3AF',
+    fontSize: 14,
+    letterSpacing: 0.3,
+    color: 'rgba(255,255,255,0.55)',
     marginBottom: 8,
-    textTransform: 'uppercase',
   },
   headingLine1: {
     fontSize: 32,
@@ -316,9 +315,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 24,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: 'rgba(255,255,255,0.2)',
     flexShrink: 0,
     flex: 1,
     alignItems: 'center',
@@ -328,7 +327,7 @@ const styles = StyleSheet.create({
     borderColor: ORANGE,
   },
   filterText: {
-    color: '#6B7280',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
   },
@@ -354,7 +353,7 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#1A0A00',
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -366,8 +365,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderBottomWidth: 4,
     borderRightWidth: 2,
-    borderBottomColor: '#D4D4D4',
-    borderRightColor: '#E0E0E0',
+    borderBottomColor: '#2D1A0E',
+    borderRightColor: '#2D1A0E',
   },
   cardFullImage: {
     ...StyleSheet.absoluteFillObject,

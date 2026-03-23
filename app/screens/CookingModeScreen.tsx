@@ -177,8 +177,8 @@ function CompletionConfetti() {
   );
 }
 
-const FOREST_GREEN = '#1B4A2E';
-const DARK_CARD_GREEN = '#2D5A3D';
+const DARK_BG = '#1A0A00';
+const DARK_CARD_BORDER = '#2D1A0E';
 const ORANGE_ACCENT = '#E85D26';
 const STAR_GREY = '#888888';
 const STAR_YELLOW = '#FFD700';
@@ -619,7 +619,7 @@ export default function CookingModeScreen() {
         style={{ flex: 1 }}
         resizeMode="cover"
       >
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(27,74,46,0.85)' }]} />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(26,10,0,0.88)' }]} />
         <CompletionConfetti />
         <View style={styles.completionRoot}>
         <ScrollView
@@ -1596,16 +1596,16 @@ const styles = StyleSheet.create({
   },
   reviewSubmittedBox: {
     width: '100%',
-    backgroundColor: 'rgba(76,175,80,0.15)',
+    backgroundColor: 'rgba(232,93,38,0.15)',
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(76,175,80,0.25)',
+    borderColor: 'rgba(232,93,38,0.25)',
   },
   reviewSubmittedText: {
-    color: '#4CAF50',
+    color: '#E85D26',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -1621,7 +1621,7 @@ const styles = StyleSheet.create({
   btnCookAnotherText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
   btnOutline: {
     borderWidth: 2,
-    borderColor: DARK_CARD_GREEN,
+    borderColor: DARK_CARD_BORDER,
     borderRadius: 14,
     paddingVertical: 18,
     width: '100%',

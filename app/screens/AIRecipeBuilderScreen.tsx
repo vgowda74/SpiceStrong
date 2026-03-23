@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
+import * as Notifications from 'expo-notifications';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -800,6 +801,18 @@ export default function AIRecipeBuilderScreen() {
         await saveAIRecipe(saved); // Update locally + Supabase
         updateRecipeStatus(saved.id, 'ready').catch(() => {}); // Explicit status update
         console.log('[SpiceStrong] Background: recipe complete with images!');
+
+        // Step 5: Send banner notification
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: '👨‍🍳 Your Recipe is Ready!',
+            body: `${saved.name} has been crafted. Tap to start cooking!`,
+            sound: 'default',
+            data: { recipeId: saved.id },
+            ...(Platform.OS === 'android' ? { channelId: 'recipe' } : {}),
+          },
+          trigger: null, // immediate
+        });
       } catch (err) {
         console.error('[SpiceStrong] Background recipe generation failed:', err);
         // Mark as ready so it doesn't stay stuck in building state

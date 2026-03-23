@@ -32,6 +32,12 @@ export default function RootLayout() {
           vibrationPattern: [0, 250, 250, 250],
           lightColor: '#E85D26',
         });
+        await Notifications.setNotificationChannelAsync('recipe', {
+          name: 'Recipe Updates',
+          importance: Notifications.AndroidImportance.HIGH,
+          sound: 'default',
+          lightColor: '#E85D26',
+        });
       }
     })();
 

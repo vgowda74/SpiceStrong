@@ -16,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -290,7 +291,8 @@ export default function RecipeListScreen() {
       : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : null);
     // Nutrition values are per serving
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
-    const perServingProteinG = nutritionData?.proteinG ?? item.aiNutrition?.proteinG ?? null;
+    const proteinGPerServing = (item as SavedRecipe & { proteinGPerServing?: number }).proteinGPerServing ?? null;
+    const perServingProteinG = nutritionData?.proteinG ?? proteinGPerServing ?? item.aiNutrition?.proteinG ?? null;
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
       proteinG: nutritionData.proteinG,
@@ -313,7 +315,7 @@ export default function RecipeListScreen() {
         name={item.name}
         description={description}
         time={timeMinutes != null ? `${timeMinutes} min` : '—'}
-        protein={perServingProteinG != null ? `${perServingProteinG}g protein` : ''}
+        protein={perServingProteinG != null && perServingProteinG > 0 ? `${perServingProteinG}g protein` : '—'}
         difficulty={cardDifficulty}
         rating={ratingString}
         communityCount={ratingCount}
@@ -579,7 +581,7 @@ export default function RecipeListScreen() {
             }
             activeOpacity={0.85}
           >
-            <Image source={require('../../assets/images/icon.png')} style={styles.actionCardIcon} />
+            <Ionicons name="flash-outline" size={18} color="#E85D26" style={{ marginBottom: 4 }} />
             <Text style={styles.actionCardTitle}>Build with SpiceBuilder</Text>
             <Text style={styles.actionCardSub}>Generate a custom recipe</Text>
           </TouchableOpacity>
@@ -746,18 +748,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(232, 93, 38, 0.15)',
     borderRadius: 16,
-    height: 88,
+    height: 70,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
-    paddingVertical: 10,
-    borderWidth: 1.5,
-    borderColor: '#E85D26',
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(232, 93, 38, 0.4)',
   },
   actionCardEmoji: { fontSize: 28, marginBottom: 4 },
   actionCardIcon: { width: 36, height: 36, borderRadius: 18, marginBottom: 4 },
-  actionCardTitle: { color: '#E85D26', fontWeight: '900', fontSize: 17, textAlign: 'center' },
-  actionCardSub: { color: 'rgba(255,255,255,0.55)', fontWeight: '700', fontSize: 13, textAlign: 'center', marginTop: 2 },
+  actionCardTitle: { color: '#E85D26', fontWeight: '800', fontSize: 15, textAlign: 'center' },
+  actionCardSub: { color: 'rgba(255,255,255,0.6)', fontWeight: '600', fontSize: 12, textAlign: 'center', marginTop: 2 },
   tabPill: {
     paddingHorizontal: 18,
     paddingVertical: 12,
