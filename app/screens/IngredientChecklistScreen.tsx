@@ -3,9 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   ImageBackground,
+  Linking,
   Modal,
   Platform,
   Pressable,
+  ScrollView as RNScrollView,
   SectionList,
   Share,
   StyleSheet,
@@ -27,6 +29,8 @@ import {
   type IngredientGroup,
 } from '../../src/store/recipes';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { buildSmartShoppingList, groupByCategory, buildSmartShareMessage, openAmazonFresh } from '../../src/utils/shoppingListHelper';
+import { CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 const ORANGE = '#E85D26';
 const ORANGE_LIGHT = 'rgba(232, 93, 38, 0.35)';
 const CARD_BG = 'rgba(255,255,255,0.08)';
@@ -185,6 +189,8 @@ export default function IngredientChecklistScreen() {
   const GLOBAL_CART_KEY = 'globalShoppingList';
   const [cartItems, setCartItems] = useState<Record<string, string>>({});
   const [showCartSheet, setShowCartSheet] = useState(false);
+  const [sheetTab, setSheetTab] = useState<'recipe' | 'smart'>('smart');
+  const [showPantry, setShowPantry] = useState(false);
   const cartSheetAnim = useRef(new Animated.Value(0)).current;
   const cartBounce = useRef(new Animated.Value(1)).current;
 
@@ -580,64 +586,158 @@ export default function IngredientChecklistScreen() {
               {/* Handle bar */}
               <View style={styles.sheetHandle} />
               <Text style={styles.sheetTitle}>🛒 Shopping List</Text>
-              <Text style={styles.sheetSubtitle}>{recipe?.name}</Text>
 
-              {/* Cart items grouped by recipe */}
-              <View style={styles.sheetItems}>
-                {(() => {
-                  // Group cart items by recipe name
-                  const grouped: Record<string, string[]> = {};
-                  Object.entries(cartItems).forEach(([key, recipeName]) => {
-                    if (!grouped[recipeName]) grouped[recipeName] = [];
-                    grouped[recipeName].push(key);
-                  });
-                  return Object.entries(grouped).map(([recipeName, keys]) => (
-                    <View key={recipeName}>
-                      <Text style={styles.sheetRecipeGroup}>{recipeName}</Text>
-                      {keys.map((key) => {
-                        const [name, qty] = key.split('|||');
-                        return (
-                          <View key={key} style={styles.sheetItem}>
-                            <Text style={styles.sheetItemBullet}>•</Text>
-                            <Text style={styles.sheetItemText}>{qty} {name}</Text>
-                            <TouchableOpacity onPress={() => toggleCartItem(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                              <Text style={styles.sheetItemRemove}>✕</Text>
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  ));
-                })()}
+              {/* Tab Switcher */}
+              <View style={styles.sheetTabs}>
+                <TouchableOpacity
+                  style={[styles.sheetTab, sheetTab === 'smart' && styles.sheetTabActive]}
+                  onPress={() => setSheetTab('smart')}
+                >
+                  <Text style={[styles.sheetTabText, sheetTab === 'smart' && styles.sheetTabTextActive]}>🛍️ Smart List</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sheetTab, sheetTab === 'recipe' && styles.sheetTabActive]}
+                  onPress={() => setSheetTab('recipe')}
+                >
+                  <Text style={[styles.sheetTabText, sheetTab === 'recipe' && styles.sheetTabTextActive]}>📋 Recipe Qty</Text>
+                </TouchableOpacity>
               </View>
+
+              <RNScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+                {sheetTab === 'recipe' ? (
+                  /* ─── RECIPE QTY TAB (original view) ─── */
+                  <View style={styles.sheetItems}>
+                    {(() => {
+                      const grouped: Record<string, string[]> = {};
+                      Object.entries(cartItems).forEach(([key, recipeName]) => {
+                        if (!grouped[recipeName]) grouped[recipeName] = [];
+                        grouped[recipeName].push(key);
+                      });
+                      return Object.entries(grouped).map(([recipeName, keys]) => (
+                        <View key={recipeName}>
+                          <Text style={styles.sheetRecipeGroup}>{recipeName}</Text>
+                          {keys.map((key) => {
+                            const [name, qty] = key.split('|||');
+                            return (
+                              <View key={key} style={styles.sheetItem}>
+                                <Text style={styles.sheetItemBullet}>•</Text>
+                                <Text style={styles.sheetItemText}>{qty} {name}</Text>
+                                <TouchableOpacity onPress={() => toggleCartItem(key)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                                  <Text style={styles.sheetItemRemove}>✕</Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ));
+                    })()}
+                  </View>
+                ) : (
+                  /* ─── SMART LIST TAB ─── */
+                  <View style={styles.sheetItems}>
+                    {(() => {
+                      const smartItems = buildSmartShoppingList(cartItems);
+                      const grouped = groupByCategory(smartItems, showPantry);
+                      const categories = Object.keys(grouped);
+
+                      if (categories.length === 0) {
+                        return <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, textAlign: 'center', paddingVertical: 20 }}>No items to show</Text>;
+                      }
+
+                      return (
+                        <>
+                          {categories.map(cat => (
+                            <View key={cat}>
+                              <Text style={styles.sheetCategoryHeader}>
+                                {CATEGORY_EMOJI[cat.toLowerCase()] || '📦'} {cat}
+                              </Text>
+                              {grouped[cat].map((item, i) => (
+                                <View key={`${cat}-${i}`} style={styles.sheetItem}>
+                                  <Text style={styles.sheetItemBullet}>•</Text>
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.sheetItemText}>
+                                      {item.mapped ? item.purchasableUnit : item.originalQuantity}{' '}
+                                      <Text style={{ fontWeight: '700' }}>{item.originalName}</Text>
+                                    </Text>
+                                    {item.mapped && (
+                                      <Text style={styles.sheetItemRecipeQty}>
+                                        Recipe needs: {item.originalQuantity}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  <Ionicons name="checkmark-circle-outline" size={18} color="rgba(255,255,255,0.3)" />
+                                </View>
+                              ))}
+                            </View>
+                          ))}
+
+                          {/* Pantry toggle */}
+                          <TouchableOpacity
+                            style={styles.pantryToggle}
+                            onPress={() => setShowPantry(!showPantry)}
+                          >
+                            <Ionicons
+                              name={showPantry ? 'chevron-up' : 'chevron-down'}
+                              size={16}
+                              color="rgba(255,255,255,0.4)"
+                            />
+                            <Text style={styles.pantryToggleText}>
+                              {showPantry ? 'Hide' : 'Show'} pantry staples
+                            </Text>
+                          </TouchableOpacity>
+                        </>
+                      );
+                    })()}
+                  </View>
+                )}
+              </RNScrollView>
 
               {/* Actions */}
               <View style={styles.sheetActions}>
-                <TouchableOpacity
-                  style={styles.shareBtn}
-                  onPress={async () => {
-                    // Group by recipe for sharing
-                    const grouped: Record<string, string[]> = {};
-                    Object.entries(cartItems).forEach(([key, recipeName]) => {
-                      if (!grouped[recipeName]) grouped[recipeName] = [];
-                      const [name, qty] = key.split('|||');
-                      grouped[recipeName].push(`  • ${qty} ${name}`);
-                    });
-                    const sections = Object.entries(grouped).map(([recipeName, items]) =>
-                      `📌 ${recipeName}\n${items.join('\n')}`
-                    ).join('\n\n');
-                    const message = `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪`;
-                    try {
-                      await Share.share({ message });
-                    } catch (_) {}
-                  }}
-                >
-                  <Text style={styles.shareBtnText}>📤 Share</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.clearBtn} onPress={clearCart}>
-                  <Text style={styles.clearBtnText}>Clear All</Text>
-                </TouchableOpacity>
+                {sheetTab === 'smart' ? (
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity
+                      style={styles.amazonFreshBtn}
+                      onPress={() => openAmazonFresh(cartItems, showPantry)}
+                    >
+                      <Text style={styles.amazonFreshBtnText}>🛒 Amazon Fresh</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.shareBtn}
+                      onPress={async () => {
+                        const smartItems = buildSmartShoppingList(cartItems);
+                        const message = buildSmartShareMessage(smartItems, showPantry);
+                        try { await Share.share({ message }); } catch (_) {}
+                      }}
+                    >
+                      <Text style={styles.shareBtnText}>📤</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      style={styles.shareBtn}
+                      onPress={async () => {
+                        const grouped: Record<string, string[]> = {};
+                        Object.entries(cartItems).forEach(([key, recipeName]) => {
+                          if (!grouped[recipeName]) grouped[recipeName] = [];
+                          const [name, qty] = key.split('|||');
+                          grouped[recipeName].push(`  • ${qty} ${name}`);
+                        });
+                        const sections = Object.entries(grouped).map(([recipeName, items]) =>
+                          `📌 ${recipeName}\n${items.join('\n')}`
+                        ).join('\n\n');
+                        const message = `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪`;
+                        try { await Share.share({ message }); } catch (_) {}
+                      }}
+                    >
+                      <Text style={styles.shareBtnText}>📤 Share</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.clearBtn} onPress={clearCart}>
+                      <Text style={styles.clearBtnText}>Clear All</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             </Pressable>
           </Animated.View>
@@ -1105,6 +1205,71 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.7)',
     fontSize: 16,
     fontWeight: '700',
+  },
+  // Sheet tabs
+  sheetTabs: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    padding: 3,
+    marginBottom: 16,
+  },
+  sheetTab: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  sheetTabActive: {
+    backgroundColor: ORANGE,
+  },
+  sheetTabText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sheetTabTextActive: {
+    color: '#FFFFFF',
+  },
+  sheetCategoryHeader: {
+    color: ORANGE,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  sheetItemRecipeQty: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  amazonFreshBtn: {
+    flex: 2,
+    backgroundColor: 'rgba(255, 153, 0, 0.12)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 153, 0, 0.4)',
+  },
+  amazonFreshBtnText: {
+    color: '#FF9900',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  pantryToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  pantryToggleText: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    fontWeight: '600',
   },
   // Footer
   footer: {

@@ -74,9 +74,11 @@ export function RecipeCard({
   actionRow,
   imageSource,
   isBuilding,
+  nutrition,
 }: RecipeCardProps) {
-  const nameParts = name.includes(' (') ? name.split(/ \((.+)\)$/) : [name, ''];
-  const recipeTitle = nameParts[0]?.trim() ?? name;
+  const cleanName = name.replace(/^High-Protein\s+/i, '');
+  const nameParts = cleanName.includes(' (') ? cleanName.split(/ \((.+)\)$/) : [cleanName, ''];
+  const recipeTitle = nameParts[0]?.trim() ?? cleanName;
 
   return (
     <Pressable
@@ -126,11 +128,21 @@ export function RecipeCard({
               </>
             )}
 
-            {/* ——— Protein pill top-left ——— */}
+            {/* ——— Macro pills top-left (stacked) ——— */}
             <View style={styles.statsOverlay}>
               <View style={styles.statPill}>
                 <Text style={styles.statPillText}>💪 {protein || '—'}</Text>
               </View>
+              {nutrition != null && nutrition.fatG > 0 && (
+                <View style={styles.statPill}>
+                  <Text style={styles.statPillText}>🧈 {Math.round(nutrition.fatG)}g fat</Text>
+                </View>
+              )}
+              {nutrition != null && nutrition.carbsG > 0 && (
+                <View style={styles.statPill}>
+                  <Text style={styles.statPillText}>🍚 {Math.round(nutrition.carbsG)}g carbs</Text>
+                </View>
+              )}
             </View>
 
             {/* ——— Rating top-right ——— */}
@@ -167,6 +179,9 @@ export function RecipeCard({
                   <Text style={styles.statPillText}>🍳 {cookCount} cooked</Text>
                 </View>
               )}
+              {actionRow && (
+                <View style={{ marginTop: 4 }}>{actionRow}</View>
+              )}
             </View>
 
             <TouchableOpacity
@@ -179,10 +194,6 @@ export function RecipeCard({
                 {isFavorite ? '★' : '☆'}
               </Text>
             </TouchableOpacity>
-
-            {actionRow && (
-              <View style={styles.deleteCorner}>{actionRow}</View>
-            )}
 
             {/* ——— Name + Description overlay on image ——— */}
             <LinearGradient
@@ -295,8 +306,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 10,
     left: 50,
-    flexDirection: 'row',
-    gap: 6,
+    flexDirection: 'column',
+    gap: 4,
     zIndex: 3,
   },
   ratingOverlay: {

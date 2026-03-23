@@ -107,7 +107,7 @@ export default function RecipeOverviewScreen() {
 
           {/* Recipe info */}
           <View style={styles.infoCard}>
-            <Text style={styles.recipeName}>{recipe.name}</Text>
+            <Text style={styles.recipeName}>{recipe.name.replace(/^High-Protein\s+/i, '')}</Text>
 
             {/* Quick stats: cook time, protein, steps */}
             <View style={styles.statsRow}>

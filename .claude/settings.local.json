@@ -178,7 +178,9 @@
       "Bash(find /c/Users/v_gow/SpiceStrong -name schema.sql -o -name *.sql)",
       "WebFetch(domain:cosylab.iiitd.edu.in)",
       "Bash(dir)",
-      "Bash(node -e \"const sharp = require\\(''sharp''\\); sharp\\(''C:/Users/v_gow/SpiceStrong/ScreenShot/SpiceStron_iPhone/1.0.1/Spice_1.jpeg''\\).metadata\\(\\).then\\(m => console.log\\(m.width + '' x '' + m.height\\)\\)\")"
+      "Bash(node -e \"const sharp = require\\(''sharp''\\); sharp\\(''C:/Users/v_gow/SpiceStrong/ScreenShot/SpiceStron_iPhone/1.0.1/Spice_1.jpeg''\\).metadata\\(\\).then\\(m => console.log\\(m.width + '' x '' + m.height\\)\\)\")",
+      "Bash(ls \"C:\\\\Users\\\\v_gow\\\\SpiceStrong\\\\src\\\\data\"\" && ls \"C:Usersv_gowSpiceStrongsrcutils\"\")",
+      "Bash(grep -ri \"pepper.*chicken\\\\|chicken.*pepper\" Recipes/input/ --include=*.xlsx -l)"
     ]
   }
 }

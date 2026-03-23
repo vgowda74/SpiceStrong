@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { getRecipeById, SavedRecipe } from '../../src/store/recipes';
+// Instacart integration removed — awaiting Developer API approval
 
 const ORANGE = '#E85D26';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
@@ -128,20 +129,24 @@ export default function CookingStartScreen() {
         </View>
 
         {hasCart && (
-          <View style={styles.cartActionsRow}>
-            <TouchableOpacity style={styles.shareCartBtn} onPress={handleShareCart} activeOpacity={0.8}>
-              <Ionicons name="cart" size={20} color="#4CAF50" />
-              <Text style={styles.shareCartText}>Share List</Text>
-              <View style={styles.shareCartBadge}>
-                <Text style={styles.shareCartBadgeText}>{cartKeys.length}</Text>
-              </View>
-              <Ionicons name="share-outline" size={18} color="rgba(255,255,255,0.6)" style={{ marginLeft: 4 }} />
-            </TouchableOpacity>
+          <View>
+            <View style={styles.cartActionsRow}>
+              <TouchableOpacity style={styles.shareCartBtn} onPress={handleShareCart} activeOpacity={0.8}>
+                <Ionicons name="cart" size={20} color="#4CAF50" />
+                <Text style={styles.shareCartText}>Share List</Text>
+                <View style={styles.shareCartBadge}>
+                  <Text style={styles.shareCartBadgeText}>{cartKeys.length}</Text>
+                </View>
+                <Ionicons name="share-outline" size={18} color="rgba(255,255,255,0.6)" style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
 
-            <TouchableOpacity style={styles.clearCartBtn} onPress={handleClearCart} activeOpacity={0.8}>
-              <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
-              <Text style={styles.clearCartText}>Clear</Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.clearCartBtn} onPress={handleClearCart} activeOpacity={0.8}>
+                <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+                <Text style={styles.clearCartText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+
+{/* Instacart button removed — awaiting Developer API approval */}
           </View>
         )}
 
@@ -244,6 +249,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+  // Instacart styles removed — awaiting Developer API approval
   shareCartText: {
     color: '#FFFFFF',
     fontSize: 15,

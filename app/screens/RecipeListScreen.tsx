@@ -293,6 +293,7 @@ export default function RecipeListScreen() {
     const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
     const proteinGPerServing = (item as SavedRecipe & { proteinGPerServing?: number }).proteinGPerServing ?? null;
     const perServingProteinG = nutritionData?.proteinG ?? proteinGPerServing ?? item.aiNutrition?.proteinG ?? null;
+    const aiNut = item.aiNutrition;
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
       proteinG: nutritionData.proteinG,
@@ -301,6 +302,14 @@ export default function RecipeListScreen() {
       fiberG: nutritionData.fiberG,
       sugarG: nutritionData.sugarG,
       sodiumMg: nutritionData.sodiumMg,
+    } : aiNut ? {
+      calories: aiNut.calories ?? 0,
+      proteinG: aiNut.proteinG ?? 0,
+      fatG: aiNut.fatG ?? 0,
+      carbsG: aiNut.carbsG ?? 0,
+      fiberG: aiNut.fiberG ?? 0,
+      sugarG: aiNut.sugarG ?? 0,
+      sodiumMg: aiNut.sodiumMg ?? 0,
     } : undefined;
     // Use community rating if available, fall back to personal rating
     const community = communityRatings[item.id];

@@ -139,7 +139,7 @@ export const BUILTIN_RECIPES: BuiltInRecipe[] = [
   },
   {
     id: 'spicestrong-high-protein-paneer-masala',
-    name: 'Healthy High-Protein Paneer Masala',
+    name: 'Healthy Paneer Masala',
     proteinId: 'paneer',
     proteinName: 'Paneer',
     proteinEmoji: '🧀',
