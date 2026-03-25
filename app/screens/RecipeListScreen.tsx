@@ -6,9 +6,7 @@ import {
   Dimensions,
   FlatList,
   ImageBackground,
-  Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -74,19 +72,80 @@ const FILTER_TABS: { key: FilterTab; label: string }[] = [
 
 export default function RecipeListScreen() {
   const router = useRouter();
-  const { proteinId, proteinName, proteinEmoji } = useLocalSearchParams<{
+  const params = useLocalSearchParams<{
     proteinId: string;
     proteinName: string;
     proteinEmoji: string;
+    // Filter params returned from RecipeFilterScreen
+    filterApplied?: string;
+    f_fitnessGoal?: string;
+    f_proteinRange?: string;
+    f_carbsRange?: string;
+    f_fatRange?: string;
+    f_spiceLevel?: string;
+    f_cookingTime?: string;
+    f_difficulty?: string;
+    f_meatType?: string;
+    f_dietary?: string;
+    f_allergens?: string;
+    f_cookingMethod?: string;
+    f_cuisine?: string;
+    f_calorieRange?: string;
+    f_mealPrep?: string;
   }>();
+  const { proteinId, proteinName, proteinEmoji } = params;
 
   const [recipes, setRecipes] = useState<SavedRecipe[]>([]);
+  const deletedIdsRef = useRef<Set<string>>(new Set());
   const [selectedTierByRecipeId, setSelectedTierByRecipeId] = useState<Record<string, QuantityTier>>({});
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
+  // ── Advanced filter state (set via RecipeFilterScreen) ──
+  const [filterFitnessGoal, setFilterFitnessGoal] = useState<string | null>(null);
+  const [filterProteinRange, setFilterProteinRange] = useState<string | null>(null);
+  const [filterCarbsRange, setFilterCarbsRange] = useState<string | null>(null);
+  const [filterFatRange, setFilterFatRange] = useState<string | null>(null);
   const [filterSpice, setFilterSpice] = useState<string | null>(null);
   const [filterTime, setFilterTime] = useState<string | null>(null);
+  const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
+  const [filterMeatType, setFilterMeatType] = useState<string | null>(null);
+  const [filterDietary, setFilterDietary] = useState<string[]>([]);
+  const [filterAllergens, setFilterAllergens] = useState<string[]>([]);
+  const [filterCookingMethod, setFilterCookingMethod] = useState<string | null>(null);
+  const [filterCuisine, setFilterCuisine] = useState<string | null>(null);
+  const [filterCalorieRange, setFilterCalorieRange] = useState<string | null>(null);
+  const [filterMealPrep, setFilterMealPrep] = useState<string[]>([]);
+
+  // Pick up filter params returned from RecipeFilterScreen
+  useEffect(() => {
+    if (params.filterApplied !== 'true') return;
+    const str = (v?: string) => (v && v.length > 0) ? v : null;
+    const arr = (v?: string): string[] => {
+      if (!v || v === '[]') return [];
+      try { return JSON.parse(v); } catch { return []; }
+    };
+    setFilterFitnessGoal(str(params.f_fitnessGoal));
+    setFilterProteinRange(str(params.f_proteinRange));
+    setFilterCarbsRange(str(params.f_carbsRange));
+    setFilterFatRange(str(params.f_fatRange));
+    setFilterSpice(str(params.f_spiceLevel));
+    setFilterTime(str(params.f_cookingTime));
+    setFilterDifficulty(str(params.f_difficulty));
+    setFilterMeatType(str(params.f_meatType));
+    setFilterCookingMethod(str(params.f_cookingMethod));
+    setFilterCuisine(str(params.f_cuisine));
+    setFilterCalorieRange(str(params.f_calorieRange));
+    setFilterDietary(arr(params.f_dietary));
+    setFilterAllergens(arr(params.f_allergens));
+    setFilterMealPrep(arr(params.f_mealPrep));
+    console.log('[SpiceStrong] Filters applied:', {
+      fitnessGoal: str(params.f_fitnessGoal),
+      difficulty: str(params.f_difficulty),
+      spice: str(params.f_spiceLevel),
+      time: str(params.f_cookingTime),
+      dietary: arr(params.f_dietary),
+    });
+  }, [params.filterApplied, params.f_fitnessGoal, params.f_proteinRange, params.f_carbsRange, params.f_fatRange, params.f_spiceLevel, params.f_cookingTime, params.f_difficulty, params.f_meatType, params.f_dietary, params.f_allergens, params.f_cookingMethod, params.f_cuisine, params.f_calorieRange, params.f_mealPrep]);
+
   const [ratings, setRatings] = useState<RatingsMap>({});
   const [favourites, setFavourites] = useState<string[]>([]);
   const [cookCounts, setCookCounts] = useState<CookCountMap>({});
@@ -122,7 +181,9 @@ export default function RecipeListScreen() {
         ]);
 
         if (cancelled) return;
-        setRecipes(result.recipes);
+        // Filter out any recipes deleted during this session
+        const filtered_initial = result.recipes.filter(r => !deletedIdsRef.current.has(r.id));
+        setRecipes(filtered_initial);
         setRatings(ratingsMap);
         setFavourites(favouritesList);
         setCookCounts(cookCountsMap);
@@ -171,8 +232,10 @@ export default function RecipeListScreen() {
         // Background refresh from Supabase (stale-while-revalidate)
         result.refresh.then(async (fresh) => {
           if (cancelled || !fresh) return;
-          setRecipes(fresh);
-          await loadDishImages(fresh);
+          // Filter out any recipes deleted during this session
+          const filtered_fresh = fresh.filter(r => !deletedIdsRef.current.has(r.id));
+          setRecipes(filtered_fresh);
+          await loadDishImages(filtered_fresh);
         });
       };
       load();
@@ -254,6 +317,8 @@ export default function RecipeListScreen() {
             try {
               const success = await deleteAIRecipe(recipe.id, recipe.proteinId);
               if (success) {
+                // Track deleted ID so background refresh can't bring it back
+                deletedIdsRef.current.add(recipe.id);
                 setRecipes((prev) => prev.filter((r) => r.id !== recipe.id));
               }
             } catch (e) {
@@ -294,6 +359,12 @@ export default function RecipeListScreen() {
     const proteinGPerServing = (item as SavedRecipe & { proteinGPerServing?: number }).proteinGPerServing ?? null;
     const perServingProteinG = nutritionData?.proteinG ?? proteinGPerServing ?? item.aiNutrition?.proteinG ?? null;
     const aiNut = item.aiNutrition;
+    // Pipeline per-serving values (from Edamam via classification pipeline)
+    const pCal = item.pipelineCalories;
+    const pPro = item.pipelineProteinG;
+    const pFat = item.pipelineFatG;
+    const pCarb = item.pipelineCarbsG;
+
     const cardNutrition: CardNutrition | undefined = nutritionData ? {
       calories: nutritionData.calories,
       proteinG: nutritionData.proteinG,
@@ -310,6 +381,14 @@ export default function RecipeListScreen() {
       fiberG: aiNut.fiberG ?? 0,
       sugarG: aiNut.sugarG ?? 0,
       sodiumMg: aiNut.sodiumMg ?? 0,
+    } : (pCal || pPro) ? {
+      calories: pCal ?? 0,
+      proteinG: pPro ?? 0,
+      fatG: pFat ?? 0,
+      carbsG: pCarb ?? 0,
+      fiberG: 0,
+      sugarG: 0,
+      sodiumMg: 0,
     } : undefined;
     // Use community rating if available, fall back to personal rating
     const community = communityRatings[item.id];
@@ -346,22 +425,46 @@ export default function RecipeListScreen() {
         isBuilding={item.status === 'building'}
         actionRow={
           !builtInIds.has(item.id) && !item.id.startsWith('spicestrong-') && !item.id.startsWith('curated-') ? (
-            <TouchableOpacity
-              style={styles.deleteBtn}
-              onPress={(e) => {
-                e.stopPropagation();
-                handleDelete(item);
-              }}
-            >
-              <Text style={styles.deleteBtnText}>🗑</Text>
-            </TouchableOpacity>
+            <View style={styles.actionRow}>
+              {/* Edit button for all user/AI recipes (non-curated, non-built-in) */}
+              <TouchableOpacity
+                  style={styles.editBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.push({
+                      pathname: '/screens/AddRecipeScreen',
+                      params: {
+                        proteinId: item.proteinId,
+                        proteinName: item.proteinName,
+                        proteinEmoji: item.proteinEmoji,
+                        editRecipeId: item.id,
+                      },
+                    });
+                  }}
+                >
+                  <Text style={styles.editBtnText}>✏️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteBtn}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleDelete(item);
+                }}
+              >
+                <Text style={styles.deleteBtnText}>🗑</Text>
+              </TouchableOpacity>
+            </View>
           ) : undefined
         }
       />
     );
   };
 
-  const activeFilterCount = [filterDifficulty, filterSpice, filterTime].filter(Boolean).length;
+  const activeFilterCount = [
+    filterFitnessGoal, filterProteinRange, filterCarbsRange, filterFatRange,
+    filterSpice, filterTime, filterDifficulty, filterMeatType,
+    filterCookingMethod, filterCuisine, filterCalorieRange,
+  ].filter(Boolean).length + filterDietary.length + filterAllergens.length + filterMealPrep.length;
 
   const listData = useMemo(() => {
     let filtered: SavedRecipe[];
@@ -379,31 +482,126 @@ export default function RecipeListScreen() {
       filtered = recipes.filter((r) => favourites.includes(r.id));
     }
 
-    // Apply advanced filters
+    // ── Apply advanced filters ──
+    // Helper: get per-serving nutrition (uses pipeline values first, falls back to aiNutrition/2.5, then built-in nutrition)
+    const perServing = (r: SavedRecipe) => {
+      const builtIn = (r as any).nutrition as { calories?: number; proteinG?: number; carbsG?: number; fatG?: number } | undefined;
+      return {
+        protein: r.pipelineProteinG ?? (r.aiNutrition ? r.aiNutrition.proteinG / 2.5 : builtIn?.proteinG ?? 0),
+        carbs: r.pipelineCarbsG ?? (r.aiNutrition ? r.aiNutrition.carbsG / 2.5 : builtIn?.carbsG ?? 0),
+        fat: r.pipelineFatG ?? (r.aiNutrition ? r.aiNutrition.fatG / 2.5 : builtIn?.fatG ?? 0),
+        calories: r.pipelineCalories ?? (r.aiNutrition ? r.aiNutrition.calories / 2.5 : builtIn?.calories ?? 0),
+      };
+    };
+
+    // Difficulty
     if (filterDifficulty) {
-      filtered = filtered.filter((r) => {
-        const d = (r as SavedRecipe & { difficulty?: string }).difficulty;
-        return d?.toLowerCase() === filterDifficulty.toLowerCase();
-      });
+      filtered = filtered.filter(r => r.difficulty?.toLowerCase() === filterDifficulty.toLowerCase());
     }
+    // Spice level
     if (filterSpice) {
-      filtered = filtered.filter((r) => {
-        const s = (r as SavedRecipe & { spiceLevel?: string }).spiceLevel;
-        return s?.toLowerCase() === filterSpice.toLowerCase();
+      filtered = filtered.filter(r => {
+        const sl = r.spiceLevel || '';
+        return sl.toLowerCase() === filterSpice.toLowerCase();
       });
     }
+    // Cooking time
     if (filterTime) {
-      filtered = filtered.filter((r) => {
-        const t = (r as SavedRecipe & { timeMinutes?: number }).timeMinutes ?? 0;
-        if (filterTime === 'quick') return t <= 15;
-        if (filterTime === 'medium') return t > 15 && t <= 30;
-        if (filterTime === 'long') return t > 30;
+      filtered = filtered.filter(r => {
+        const t = r.timeMinutes ?? 0;
+        if (filterTime === 'under15') return t > 0 && t <= 15;
+        if (filterTime === '15to30') return t > 15 && t <= 30;
+        if (filterTime === '30to60') return t > 30 && t <= 60;
+        if (filterTime === '60plus') return t > 60;
         return true;
+      });
+    }
+    // Protein range (per serving)
+    if (filterProteinRange) {
+      filtered = filtered.filter(r => {
+        const pg = perServing(r).protein;
+        if (pg === 0) return false; // no data = skip
+        if (filterProteinRange === 'Under 20g') return pg < 20;
+        if (filterProteinRange === '20-29g') return pg >= 20 && pg < 30;
+        if (filterProteinRange === '30-39g') return pg >= 30 && pg < 40;
+        if (filterProteinRange === '40g+') return pg >= 40;
+        return true;
+      });
+    }
+    // Carbs range (per serving)
+    if (filterCarbsRange) {
+      filtered = filtered.filter(r => {
+        const cg = perServing(r).carbs;
+        if (filterCarbsRange === 'Under 20g') return cg < 20;
+        if (filterCarbsRange === '20-50g') return cg >= 20 && cg <= 50;
+        if (filterCarbsRange === '50g+') return cg > 50;
+        return true;
+      });
+    }
+    // Fat range (per serving)
+    if (filterFatRange) {
+      filtered = filtered.filter(r => {
+        const fg = perServing(r).fat;
+        if (filterFatRange === 'Under 10g') return fg < 10;
+        if (filterFatRange === '10-19g') return fg >= 10 && fg < 20;
+        if (filterFatRange === '20g+') return fg >= 20;
+        return true;
+      });
+    }
+    // Calorie range (per serving)
+    if (filterCalorieRange) {
+      filtered = filtered.filter(r => {
+        const cal = perServing(r).calories;
+        if (cal === 0) return false;
+        if (filterCalorieRange === 'under300') return cal < 300;
+        if (filterCalorieRange === '300to500') return cal >= 300 && cal <= 500;
+        if (filterCalorieRange === '500to700') return cal > 500 && cal <= 700;
+        if (filterCalorieRange === '700plus') return cal > 700;
+        return true;
+      });
+    }
+    // Cuisine (check both cuisine and cuisineType fields)
+    if (filterCuisine) {
+      filtered = filtered.filter(r => {
+        const c = r.cuisineType || r.cuisine || '';
+        return c.toLowerCase().includes(filterCuisine.toLowerCase());
+      });
+    }
+    // Cooking method
+    if (filterCookingMethod) {
+      filtered = filtered.filter(r => {
+        const m = r.cookingMethod || '';
+        return m.toLowerCase().includes(filterCookingMethod.toLowerCase());
+      });
+    }
+    // Dietary tags (AND — all selected must match)
+    if (filterDietary.length > 0) {
+      filtered = filtered.filter(r => {
+        const tags = (r.dietaryTags || []).map((t: string) => t.toLowerCase());
+        return filterDietary.every(d => tags.some(t => t.includes(d.toLowerCase())));
+      });
+    }
+    // Allergen tags (AND — all selected must match, e.g. "Nuts" matches "Nut free")
+    if (filterAllergens.length > 0) {
+      filtered = filtered.filter(r => {
+        const tags = (r.allergenTags || []).map((t: string) => t.toLowerCase());
+        return filterAllergens.every(a => tags.some(t => t.includes(a.toLowerCase())));
+      });
+    }
+    // Meal prep / storage tags
+    if (filterMealPrep.length > 0) {
+      filtered = filtered.filter(r => {
+        const tags = (r.storageTags || []).map((t: string) => t.toLowerCase());
+        return filterMealPrep.every(m => tags.some(t => t.includes(m.toLowerCase())));
       });
     }
 
     return filtered;
-  }, [recipes, activeFilter, ratings, favourites, filterDifficulty, filterSpice, filterTime]);
+  }, [recipes, activeFilter, ratings, favourites,
+    filterDifficulty, filterSpice, filterTime, filterFitnessGoal,
+    filterProteinRange, filterCarbsRange, filterFatRange, filterMeatType,
+    filterDietary, filterAllergens, filterCookingMethod, filterCuisine,
+    filterCalorieRange, filterMealPrep]);
 
   return (
     <ImageBackground
@@ -451,7 +649,28 @@ export default function RecipeListScreen() {
             {/* Advanced filter icon */}
             <TouchableOpacity
               style={[styles.filterIconBtn, activeFilterCount > 0 && styles.filterIconBtnActive]}
-              onPress={() => setFilterModalVisible(true)}
+              onPress={() => router.push({
+                pathname: '/screens/RecipeFilterScreen',
+                params: {
+                  proteinId,
+                  proteinName,
+                  proteinEmoji,
+                  fitnessGoal: filterFitnessGoal || '',
+                  proteinRange: filterProteinRange || '',
+                  carbsRange: filterCarbsRange || '',
+                  fatRange: filterFatRange || '',
+                  spiceLevel: filterSpice || '',
+                  cookingTime: filterTime || '',
+                  difficulty: filterDifficulty || '',
+                  meatType: filterMeatType || '',
+                  dietary: JSON.stringify(filterDietary),
+                  allergens: JSON.stringify(filterAllergens),
+                  cookingMethod: filterCookingMethod || '',
+                  cuisine: filterCuisine || '',
+                  calorieRange: filterCalorieRange || '',
+                  mealPrep: JSON.stringify(filterMealPrep),
+                },
+              })}
               activeOpacity={0.85}
             >
               <View style={styles.filterSliderIcon}>
@@ -489,95 +708,7 @@ export default function RecipeListScreen() {
           </ScrollView>
         </View>
 
-        {/* Advanced Filter Modal */}
-        <Modal
-          visible={filterModalVisible}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setFilterModalVisible(false)}
-        >
-          <Pressable
-            style={styles.filterModalBackdrop}
-            onPress={() => setFilterModalVisible(false)}
-          >
-            <Pressable style={styles.filterModalContent} onPress={() => {}}>
-              <View style={styles.filterModalHandle} />
-              <Text style={styles.filterModalTitle}>Advanced Filters</Text>
-
-              {/* Difficulty */}
-              <Text style={styles.filterSectionLabel}>Difficulty</Text>
-              <View style={styles.filterOptionsRow}>
-                {['Easy', 'Medium', 'Hard'].map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    style={[styles.filterOption, filterDifficulty === d && styles.filterOptionActive]}
-                    onPress={() => setFilterDifficulty(filterDifficulty === d ? null : d)}
-                  >
-                    <Text style={[styles.filterOptionText, filterDifficulty === d && styles.filterOptionTextActive]}>
-                      {d === 'Easy' ? '🟢' : d === 'Medium' ? '🟡' : '🔴'} {d}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Spice Level */}
-              <Text style={styles.filterSectionLabel}>Spice Level</Text>
-              <View style={styles.filterOptionsRow}>
-                {['Mild', 'Medium', 'Hot'].map((s) => (
-                  <TouchableOpacity
-                    key={s}
-                    style={[styles.filterOption, filterSpice === s && styles.filterOptionActive]}
-                    onPress={() => setFilterSpice(filterSpice === s ? null : s)}
-                  >
-                    <Text style={[styles.filterOptionText, filterSpice === s && styles.filterOptionTextActive]}>
-                      {s === 'Mild' ? '🌶️' : s === 'Medium' ? '🌶️🌶️' : '🌶️🌶️🌶️'} {s}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Cooking Time */}
-              <Text style={styles.filterSectionLabel}>Cooking Time</Text>
-              <View style={styles.filterOptionsRow}>
-                {[
-                  { key: 'quick', label: '⚡ Under 15 min' },
-                  { key: 'medium', label: '⏱️ 15–30 min' },
-                  { key: 'long', label: '🍲 Over 30 min' },
-                ].map((t) => (
-                  <TouchableOpacity
-                    key={t.key}
-                    style={[styles.filterOption, filterTime === t.key && styles.filterOptionActive]}
-                    onPress={() => setFilterTime(filterTime === t.key ? null : t.key)}
-                  >
-                    <Text style={[styles.filterOptionText, filterTime === t.key && styles.filterOptionTextActive]}>
-                      {t.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Action buttons */}
-              <View style={styles.filterActionRow}>
-                <TouchableOpacity
-                  style={styles.filterClearBtn}
-                  onPress={() => {
-                    setFilterDifficulty(null);
-                    setFilterSpice(null);
-                    setFilterTime(null);
-                  }}
-                >
-                  <Text style={styles.filterClearText}>Clear All</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.filterApplyBtn}
-                  onPress={() => setFilterModalVisible(false)}
-                >
-                  <Text style={styles.filterApplyText}>Apply Filters</Text>
-                </TouchableOpacity>
-              </View>
-            </Pressable>
-          </Pressable>
-        </Modal>
+        {/* Filter modal removed — now using full-screen RecipeFilterScreen */}
 
         <View style={styles.actionBtnRow}>
           <TouchableOpacity
@@ -864,104 +995,21 @@ const styles = StyleSheet.create({
   },
 
   // Filter modal
-  filterModalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  filterModalContent: {
-    backgroundColor: '#2A1810',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderBottomWidth: 0,
-  },
-  filterModalHandle: {
-    width: 36,
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  filterModalTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 20,
-  },
-  filterSectionLabel: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 10,
-    marginTop: 8,
-  },
-  filterOptionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  filterOption: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  filterOptionActive: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
-    borderColor: 'rgba(232,93,38,0.6)',
-  },
-  filterOptionText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  filterOptionTextActive: {
-    color: '#FFFFFF',
-  },
-  filterActionRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-  },
-  filterClearBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  filterClearText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  filterApplyBtn: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: '#E85D26',
-    alignItems: 'center',
-  },
-  filterApplyText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  /* Old filter modal styles removed — using full-screen RecipeFilterScreen */
 
   list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 80 },
-  actionRow: { flexDirection: 'row', gap: 10 },
+  actionRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  editBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(232,93,38,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.5)',
+  },
+  editBtnText: { fontSize: 14 },
   deleteBtn: {
     width: 36,
     height: 36,

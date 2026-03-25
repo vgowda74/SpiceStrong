@@ -92,6 +92,31 @@ export interface SavedRecipe {
     sugarG: number;
     sodiumMg: number;
   };
+  // ── Classification fields (from Supabase pipeline) ──
+  /** Spice level: Mild, Medium, Hot, Extra hot */
+  spiceLevel?: string;
+  /** Detailed cuisine type from classification pipeline */
+  cuisineType?: string;
+  /** Time bucket: "Under 15 min", "15-30 min", "30-60 min", "1-2 hours", "2+ hours" */
+  cookTimeBucket?: string;
+  /** Dietary tags: "High protein", "Low fat", "Low carb", "Keto", etc. */
+  dietaryTags?: string[];
+  /** Allergen-free tags: "Gluten free", "Dairy free", "Nut free", etc. */
+  allergenTags?: string[];
+  /** Cooking method: "Grilled", "Baked", "Stovetop", "Air fryer", etc. */
+  cookingMethod?: string;
+  /** Fitness goal tags: "Muscle gain", "Fat loss", "Maintenance", etc. */
+  fitnessGoal?: string[];
+  /** Storage/lifestyle tags: "Meal prep ready", "Kid friendly", etc. */
+  storageTags?: string[];
+  /** Per-serving calories from Edamam pipeline */
+  pipelineCalories?: number;
+  /** Per-serving protein from Edamam pipeline */
+  pipelineProteinG?: number;
+  /** Per-serving carbs from Edamam pipeline */
+  pipelineCarbsG?: number;
+  /** Per-serving fat from Edamam pipeline */
+  pipelineFatG?: number;
 }
 
 function defaultIngredientsByTier(): IngredientsByTier {

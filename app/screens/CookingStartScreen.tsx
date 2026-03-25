@@ -14,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { getRecipeById, SavedRecipe } from '../../src/store/recipes';
-// Instacart integration removed — awaiting Developer API approval
+import { openAmazonFresh } from '../../src/utils/shoppingListHelper';
 
 const ORANGE = '#E85D26';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
@@ -146,7 +146,13 @@ export default function CookingStartScreen() {
               </TouchableOpacity>
             </View>
 
-{/* Instacart button removed — awaiting Developer API approval */}
+            <TouchableOpacity
+              style={styles.amazonFreshBtn}
+              onPress={() => openAmazonFresh(cartItems, false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.amazonFreshBtnText}>🛒 Shop on Amazon Fresh</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -249,7 +255,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  // Instacart styles removed — awaiting Developer API approval
+  amazonFreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,153,0,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,153,0,0.4)',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginTop: 10,
+  },
+  amazonFreshBtnText: {
+    color: '#FF9900',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   shareCartText: {
     color: '#FFFFFF',
     fontSize: 15,

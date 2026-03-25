@@ -5,7 +5,7 @@
  * Steps: Basics → Ingredients → Cooking Steps → Hero Image → Review & Submit
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, TextInput,
   Alert, Platform, ImageBackground, ActivityIndicator, KeyboardAvoidingView,
@@ -14,9 +14,10 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { QUANTITY_TIERS, type QuantityTier, type IngredientsByTier, type CookingStep, saveRecipe } from '../../src/store/recipes';
-import { saveAIRecipe, uploadRecipeHeroImage } from '../../services/recipeService';
-import { submitRecipeForReview } from '../../services/recipeReviewService';
+import { QUANTITY_TIERS, type QuantityTier, type IngredientsByTier, type CookingStep, saveRecipe, getRecipeById } from '../../src/store/recipes';
+import { saveAIRecipe, uploadRecipeHeroImage, uploadStepImage, updateRecipeStatus } from '../../services/recipeService';
+import { saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import VoiceInput from '../../components/VoiceInput';
 
@@ -44,8 +45,10 @@ export default function AddRecipeScreen() {
     proteinId: string;
     proteinName: string;
     proteinEmoji: string;
+    editRecipeId?: string;
   }>();
   const { proteinId, proteinName, proteinEmoji } = params;
+  const isEditing = !!params.editRecipeId;
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState<WizardStep>('basics');
@@ -70,6 +73,46 @@ export default function AddRecipeScreen() {
 
   // Step 4: Hero Image
   const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
+
+  // ── Load existing recipe when editing ──
+  useEffect(() => {
+    if (!params.editRecipeId) return;
+    (async () => {
+      const existing = await getRecipeById(params.editRecipeId!);
+      if (!existing) return;
+
+      // Populate basics
+      setRecipeName(existing.name);
+      setDescription(existing.description || '');
+      setMealType(existing.mealType || null);
+      setDifficulty(existing.difficulty || null);
+      setCookTime(existing.timeMinutes ? `${existing.timeMinutes} min` : '');
+      setCuisine(existing.cuisine || null);
+
+      // Populate ingredients
+      if (existing.ingredients) {
+        setIngredientsByTier(existing.ingredients);
+      }
+
+      // Populate steps
+      if (existing.steps?.length > 0) {
+        setSteps(existing.steps.map(s => ({
+          ...s,
+          photoUri: (s as any).photoUri || (s as any).photoStorageUrl || undefined,
+        })));
+      }
+
+      // Load images
+      const imgs = await loadRecipeImages(params.editRecipeId!);
+      if (imgs?.dishImage) setHeroImageUri(imgs.dishImage);
+      if (imgs?.stepImages) {
+        setSteps(prev => prev.map((s, i) => ({
+          ...s,
+          photoUri: s.photoUri || imgs.stepImages[String(i)] || undefined,
+        })));
+      }
+    })();
+  }, [params.editRecipeId]);
 
   // --- Helpers ---
   const currentStepIndex = WIZARD_STEPS.indexOf(currentStep);
@@ -195,7 +238,7 @@ export default function AddRecipeScreen() {
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
-      const recipeId = `user-${Date.now()}`;
+      const recipeId = isEditing ? params.editRecipeId! : `user-${Date.now()}`;
       const timeMatch = cookTime.match(/(\d+)/);
       const timeMinutes = timeMatch ? parseInt(timeMatch[1], 10) : undefined;
 
@@ -218,26 +261,76 @@ export default function AddRecipeScreen() {
         source: 'user' as const,
       };
 
-      // Save locally immediately
+      // ── VALIDATION GATE — recipe must pass quality review before saving ──
+      const reviewResult = await reviewRecipe(recipe as any);
+
+      if (!reviewResult.approved) {
+        const issueList = reviewResult.issues.slice(0, 5).join('\n• ');
+        Alert.alert(
+          '❌ Recipe Doesn\'t Meet Criteria',
+          `We can't add this recipe because it doesn't meet our quality standards (score: ${reviewResult.score}/100).\n\nIssues:\n• ${issueList}${reviewResult.suggestions.length > 0 ? '\n\nTips:\n• ' + reviewResult.suggestions.slice(0, 2).join('\n• ') : ''}`,
+          [{ text: 'Fix & Retry', style: 'default' }],
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      // Save locally — recipe passed validation
       await saveRecipe(recipe);
 
       Alert.alert(
-        'Recipe Submitted! 🎉',
-        `"${recipeName}" is being reviewed. You'll get a notification when it's approved.`,
+        isEditing ? 'Recipe Updated! ✅' : 'Recipe Approved! 🎉',
+        isEditing
+          ? `"${recipeName}" has been updated successfully.`
+          : `"${recipeName}" passed quality review (score: ${reviewResult.score}/100) and is being processed.`,
         [{ text: 'OK', onPress: () => router.back() }],
       );
 
-      // Background: upload images + review pipeline (fire-and-forget)
+      // Background: save images locally + upload to Supabase + review pipeline
       (async () => {
         try {
-          // Upload hero image
+          // 1. Save image URIs locally so they show immediately
+          const stepImages: Record<string, string | null> = {};
+          steps.forEach((s, i) => {
+            if (s.photoUri) stepImages[String(i)] = s.photoUri;
+          });
+          const imageResults: RecipeImageResults = {
+            dishImage: heroImageUri,
+            ingredientImages: {},
+            stepImages,
+          };
+          await saveRecipeImages(recipeId, imageResults);
+
+          // 2. Upload hero image to Supabase Storage
           if (heroImageUri) {
             await uploadRecipeHeroImage(recipeId, heroImageUri);
           }
-          // Run review + nutrition + classification pipeline
+
+          // 3. Upload step photos to Supabase Storage
+          for (const [idx, uri] of Object.entries(stepImages)) {
+            if (uri) {
+              try {
+                await uploadStepImage(recipeId, parseInt(idx, 10), uri);
+              } catch (e) {
+                console.warn(`[SpiceStrong] Step ${idx} image upload failed:`, e);
+              }
+            }
+          }
+
+          // 4. Mark recipe as ready
+          recipe.status = 'ready' as const;
+          await saveAIRecipe(recipe);
+          updateRecipeStatus(recipeId, 'ready').catch(() => {});
+
+          // 5. Run review + nutrition + classification pipeline
           await submitRecipeForReview(recipe);
         } catch (err) {
-          console.error('[SpiceStrong] Background recipe review failed:', err);
+          console.error('[SpiceStrong] Background recipe processing failed:', err);
+          // Still mark as ready so it doesn't stay stuck
+          try {
+            recipe.status = 'ready' as const;
+            await saveAIRecipe(recipe);
+          } catch { /* best effort */ }
         }
       })();
     } catch (err) {
@@ -280,7 +373,7 @@ export default function AddRecipeScreen() {
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
-            {currentStepIndex === 4 ? 'Review Recipe' : `${proteinEmoji} Add Your Recipe`}
+            {currentStepIndex === 4 ? 'Review Recipe' : isEditing ? `${proteinEmoji} Edit Recipe` : `${proteinEmoji} Add Your Recipe`}
           </Text>
         </View>
 

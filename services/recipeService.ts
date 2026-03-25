@@ -199,8 +199,10 @@ function mapSupabaseRowToRecipe(row: SupabaseRecipeRow): SavedRecipe & Partial<B
     steps: normalizeSteps(row.steps),
     createdAt: new Date(row.created_at).getTime(),
     status: row.status === 'building' ? 'building' : 'ready',
+    source: (row as any).source === 'ai' && row.id.startsWith('user-') ? 'user' as const : (row as any).source ?? undefined,
     aiNutrition: aiNutrition,
     communityCookCount: row.cook_count ?? 0,
+    cuisine: (row as any).cuisine ?? undefined,
 
     // BuiltInRecipe extended fields
     timeMinutes: row.time_minutes ?? undefined,
@@ -210,6 +212,20 @@ function mapSupabaseRowToRecipe(row: SupabaseRecipeRow): SavedRecipe & Partial<B
     nutrition,
     caloriesPerServing: nutrition?.calories,
     proteinGPerServing: nutrition?.proteinG,
+
+    // Classification fields from pipeline
+    spiceLevel: (row as any).spice_level ?? undefined,
+    cuisineType: (row as any).cuisine_type ?? undefined,
+    cookTimeBucket: (row as any).cook_time_bucket ?? undefined,
+    dietaryTags: Array.isArray((row as any).dietary_tags) ? (row as any).dietary_tags : undefined,
+    allergenTags: Array.isArray((row as any).allergen_tags) ? (row as any).allergen_tags : undefined,
+    cookingMethod: (row as any).cooking_method ?? undefined,
+    fitnessGoal: Array.isArray((row as any).fitness_goal) ? (row as any).fitness_goal : undefined,
+    storageTags: Array.isArray((row as any).storage_tags) ? (row as any).storage_tags : undefined,
+    pipelineCalories: (row as any).calories ? Number((row as any).calories) : undefined,
+    pipelineProteinG: (row as any).protein_g ? Number((row as any).protein_g) : undefined,
+    pipelineCarbsG: (row as any).carbs_g ? Number((row as any).carbs_g) : undefined,
+    pipelineFatG: (row as any).fat_g ? Number((row as any).fat_g) : undefined,
   };
 }
 
@@ -297,6 +313,16 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
   recipes: SavedRecipe[];
   refresh: Promise<SavedRecipe[] | null>;
 }> {
+  // 0. Load persistent deleted blocklist
+  let deletedIds: Set<string>;
+  try {
+    const blockData = await AsyncStorage.getItem('spicestrong_deleted_recipes');
+    deletedIds = new Set(blockData ? JSON.parse(blockData) : []);
+  } catch {
+    deletedIds = new Set();
+  }
+  const notDeleted = (r: SavedRecipe) => !deletedIds.has(r.id);
+
   // 1. Get cached recipes (or built-in + local fallback)
   const cached = await getCachedRecipes(proteinId);
   const localRecipes = await getLocalRecipes();
@@ -309,12 +335,12 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
     const cachedIds = new Set(cached.map((r) => r.id));
     // Add any local AI recipes not in the cache (offline-created, not yet synced)
     const localOnly = localForProtein.filter((r) => !cachedIds.has(r.id));
-    immediate = [...cached, ...localOnly];
+    immediate = [...cached, ...localOnly].filter(notDeleted);
   } else {
     // No cache — use built-in + local
     const builtInIds = new Set(builtIn.map((r) => r.id));
     const localOnly = localForProtein.filter((r) => !builtInIds.has(r.id));
-    immediate = [...builtIn, ...localOnly];
+    immediate = [...builtIn, ...localOnly].filter(notDeleted);
   }
 
   // 2. Always revalidate in background (true stale-while-revalidate)
@@ -340,10 +366,19 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
             await cacheImageUrls(row.id, urls);
           }
 
-          // Merge with local-only AI recipes
+          // Merge with local-only AI recipes (re-read to pick up any deletes since load)
           const supabaseIds = new Set(supabaseRecipes.map((r) => r.id));
-          const localOnlyAI = localForProtein.filter((r) => !supabaseIds.has(r.id));
-          const merged = [...supabaseRecipes, ...localOnlyAI];
+          const freshLocal = await getLocalRecipes();
+          const freshLocalForProtein = freshLocal.filter((r) => r.proteinId === proteinId);
+          const localOnlyAI = freshLocalForProtein.filter((r) => !supabaseIds.has(r.id));
+          // Re-read blocklist (may have changed since load started)
+          let freshDeletedIds: Set<string>;
+          try {
+            const bd = await AsyncStorage.getItem('spicestrong_deleted_recipes');
+            freshDeletedIds = new Set(bd ? JSON.parse(bd) : []);
+          } catch { freshDeletedIds = new Set(); }
+
+          const merged = [...supabaseRecipes, ...localOnlyAI].filter(r => !freshDeletedIds.has(r.id));
 
           // Update cache
           await setCachedRecipes(proteinId, merged);
@@ -489,7 +524,8 @@ async function syncRecipeToSupabase(
     source: 'ai' as const,
     is_active: true,
     is_pro: false,
-    status: recipe.status ?? 'ready',
+    // DB CHECK constraint only allows 'building' or 'ready'
+    status: (recipe.status === 'building') ? 'building' : 'ready',
     device_id: deviceId,
     ai_nutrition: recipe.aiNutrition ?? null,
     fingerprint,
@@ -686,20 +722,74 @@ export async function uploadRecipeHeroImage(
     const publicUrl = urlData.publicUrl;
 
     // Insert into recipe_images table
-    await supabase.from('recipe_images').upsert(
-      {
-        recipe_id: recipeId,
-        image_type: 'hero',
-        step_index: null,
-        storage_url: publicUrl,
-      },
-      { onConflict: 'recipe_id,image_type,step_index' },
-    );
+    // Insert image record (ignore duplicate — no UPDATE/DELETE RLS policy)
+    const { error: imgError } = await supabase.from('recipe_images').insert({
+      recipe_id: recipeId,
+      image_type: 'hero',
+      step_index: null,
+      storage_url: publicUrl,
+    });
+    if (imgError && !imgError.message?.includes('duplicate')) {
+      console.warn('[SpiceStrong] Hero image record insert failed:', imgError.message);
+    }
 
     console.log(`[SpiceStrong] Hero image uploaded: ${recipeId} -> ${publicUrl}`);
     return publicUrl;
   } catch (e) {
     console.warn('[SpiceStrong] Hero image upload failed:', e);
+    return null;
+  }
+}
+
+/**
+ * Upload a step image to Supabase Storage and register it in recipe_images.
+ */
+export async function uploadStepImage(
+  recipeId: string,
+  stepIndex: number,
+  localUri: string,
+): Promise<string | null> {
+  try {
+    const isAvailable = await checkRecipeTableAvailable();
+    if (!isAvailable) return null;
+
+    const response = await fetch(localUri);
+    const blob = await response.blob();
+
+    const storagePath = `${recipeId}/step_${stepIndex}.png`;
+    const { error: uploadError } = await supabase.storage
+      .from('recipe-images')
+      .upload(storagePath, blob, {
+        contentType: 'image/png',
+        upsert: true,
+      });
+
+    if (uploadError) {
+      console.error(`[SpiceStrong] Step ${stepIndex} image upload failed:`, uploadError.message);
+      return null;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('recipe-images')
+      .getPublicUrl(storagePath);
+
+    const publicUrl = urlData.publicUrl;
+
+    // Insert image record (ignore duplicate — no UPDATE/DELETE RLS policy)
+    const { error: imgError } = await supabase.from('recipe_images').insert({
+      recipe_id: recipeId,
+      image_type: 'step',
+      step_index: stepIndex,
+      storage_url: publicUrl,
+    });
+    if (imgError && !imgError.message?.includes('duplicate')) {
+      console.warn(`[SpiceStrong] Step ${stepIndex} image record insert failed:`, imgError.message);
+    }
+
+    console.log(`[SpiceStrong] Step ${stepIndex} image uploaded: ${recipeId} -> ${publicUrl}`);
+    return publicUrl;
+  } catch (e) {
+    console.warn(`[SpiceStrong] Step ${stepIndex} image upload failed:`, e);
     return null;
   }
 }
@@ -730,23 +820,38 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
       await setCachedRecipes(proteinId, updatedCache);
     }
 
-    // 3. Remove image URL cache
+    // 3. Remove image URL cache + invalidate protein cache timestamp
     await AsyncStorage.removeItem(`${IMAGE_CACHE_KEY_PREFIX}${recipeId}`);
+    await AsyncStorage.removeItem(`${CACHE_META_PREFIX}${proteinId}`);
 
     // 4. Deactivate in Supabase (soft delete — set is_active = false)
     try {
       const isAvailable = await checkRecipeTableAvailable();
       if (isAvailable) {
-        await supabase
+        const { error, count } = await supabase
           .from('recipes')
-          .update({ is_active: false, updated_at: new Date().toISOString() })
+          .update({ is_active: false })
           .eq('id', recipeId);
-        console.log(`[SpiceStrong] Recipe deactivated in Supabase: ${recipeId}`);
+        if (error) {
+          console.warn(`[SpiceStrong] Supabase deactivation failed (RLS?):`, error.message);
+        } else {
+          console.log(`[SpiceStrong] Recipe deactivated in Supabase: ${recipeId}`);
+        }
       }
     } catch {
-      // Supabase deletion is best-effort; local deletion already succeeded
       console.warn(`[SpiceStrong] Could not deactivate recipe in Supabase: ${recipeId}`);
     }
+
+    // 5. Track deleted ID in persistent blocklist so it never comes back
+    try {
+      const blockKey = 'spicestrong_deleted_recipes';
+      const existing = await AsyncStorage.getItem(blockKey);
+      const blocked: string[] = existing ? JSON.parse(existing) : [];
+      if (!blocked.includes(recipeId)) {
+        blocked.push(recipeId);
+        await AsyncStorage.setItem(blockKey, JSON.stringify(blocked));
+      }
+    } catch { /* best effort */ }
 
     console.log(`[SpiceStrong] Recipe fully deleted: ${recipeId}`);
     return true;
@@ -982,9 +1087,12 @@ export async function updateRecipeStatus(
     const isAvailable = await checkRecipeTableAvailable();
     if (!isAvailable) return;
 
+    // DB CHECK constraint only allows 'building' or 'ready'
+    const dbStatus = (status === 'building') ? 'building' : 'ready';
+
     await supabase
       .from('recipes')
-      .update({ status, updated_at: new Date().toISOString() })
+      .update({ status: dbStatus })
       .eq('id', recipeId);
   } catch {
     // non-critical
@@ -1026,15 +1134,16 @@ export async function uploadRecipeStepImage(
 
     const publicUrl = urlData.publicUrl;
 
-    await supabase.from('recipe_images').upsert(
-      {
-        recipe_id: recipeId,
-        image_type: 'step',
-        step_index: stepIndex,
-        storage_url: publicUrl,
-      },
-      { onConflict: 'recipe_id,image_type,step_index' },
-    );
+    // Insert image record (ignore duplicate — no UPDATE/DELETE RLS policy)
+    const { error: imgError } = await supabase.from('recipe_images').insert({
+      recipe_id: recipeId,
+      image_type: 'step',
+      step_index: stepIndex,
+      storage_url: publicUrl,
+    });
+    if (imgError && !imgError.message?.includes('duplicate')) {
+      console.warn(`[SpiceStrong] Step ${stepIndex} image record insert failed:`, imgError.message);
+    }
 
     console.log(`[SpiceStrong] Step ${stepIndex} image uploaded: ${recipeId} -> ${publicUrl}`);
     return publicUrl;

@@ -18,6 +18,8 @@ import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } fr
 import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
 import * as Notifications from 'expo-notifications';
 
+import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt';
+
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
 /** Max AI recipes allowed PER PROTEIN TYPE for free users. Set to 0 for unlimited.
@@ -294,15 +296,26 @@ async function callClaudeAPI(
     ? '- This is a dessert/snack: provide ingredients for 1 SERVING only under "2-3 servings" key. User will multiply as needed.'
     : '- Provide ingredients for BOTH "2-3 servings" and "4-6 servings" tiers. The 4-6 servings should be roughly 2x the 2-3 servings quantities.';
 
-  const systemPrompt = `You are a professional chef and nutritionist. Generate a complete high-protein recipe and return ONLY valid JSON.
+  const systemPrompt = SPICEBUILDER_SYSTEM_PROMPT + `
 
-Return this exact JSON structure:
+ADDITIONAL CONTEXT FOR THIS REQUEST:
+- proteinId must be: "${proteinId}"
+- proteinName must be: "${proteinName}"
+- proteinEmoji must be: "${proteinEmoji}"
+${servingRule}
+
+IMPORTANT — OUTPUT FORMAT OVERRIDE:
+The nutrition values ("protein", "calories", "fatG", "carbsG", etc.) must be the TOTAL for the entire "2-3 servings" batch, NOT per serving.
+Formula: per-serving value × 2.5 = batch total.
+Example: if per-serving protein is 37g → report "protein": "92g" (37 × 2.5 ≈ 92)
+
+Return this exact JSON structure (no markdown, no preamble):
 {
-  "name": "Recipe Name",
-  "proteinId": "chicken|beef|lamb|fish|prawns|pork|goat|paneer|tofu|eggs|soy|beans|milk|whey",
-  "proteinName": "Chicken",
-  "proteinEmoji": "🍗",
-  "description": "One line description",
+  "name": "Recipe Full Name",
+  "proteinId": "${proteinId}",
+  "proteinName": "${proteinName}",
+  "proteinEmoji": "${proteinEmoji}",
+  "description": "2 sentences max. Lead with protein content and cuisine origin.",
   "cookTime": "25 min",
   "difficulty": "Easy|Medium|Hard",
   "protein": "92g",
@@ -313,28 +326,20 @@ Return this exact JSON structure:
   "sugarG": 4,
   "sodiumMg": 680,
   "mealType": "breakfast|lunch_dinner|snack_dessert",
+  "chefTip": "One actionable technique tip specific to this dish.",
   ${ingredientStructure},
   "steps": [
     {
       "id": "step1",
-      "title": "Step Title",
+      "title": "Step Title (max 4 words)",
       "emoji": "🔥",
-      "description": "Full step instruction",
-      "tip": "Chef tip for this step",
-      "timerSeconds": 300
+      "description": "Clear instruction with visual doneness cues, 2-4 sentences.",
+      "tip": "Specific technique tip for this step",
+      "timerSeconds": 300,
+      "ingredientsUsed": "comma-separated ingredient names used in this step"
     }
   ]
 }
-
-Rules:
-- Always make it high protein and healthy
-- 4-8 cooking steps maximum
-- timerSeconds: use realistic times (300 = 5 min)
-- Return ONLY the JSON object, no other text
-- proteinId must match one of the options exactly
-- mealType must be one of: breakfast, lunch_dinner, snack_dessert
-- IMPORTANT: "protein", "calories", "fatG", "carbsG", "fiberG", "sugarG", "sodiumMg" must be the TOTAL for the entire "2-3 servings" batch, NOT per serving. Example: if each serving has 40g protein and the batch serves 2-3 people, report "protein": "92g" (approx 2.5 servings worth)
-${servingRule}
 ${constraintsText}`;
 
   const userMessage = `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;

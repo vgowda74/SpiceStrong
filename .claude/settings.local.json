@@ -183,7 +183,14 @@
       "Bash(grep -ri \"pepper.*chicken\\\\|chicken.*pepper\" Recipes/input/ --include=*.xlsx -l)",
       "Bash(npm uninstall:*)",
       "Bash(node -e \"try { require.resolve\\(''expo-speech-recognition''\\); console.log\\(''INSTALLED''\\) } catch { console.log\\(''NOT INSTALLED''\\) }\")",
-      "Bash(node -e \"const pkg = require\\(''C:/Users/v_gow/SpiceStrong/node_modules/expo-speech-recognition/package.json''\\); console.log\\(pkg.main || pkg.module || ''index.js''\\)\")"
+      "Bash(node -e \"const pkg = require\\(''C:/Users/v_gow/SpiceStrong/node_modules/expo-speech-recognition/package.json''\\); console.log\\(pkg.main || pkg.module || ''index.js''\\)\")",
+      "Bash(find C:Usersv_gowSpiceStrong -name *.sql -type f)",
+      "Bash(grep -n \"system\\\\|SYSTEM_PROMPT\\\\|prompt.*=.*\\\\`\" C:/Users/v_gow/SpiceStrong/scripts/pipeline/classifyRecipe.js)",
+      "Bash(grep -n \"system\\\\|SYSTEM_PROMPT\\\\|prompt.*=.*\\\\`\" C:/Users/v_gow/SpiceStrong/services/recipeReviewService.ts)",
+      "Bash(grep -n \"system\\\\|SYSTEM_PROMPT\\\\|prompt.*=.*\\\\`\" C:/Users/v_gow/SpiceStrong/services/recipeService.ts)",
+      "Bash(python scripts/create-testing-checklist.py)",
+      "Bash(node scripts/create-testing-checklist.js)",
+      "Bash(node -e \"console.log\\(Object.keys\\(require\\(''@fal-ai/client''\\)\\)\\)\")"
     ]
   }
 }

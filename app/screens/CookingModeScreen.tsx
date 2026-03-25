@@ -990,7 +990,7 @@ export default function CookingModeScreen() {
               </View>
             )
           ) : (
-            // AI recipe: AI-generated → Supabase Storage → emoji
+            // AI/User recipe: AI-generated → Supabase Storage → step.photoUri → emoji
             aiStepImages[String(currentStep)] ? (
               <Image
                 source={{ uri: aiStepImages[String(currentStep)]! }}
@@ -1000,6 +1000,18 @@ export default function CookingModeScreen() {
             ) : supabaseStepImages[String(currentStep)] ? (
               <Image
                 source={{ uri: supabaseStepImages[String(currentStep)] }}
+                style={styles.stepImage}
+                contentFit="cover" transition={200}
+              />
+            ) : (recipe.steps[currentStep] as any)?.photoUri ? (
+              <Image
+                source={{ uri: (recipe.steps[currentStep] as any).photoUri }}
+                style={styles.stepImage}
+                contentFit="cover" transition={200}
+              />
+            ) : (recipe.steps[currentStep] as any)?.photoStorageUrl ? (
+              <Image
+                source={{ uri: (recipe.steps[currentStep] as any).photoStorageUrl }}
                 style={styles.stepImage}
                 contentFit="cover" transition={200}
               />

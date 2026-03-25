@@ -11,6 +11,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@expo/ngrok": "^4.0.0",
     "@expo/vector-icons": "^15.0.3",
     "@fal-ai/client": "^1.9.4",
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -58,6 +59,7 @@
     "dotenv": "^17.3.1",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "exceljs": "^4.4.0",
     "pdf-lib": "^1.17.1",
     "sharp": "^0.34.5",
     "typescript": "~5.9.2",

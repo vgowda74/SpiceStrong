@@ -326,6 +326,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  editButton: {
+    backgroundColor: 'rgba(232,93,38,0.2)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.5)',
+  },
+  editButtonText: {
+    color: '#E85D26',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   startButton: {
     flex: 2,
     backgroundColor: ORANGE,
