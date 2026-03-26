@@ -192,5 +192,8 @@
       "Bash(node scripts/create-testing-checklist.js)",
       "Bash(node -e \"console.log\\(Object.keys\\(require\\(''@fal-ai/client''\\)\\)\\)\")"
     ]
+  },
+  "remote": {
+    "defaultEnvironmentId": "env_01JjwvP6JNEKmBZtRYuKzfaF"
   }
 }
