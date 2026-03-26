@@ -247,7 +247,7 @@ export default function RecipeOverviewScreen() {
             onPress={openMealPlan}
             activeOpacity={0.8}
           >
-            <Text style={styles.mealPlanButtonText}>📅</Text>
+            <Text style={styles.mealPlanButtonText}>Meal Plan</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.startButton}
@@ -557,13 +557,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(232,93,38,0.18)',
     borderRadius: 14,
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: 'rgba(232,93,38,0.4)',
   },
-  mealPlanButtonText: { fontSize: 20 },
+  mealPlanButtonText: { fontSize: 13, fontWeight: '700', color: '#E85D26' },
 
   // Meal plan modal sheet
   mpBackdrop: {

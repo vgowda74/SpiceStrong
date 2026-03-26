@@ -48,46 +48,47 @@ export function ProfileMenu() {
     ]).start();
   };
 
-  const closeMenu = useCallback(() => {
+  const closeMenu = useCallback((onClosed?: () => void) => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 0, duration: 140, useNativeDriver: true }),
       Animated.timing(slideAnim, { toValue: -12, duration: 140, useNativeDriver: true }),
-    ]).start(() => setOpen(false));
+    ]).start(() => {
+      setOpen(false);
+      onClosed?.();
+    });
   }, [fadeAnim, slideAnim]);
 
   const handleMealPlan = () => {
-    closeMenu();
-    setTimeout(() => router.push('/screens/MealPlanScreen'), 160);
+    closeMenu(() => router.push('/screens/MealPlanScreen'));
   };
 
-  const handleGroceryList = async () => {
-    closeMenu();
-    try {
-      const stored = await AsyncStorage.getItem(GLOBAL_CART_KEY);
-      const cartItems: Record<string, string> = stored ? JSON.parse(stored) : {};
-      const keys = Object.keys(cartItems);
-      if (keys.length === 0) {
-        // Nothing to share — open with a message
-        await Share.share({ message: 'Your SpiceStrong grocery list is empty. Add ingredients from any recipe!' });
-        return;
-      }
-      const grouped: Record<string, string[]> = {};
-      keys.forEach((key) => {
-        const recipeName = cartItems[key];
-        if (!grouped[recipeName]) grouped[recipeName] = [];
-        const [name, qty] = key.split('|||');
-        grouped[recipeName].push(`  • ${qty} ${name}`);
-      });
-      const sections = Object.entries(grouped)
-        .map(([recipeName, items]) => `📌 ${recipeName}\n${items.join('\n')}`)
-        .join('\n\n');
-      await Share.share({ message: `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪` });
-    } catch {}
+  const handleGroceryList = () => {
+    closeMenu(async () => {
+      try {
+        const stored = await AsyncStorage.getItem(GLOBAL_CART_KEY);
+        const cartItems: Record<string, string> = stored ? JSON.parse(stored) : {};
+        const keys = Object.keys(cartItems);
+        if (keys.length === 0) {
+          await Share.share({ message: 'Your SpiceStrong grocery list is empty. Add ingredients from any recipe!' });
+          return;
+        }
+        const grouped: Record<string, string[]> = {};
+        keys.forEach((key) => {
+          const recipeName = cartItems[key];
+          if (!grouped[recipeName]) grouped[recipeName] = [];
+          const [name, qty] = key.split('|||');
+          grouped[recipeName].push(`  • ${qty} ${name}`);
+        });
+        const sections = Object.entries(grouped)
+          .map(([recipeName, items]) => `📌 ${recipeName}\n${items.join('\n')}`)
+          .join('\n\n');
+        await Share.share({ message: `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪` });
+      } catch {}
+    });
   };
 
   const handleDietary = () => {
-    closeMenu();
-    setTimeout(() => router.push('/screens/DietaryRestrictionsScreen'), 160);
+    closeMenu(() => router.push('/screens/DietaryRestrictionsScreen'));
   };
 
   const MENU_ITEMS: MenuItem[] = [
