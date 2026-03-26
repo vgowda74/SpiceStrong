@@ -20,7 +20,7 @@ const screenWidth = Dimensions.get('window').width;
 
 import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../components/RecipeCard';
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
-import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
+import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
 import { getDietaryRestrictions, applyDietaryFilter } from '../../services/dietaryService';
@@ -51,6 +51,8 @@ const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { ProfileMenu } from '../../components/ProfileMenu';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
+import { submitRecipeForReview } from '../../services/recipeReviewService';
+import { saveRecipe as saveLocalRecipe } from '../../src/store/recipes';
 // AsyncStorage no longer needed — deleteAIRecipe handles all cleanup
 
 const HEADER_ORANGE = '#E85D26';
@@ -165,6 +167,9 @@ export default function RecipeListScreen() {
   const communityRatingsCache = useRef<Record<string, RecipeRatings>>({});
   const [communityRatings, setCommunityRatings] = useState<Record<string, RecipeRatings>>({});
   const [communityLoading, setCommunityLoading] = useState<Record<string, boolean>>({});
+
+  // Publish state — tracks which recipe IDs are currently being submitted
+  const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set());
 
   // Modal state
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
@@ -313,6 +318,42 @@ export default function RecipeListScreen() {
 
   const totalCount = recipes.length;
 
+  const handlePublish = (recipe: SavedRecipe) => {
+    const isRetry = recipe.reviewResult && !recipe.reviewResult.approved;
+    Alert.alert(
+      isRetry ? 'Resubmit Recipe' : 'Publish Recipe',
+      isRetry
+        ? `Resubmit "${recipe.name}" for review? Previous issues will be re-evaluated.`
+        : `Submit "${recipe.name}" for community review?\n\nOur validator will check ingredients, steps, nutrition, and food safety. You'll get a notification when it's done.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isRetry ? 'Resubmit' : 'Submit for Review',
+          onPress: async () => {
+            // Immediately mark as pending_review locally
+            const updated: SavedRecipe = { ...recipe, status: 'pending_review' };
+            await saveLocalRecipe(updated);
+            setRecipes((prev) => prev.map((r) => r.id === recipe.id ? updated : r));
+            setPublishingIds((prev) => new Set(prev).add(recipe.id));
+
+            // Run full review pipeline in background
+            submitRecipeForReview(updated).finally(() => {
+              setPublishingIds((prev) => {
+                const next = new Set(prev);
+                next.delete(recipe.id);
+                return next;
+              });
+              // Refresh recipes to pick up updated status/reviewResult
+              getAllRecipesForProtein(proteinId).then((all) => {
+                setRecipes(all.filter((r) => !deletedIdsRef.current.has(r.id)));
+              });
+            });
+          },
+        },
+      ]
+    );
+  };
+
   const handleDelete = (recipe: SavedRecipe) => {
     Alert.alert(
       'Delete Recipe',
@@ -435,7 +476,38 @@ export default function RecipeListScreen() {
         actionRow={
           !builtInIds.has(item.id) && !item.id.startsWith('spicestrong-') && !item.id.startsWith('curated-') ? (
             <View style={styles.actionRow}>
-              {/* Edit button for all user/AI recipes (non-curated, non-built-in) */}
+              {/* Publish button — only for manually-added user recipes */}
+              {item.source === 'user' && (() => {
+                const isSubmitting = publishingIds.has(item.id) || item.status === 'pending_review';
+                const isApproved = item.reviewResult?.approved === true;
+                const isRejected = item.reviewResult?.approved === false;
+                if (isApproved) {
+                  return (
+                    <View style={[styles.publishBtn, styles.publishBtnLive]}>
+                      <Text style={styles.publishBtnTextLive}>Live ✓</Text>
+                    </View>
+                  );
+                }
+                if (isSubmitting) {
+                  return (
+                    <View style={[styles.publishBtn, styles.publishBtnPending]}>
+                      <Text style={styles.publishBtnTextPending}>In Review…</Text>
+                    </View>
+                  );
+                }
+                return (
+                  <TouchableOpacity
+                    style={[styles.publishBtn, isRejected && styles.publishBtnRejected]}
+                    onPress={(e) => { e.stopPropagation(); handlePublish(item); }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.publishBtnText, isRejected && styles.publishBtnTextRejected]}>
+                      {isRejected ? '⚠ Resubmit' : '🚀 Publish'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })()}
+              {/* Edit button */}
               <TouchableOpacity
                   style={styles.editBtn}
                   onPress={(e) => {
@@ -1029,6 +1101,46 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   deleteBtnText: { fontSize: 16 },
+  publishBtn: {
+    height: 32,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(232,93,38,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.5)',
+  },
+  publishBtnLive: {
+    backgroundColor: 'rgba(34,197,94,0.15)',
+    borderColor: 'rgba(34,197,94,0.4)',
+  },
+  publishBtnPending: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  publishBtnRejected: {
+    backgroundColor: 'rgba(232,93,38,0.2)',
+    borderColor: 'rgba(232,93,38,0.5)',
+  },
+  publishBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  publishBtnTextLive: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#22C55E',
+  },
+  publishBtnTextPending: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  publishBtnTextRejected: {
+    color: '#E85D26',
+  },
 
   // Loading skeleton
   skeletonWrap: {
