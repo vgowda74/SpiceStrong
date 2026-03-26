@@ -541,15 +541,7 @@ export default function IngredientChecklistScreen() {
 
         {/* Footer */}
         <View style={styles.footer}>
-          {allChecked ? (
-            <TouchableOpacity
-              style={styles.startBtn}
-              onPress={handleStartCooking}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.startBtnText}>🧑‍🍳 Start Cooking</Text>
-            </TouchableOpacity>
-          ) : (
+          {!allChecked && (
             <View style={styles.footerRow}>
               <View style={styles.footerLeft}>
                 <Text style={styles.footerIcon}>🧂</Text>
@@ -570,6 +562,13 @@ export default function IngredientChecklistScreen() {
               )}
             </View>
           )}
+          <TouchableOpacity
+            style={[styles.startBtn, !allChecked && styles.startBtnPartial]}
+            onPress={handleStartCooking}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.startBtnText}>🧑‍🍳 Start Cooking</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1347,6 +1346,10 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
+  },
+  startBtnPartial: {
+    backgroundColor: 'rgba(232, 93, 38, 0.55)',
+    marginTop: 10,
   },
   startBtnText: {
     color: '#FFFFFF',
