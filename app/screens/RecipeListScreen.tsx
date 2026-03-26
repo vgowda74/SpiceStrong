@@ -23,6 +23,7 @@ import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProteinWithRefresh, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
+import { getDietaryRestrictions, applyDietaryFilter } from '../../services/dietaryService';
 // imageCacheService no longer needed — expo-image handles caching
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
@@ -48,6 +49,7 @@ const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
   whey: require('../../assets/images/Protein/ProteinPowder.jpg'),
 };
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
+import { ProfileMenu } from '../../components/ProfileMenu';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
 // AsyncStorage no longer needed — deleteAIRecipe handles all cleanup
 
@@ -173,16 +175,20 @@ export default function RecipeListScreen() {
     useCallback(() => {
       let cancelled = false;
       const load = async () => {
-        const [result, ratingsMap, favouritesList, cookCountsMap] = await Promise.all([
+        const [result, ratingsMap, favouritesList, cookCountsMap, dietary] = await Promise.all([
           getAllRecipesForProteinWithRefresh(proteinId),
           getRatings(),
           getFavourites(),
           getCookCounts(),
+          getDietaryRestrictions(),
         ]);
 
         if (cancelled) return;
-        // Filter out any recipes deleted during this session
-        const filtered_initial = result.recipes.filter(r => !deletedIdsRef.current.has(r.id));
+        // Filter out deleted + apply dietary restrictions
+        const filtered_initial = applyDietaryFilter(
+          result.recipes.filter(r => !deletedIdsRef.current.has(r.id)),
+          dietary
+        );
         setRecipes(filtered_initial);
         setRatings(ratingsMap);
         setFavourites(favouritesList);
@@ -232,8 +238,11 @@ export default function RecipeListScreen() {
         // Background refresh from Supabase (stale-while-revalidate)
         result.refresh.then(async (fresh) => {
           if (cancelled || !fresh) return;
-          // Filter out any recipes deleted during this session
-          const filtered_fresh = fresh.filter(r => !deletedIdsRef.current.has(r.id));
+          // Filter out deleted + apply dietary restrictions
+          const filtered_fresh = applyDietaryFilter(
+            fresh.filter(r => !deletedIdsRef.current.has(r.id)),
+            dietary
+          );
           setRecipes(filtered_fresh);
           await loadDishImages(filtered_fresh);
         });
@@ -616,6 +625,7 @@ export default function RecipeListScreen() {
       <View style={styles.container}>
       <View style={styles.screenContent}>
         <View style={[styles.header, styles.headerOrange]}>
+          <ProfileMenu />
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>

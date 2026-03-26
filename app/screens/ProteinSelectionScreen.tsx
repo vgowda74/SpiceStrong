@@ -34,6 +34,7 @@ const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   whey: require('../../assets/images/Protein/ProteinPowder.jpg'),
 };
 import { PROTEINS } from '../../src/theme';
+import { ProfileMenu } from '../../components/ProfileMenu';
 
 const screenWidth = Dimensions.get('window').width;
 const CARD_WIDTH = (screenWidth - 56) / 2;
@@ -162,6 +163,7 @@ export default function ProteinSelectionScreen() {
       >
         {/* HEADER */}
         <View style={styles.header}>
+          <ProfileMenu />
           <Text style={styles.greeting}>{greeting}</Text>
           <Text style={styles.headingLine1}>What's your</Text>
           <Text style={styles.headingLine2}>protein today?</Text>

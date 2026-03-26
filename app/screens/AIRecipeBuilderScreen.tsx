@@ -19,6 +19,7 @@ import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnr
 import * as Notifications from 'expo-notifications';
 
 import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt';
+import { getDietaryRestrictions } from '../../services/dietaryService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -740,6 +741,15 @@ export default function AIRecipeBuilderScreen() {
       try {
         // Step 1: Generate recipe via Claude API
         console.log('[SpiceStrong] Background: generating recipe...');
+        // Merge user-selected dietary with globally saved dietary restrictions
+        const globalDietary = await getDietaryRestrictions();
+        const globalDietaryLabels = [
+          ...globalDietary.dietaryTags,
+          ...globalDietary.allergenTags,
+        ];
+        const userDietaryLabels = selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id));
+        const mergedDietary = Array.from(new Set([...globalDietaryLabels, ...userDietaryLabels]));
+
         const result = await callClaudeAPI(
           proteinId,
           proteinName,
@@ -750,7 +760,7 @@ export default function AIRecipeBuilderScreen() {
                 mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
                 cookingTime: undefined,
                 spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
-                dietary: selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id)),
+                dietary: mergedDietary,
                 cuisine: '',
               }
             : {
@@ -759,7 +769,7 @@ export default function AIRecipeBuilderScreen() {
                 mealType: findLabel(ALL_MEAL_TYPE_OPTIONS, selectedMealType),
                 cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
                 spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
-                dietary: selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id)),
+                dietary: mergedDietary,
                 cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
               },
         );

@@ -5,10 +5,14 @@
  */
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
+  Animated,
   ImageBackground,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -25,6 +29,13 @@ import { submitCookCount } from '../../services/ratingsService';
 import { getRecipeImageUrls } from '../../services/recipeService';
 // imageCacheService no longer needed — expo-image handles caching
 import { loadRecipeImages } from '../../services/imageGenerationService';
+import {
+  addToMealPlan,
+  getMealPlanForDate,
+  SLOT_LABELS,
+  SLOT_LIMITS,
+  type MealSlot,
+} from '../../services/mealPlanService';
 
 const ORANGE = '#E85D26';
 const CARD_WHITE = '#FFFFFF';
@@ -41,6 +52,79 @@ export default function RecipeOverviewScreen() {
 
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
+
+  // Meal plan modal state
+  const [mealPlanOpen, setMealPlanOpen] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  });
+  const [selectedSlot, setSelectedSlot] = useState<MealSlot | null>(null);
+  const [slotCounts, setSlotCounts] = useState<Record<MealSlot, number>>({ breakfast: 0, lunch_dinner: 0, snack_dessert: 0 });
+  const [addingMeal, setAddingMeal] = useState(false);
+  const mpSlideAnim = useRef(new Animated.Value(300)).current;
+
+  // Reload slot counts when selected date changes
+  useEffect(() => {
+    getMealPlanForDate(selectedDate).then((entries) => {
+      const counts: Record<MealSlot, number> = { breakfast: 0, lunch_dinner: 0, snack_dessert: 0 };
+      entries.forEach((e) => { counts[e.slot] = (counts[e.slot] ?? 0) + 1; });
+      setSlotCounts(counts);
+    });
+  }, [selectedDate]);
+
+  const openMealPlan = () => {
+    setMealPlanOpen(true);
+    Animated.spring(mpSlideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
+  };
+
+  const closeMealPlan = () => {
+    Animated.timing(mpSlideAnim, { toValue: 300, duration: 220, useNativeDriver: true }).start(() =>
+      setMealPlanOpen(false)
+    );
+  };
+
+  const handleAddToMealPlan = async () => {
+    if (!recipe || !selectedSlot) return;
+    setAddingMeal(true);
+    const result = await addToMealPlan(selectedDate, selectedSlot, {
+      id: recipe.id,
+      name: recipe.name,
+      proteinName: recipe.proteinName,
+      proteinEmoji: recipe.proteinEmoji,
+      mealType: recipe.mealType,
+    });
+    setAddingMeal(false);
+    if (result.success) {
+      closeMealPlan();
+      Alert.alert('Added!', `${recipe.name} added to your meal plan for ${selectedDate}.`);
+    } else {
+      Alert.alert('Slot Full', result.error ?? 'Could not add to meal plan.');
+    }
+  };
+
+  // Calendar helpers
+  const today = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
+  const calendarDays = (() => {
+    const { year, month } = calendarMonth;
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const days: (string | null)[] = Array(firstDay).fill(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    return days;
+  })();
+
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   useEffect(() => {
     getRecipeById(recipeId).then(setRecipe);
@@ -159,6 +243,13 @@ export default function RecipeOverviewScreen() {
             <Text style={styles.backButtonText}>← Back</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            style={styles.mealPlanButton}
+            onPress={openMealPlan}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.mealPlanButtonText}>📅</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={styles.startButton}
             onPress={async () => {
               await incrementCookCount(recipe.id);
@@ -174,6 +265,108 @@ export default function RecipeOverviewScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Meal Plan Modal */}
+      <Modal visible={mealPlanOpen} transparent animationType="none" onRequestClose={closeMealPlan} statusBarTranslucent>
+        <Pressable style={styles.mpBackdrop} onPress={closeMealPlan}>
+          <Animated.View style={[styles.mpSheet, { transform: [{ translateY: mpSlideAnim }] }]}>
+            <Pressable onPress={() => {}}>
+              {/* Handle */}
+              <View style={styles.mpHandle} />
+              <Text style={styles.mpTitle}>Add to Meal Plan</Text>
+
+              {/* Month navigator */}
+              <View style={styles.mpMonthRow}>
+                <TouchableOpacity
+                  onPress={() => setCalendarMonth(({ year, month }) => month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 })}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Text style={styles.mpNavArrow}>‹</Text>
+                </TouchableOpacity>
+                <Text style={styles.mpMonthLabel}>
+                  {MONTH_NAMES[calendarMonth.month - 1]} {calendarMonth.year}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setCalendarMonth(({ year, month }) => month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 })}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Text style={styles.mpNavArrow}>›</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Day-of-week headers */}
+              <View style={styles.mpDayHeaders}>
+                {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d) => (
+                  <Text key={d} style={styles.mpDayHeader}>{d}</Text>
+                ))}
+              </View>
+
+              {/* Calendar grid */}
+              <View style={styles.mpGrid}>
+                {calendarDays.map((date, idx) => {
+                  if (!date) return <View key={`empty-${idx}`} style={styles.mpDayCell} />;
+                  const isToday = date === today;
+                  const isSelected = date === selectedDate;
+                  const isPast = date < today;
+                  return (
+                    <TouchableOpacity
+                      key={date}
+                      style={[
+                        styles.mpDayCell,
+                        isToday && styles.mpDayCellToday,
+                        isSelected && styles.mpDayCellSelected,
+                        isPast && styles.mpDayCellPast,
+                      ]}
+                      onPress={() => !isPast && setSelectedDate(date)}
+                      activeOpacity={isPast ? 1 : 0.7}
+                    >
+                      <Text style={[
+                        styles.mpDayNum,
+                        isSelected && styles.mpDayNumSelected,
+                        isPast && styles.mpDayNumPast,
+                      ]}>
+                        {parseInt(date.split('-')[2], 10)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Slot selector */}
+              <Text style={styles.mpSlotLabel}>MEAL SLOT</Text>
+              {(Object.keys(SLOT_LABELS) as MealSlot[]).map((slot) => {
+                const count = slotCounts[slot] ?? 0;
+                const limit = SLOT_LIMITS[slot];
+                const full = count >= limit;
+                const selected = selectedSlot === slot;
+                return (
+                  <TouchableOpacity
+                    key={slot}
+                    style={[styles.mpSlot, selected && styles.mpSlotSelected, full && styles.mpSlotFull]}
+                    onPress={() => !full && setSelectedSlot(slot)}
+                    activeOpacity={full ? 1 : 0.75}
+                  >
+                    <Text style={[styles.mpSlotText, selected && styles.mpSlotTextSelected, full && styles.mpSlotTextFull]}>
+                      {SLOT_LABELS[slot]}
+                    </Text>
+                    <Text style={styles.mpSlotCount}>{count}/{limit}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Confirm button */}
+              <TouchableOpacity
+                style={[styles.mpConfirmBtn, (!selectedSlot || addingMeal) && styles.mpConfirmBtnDisabled]}
+                onPress={handleAddToMealPlan}
+                disabled={!selectedSlot || addingMeal}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.mpConfirmText}>{addingMeal ? 'Adding…' : 'Add to Meal Plan'}</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -358,4 +551,129 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
   },
+
+  // Meal plan button (icon-only, in bottom bar)
+  mealPlanButton: {
+    backgroundColor: 'rgba(232,93,38,0.18)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.4)',
+  },
+  mealPlanButtonText: { fontSize: 20 },
+
+  // Meal plan modal sheet
+  mpBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  mpSheet: {
+    backgroundColor: '#1A1A1A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  mpHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  mpTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  mpMonthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 8,
+  },
+  mpNavArrow: { fontSize: 28, color: ORANGE, fontWeight: '700', lineHeight: 32 },
+  mpMonthLabel: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  mpDayHeaders: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  mpDayHeader: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.40)',
+    textTransform: 'uppercase',
+  },
+  mpGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  mpDayCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mpDayCellToday: {
+    borderRadius: 100,
+    borderWidth: 1.5,
+    borderColor: ORANGE,
+  },
+  mpDayCellSelected: {
+    borderRadius: 100,
+    backgroundColor: ORANGE,
+  },
+  mpDayCellPast: { opacity: 0.30 },
+  mpDayNum: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  mpDayNumSelected: { color: '#FFFFFF', fontWeight: '800' },
+  mpDayNumPast: { color: 'rgba(255,255,255,0.4)' },
+
+  // Slot selector
+  mpSlotLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.40)',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  mpSlot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#252525',
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  mpSlotSelected: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.15)' },
+  mpSlotFull: { opacity: 0.40 },
+  mpSlotText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  mpSlotTextSelected: { color: ORANGE },
+  mpSlotTextFull: { color: 'rgba(255,255,255,0.5)' },
+  mpSlotCount: { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontWeight: '600' },
+
+  mpConfirmBtn: {
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  mpConfirmBtnDisabled: { opacity: 0.45 },
+  mpConfirmText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
 });
