@@ -1,7 +1,7 @@
 /**
  * RecipeFilterScreen.tsx — Full-screen recipe filter with two tabs:
  * 1. Quick Build: Fitness goal, macros, spice, cooking time, difficulty, meat type
- * 2. Advanced: Dietary, allergens, cooking method, cuisine, calories, meal prep
+ * 2. Advanced: Cooking method, cuisine, calories, meal prep
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
@@ -32,9 +32,7 @@ interface FilterState {
   cookingTime: string | null;
   difficulty: string | null;
   meatType: string | null;
-  // Advanced
-  dietary: string[];
-  allergens: string[];
+  // Advanced (dietary/allergen handled globally via Profile > Dietary Restrictions)
   cookingMethod: string | null;
   cuisine: string | null;
   calorieRange: string | null;
@@ -106,17 +104,6 @@ const NON_VEG_PROTEINS = ['chicken', 'fish', 'lamb', 'goat', 'beef', 'pork', 'pr
 
 // Advanced tab options
 // Must match exact values from classification pipeline
-const DIETARY_OPTIONS = [
-  'High protein', 'Low fat', 'Low carb', 'Keto',
-  'Low calorie', 'Low cholesterol', 'Low sodium', 'Low sugar', 'High fiber',
-];
-
-// Allergen tags stored as "X free" in Supabase
-const ALLERGEN_OPTIONS = [
-  'Gluten free', 'Dairy free', 'Nut free', 'Egg free',
-  'Soy free', 'Shellfish free', 'Vegetarian', 'Vegan', 'Paleo', 'Whole30',
-];
-
 // Must match exact values from classification pipeline (scripts/pipeline/classifyRecipe.js)
 const COOKING_METHODS = [
   'Stovetop', 'Grilled', 'Baked', 'Air fryer',
@@ -168,8 +155,6 @@ export default function RecipeFilterScreen() {
     cookingTime?: string;
     difficulty?: string;
     meatType?: string;
-    dietary?: string;
-    allergens?: string;
     cookingMethod?: string;
     cuisine?: string;
     calorieRange?: string;
@@ -192,8 +177,6 @@ export default function RecipeFilterScreen() {
   const [cookingTime, setCookingTime] = useState<string | null>(params.cookingTime || null);
   const [difficulty, setDifficulty] = useState<string | null>(params.difficulty || null);
   const [meatType, setMeatType] = useState<string | null>(params.meatType || null);
-  const [dietary, setDietary] = useState<string[]>(parseArray(params.dietary));
-  const [allergens, setAllergens] = useState<string[]>(parseArray(params.allergens));
   const [cookingMethod, setCookingMethod] = useState<string | null>(params.cookingMethod || null);
   const [cuisine, setCuisine] = useState<string | null>(params.cuisine || null);
   const [calorieRange, setCalorieRange] = useState<string | null>(params.calorieRange || null);
@@ -210,14 +193,12 @@ export default function RecipeFilterScreen() {
     if (cookingTime) count++;
     if (difficulty) count++;
     if (meatType) count++;
-    count += dietary.length;
-    count += allergens.length;
     if (cookingMethod) count++;
     if (cuisine) count++;
     if (calorieRange) count++;
     count += mealPrep.length;
     return count;
-  }, [fitnessGoal, proteinRange, carbsRange, fatRange, spiceLevel, cookingTime, difficulty, meatType, dietary, allergens, cookingMethod, cuisine, calorieRange, mealPrep]);
+  }, [fitnessGoal, proteinRange, carbsRange, fatRange, spiceLevel, cookingTime, difficulty, meatType, cookingMethod, cuisine, calorieRange, mealPrep]);
 
   // ── Fitness goal auto-fill macros ──
   const selectFitnessGoal = useCallback((goal: string) => {
@@ -278,15 +259,13 @@ export default function RecipeFilterScreen() {
         f_cookingTime: cookingTime || '',
         f_difficulty: difficulty || '',
         f_meatType: meatType || '',
-        f_dietary: JSON.stringify(dietary),
-        f_allergens: JSON.stringify(allergens),
         f_cookingMethod: cookingMethod || '',
         f_cuisine: cuisine || '',
         f_calorieRange: calorieRange || '',
         f_mealPrep: JSON.stringify(mealPrep),
       },
     });
-  }, [fitnessGoal, proteinRange, carbsRange, fatRange, spiceLevel, cookingTime, difficulty, meatType, dietary, allergens, cookingMethod, cuisine, calorieRange, mealPrep, router, proteinId, proteinName]);
+  }, [fitnessGoal, proteinRange, carbsRange, fatRange, spiceLevel, cookingTime, difficulty, meatType, cookingMethod, cuisine, calorieRange, mealPrep, router, proteinId, proteinName]);
 
   // ── Single-select chip ──
   const Chip = ({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) => (
@@ -417,32 +396,6 @@ export default function RecipeFilterScreen() {
   // ── Render Advanced Tab ──
   const renderAdvanced = () => (
     <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-      {/* Dietary Preferences */}
-      <SectionHeader icon="🥗" title="DIETARY PREFERENCES" />
-      <View style={styles.checkboxGrid}>
-        {DIETARY_OPTIONS.map(d => (
-          <Checkbox
-            key={d}
-            label={d}
-            checked={dietary.includes(d)}
-            onPress={() => toggleMulti(dietary, d, setDietary)}
-          />
-        ))}
-      </View>
-
-      {/* Allergens to Avoid */}
-      <SectionHeader icon="⚠️" title="ALLERGENS TO AVOID" />
-      <View style={styles.checkboxGrid}>
-        {ALLERGEN_OPTIONS.map(a => (
-          <Checkbox
-            key={a}
-            label={a}
-            checked={allergens.includes(a)}
-            onPress={() => toggleMulti(allergens, a, setAllergens)}
-          />
-        ))}
-      </View>
-
       {/* Cooking Method */}
       <SectionHeader icon="🍳" title="COOKING METHOD" />
       <View style={styles.chipRow}>

@@ -239,6 +239,7 @@ async function callClaudeAPI(
     dietary: string[];
     cuisine: string;
   },
+  proteinEmoji: string = '🍗',
 ) {
   const parts: string[] = [];
   const isDrink = ['milk', 'whey'].includes(proteinId);
@@ -772,6 +773,7 @@ export default function AIRecipeBuilderScreen() {
                 dietary: mergedDietary,
                 cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
               },
+          proteinEmojiVal,
         );
 
         // Step 2: Save full recipe (update placeholder) — stays in 'building' status

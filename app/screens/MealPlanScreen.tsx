@@ -6,13 +6,14 @@
  * - Hero image recipe cards per meal slot, styled like RecipeListScreen
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  ImageBackground,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,10 +24,14 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getMealPlanForDate,
   removeFromMealPlan,
   SLOT_LABELS,
+  SLOT_LIMITS,
   type MealPlanEntry,
   type MealSlot,
 } from '../../services/mealPlanService';
@@ -34,6 +39,162 @@ import { getRecipeById, getCompletionStats, type SavedRecipe } from '../../src/s
 import { getRecipeImageUrls } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
+import { analyzeNutrition } from '../../services/nutritionService';
+
+const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
+
+interface MacroOverride {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  photoUri: string;
+}
+
+function detectMediaType(base64: string): string {
+  if (base64.startsWith('/9j/')) return 'image/jpeg';
+  if (base64.startsWith('iVBOR')) return 'image/png';
+  if (base64.startsWith('R0lGOD')) return 'image/gif';
+  if (base64.startsWith('UklGR')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+/**
+ * Step 1: Claude Vision identifies the image type and extracts info.
+ * - Nutrition label → returns exact macros directly
+ * - Food photo → returns estimated ingredient list with quantities
+ */
+async function identifyFoodImage(base64: string, recipeName: string): Promise<{
+  type: 'label' | 'food';
+  macros?: { calories: number; proteinG: number; carbsG: number; fatG: number };
+  ingredients?: string[];
+}> {
+  if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      system: `You are a food identification AI for a fitness cooking app.
+
+Analyze the image and determine if it is:
+1. A NUTRITION FACTS LABEL — read exact per-serving values
+2. A FOOD PHOTO — identify each visible food item with estimated quantity
+
+For a NUTRITION LABEL, return:
+{"type": "label", "macros": {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}}
+
+For a FOOD PHOTO, return an ingredient list with quantities that Edamam nutrition API can parse.
+Example: {"type": "food", "ingredients": ["200g grilled chicken breast", "1 cup steamed rice", "100g steamed broccoli", "1 tbsp olive oil"]}
+
+Be specific with quantities (grams, cups, tbsp) and cooking methods. Estimate portion sizes from the photo.
+Return ONLY the JSON, no other text.`,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: detectMediaType(base64), data: base64 } },
+          { type: 'text', text: `This meal is "${recipeName}". Identify the contents and return the JSON.` },
+        ],
+      }],
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    console.error(`[SpiceStrong] Vision API error ${res.status}:`, errBody);
+    throw new Error(`API returned ${res.status}`);
+  }
+
+  const data = await res.json();
+  const text = data.content?.[0]?.text || '';
+  console.log('[SpiceStrong] Vision response:', text);
+
+  const jsonMatch = text.match(/\{[\s\S]*?"type"[\s\S]*?\}/);
+  if (!jsonMatch) throw new Error('Could not parse vision response');
+  return JSON.parse(jsonMatch[0]);
+}
+
+/**
+ * Step 2: Full analysis pipeline.
+ * - Nutrition label → Claude reads exact values (done)
+ * - Food photo → Claude identifies ingredients → Edamam returns accurate macros
+ */
+async function analyzeFoodPhoto(base64: string, recipeName: string): Promise<{ calories: number; proteinG: number; carbsG: number; fatG: number }> {
+  const result = await identifyFoodImage(base64, recipeName);
+
+  if (result.type === 'label' && result.macros) {
+    console.log('[SpiceStrong] Nutrition label detected, using exact values');
+    return {
+      calories: Math.round(Number(result.macros.calories) || 0),
+      proteinG: Math.round(Number(result.macros.proteinG) || 0),
+      carbsG: Math.round(Number(result.macros.carbsG) || 0),
+      fatG: Math.round(Number(result.macros.fatG) || 0),
+    };
+  }
+
+  if (result.type === 'food' && result.ingredients?.length) {
+    console.log('[SpiceStrong] Food photo detected, ingredients:', result.ingredients);
+
+    // Feed identified ingredients to Edamam for accurate nutrition
+    const edamamIngredients = result.ingredients.map((s) => ({ name: s, quantity: '' }));
+    const edamamResult = await analyzeNutrition(edamamIngredients, 1);
+
+    if (edamamResult) {
+      console.log('[SpiceStrong] Edamam nutrition result:', edamamResult);
+      return {
+        calories: Math.round(edamamResult.calories),
+        proteinG: Math.round(edamamResult.proteinG),
+        carbsG: Math.round(edamamResult.carbsG),
+        fatG: Math.round(edamamResult.fatG),
+      };
+    }
+    console.warn('[SpiceStrong] Edamam failed, falling back to Claude estimation');
+  }
+
+  // Fallback: ask Claude to estimate directly
+  console.log('[SpiceStrong] Using Claude estimation fallback');
+  if (!ANTHROPIC_KEY) throw new Error('No API key');
+  const fallback = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: detectMediaType(base64), data: base64 } },
+          { type: 'text', text: `Estimate macros for this "${recipeName}" portion. Return ONLY: {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}` },
+        ],
+      }],
+    }),
+  });
+  if (!fallback.ok) throw new Error(`Fallback API returned ${fallback.status}`);
+  const fbData = await fallback.json();
+  const fbText = fbData.content?.[0]?.text || '';
+  const fbMatch = fbText.match(/\{[\s\S]*?"calories"[\s\S]*?\}/);
+  if (!fbMatch) throw new Error('Could not parse nutrition');
+  const parsed = JSON.parse(fbMatch[0]);
+  return {
+    calories: Math.round(Number(parsed.calories) || 0),
+    proteinG: Math.round(Number(parsed.proteinG) || 0),
+    carbsG: Math.round(Number(parsed.carbsG) || 0),
+    fatG: Math.round(Number(parsed.fatG) || 0),
+  };
+}
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -49,6 +210,14 @@ const CARD_W = Dimensions.get('window').width - 48;
 const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch_dinner', 'snack_dessert'];
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const DAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+function getFirstDayOfWeek(year: number, month: number): number {
+  return new Date(year, month, 1).getDay();
+}
 
 interface EnrichedEntry extends MealPlanEntry {
   recipe: SavedRecipe | null;
@@ -96,6 +265,128 @@ export default function MealPlanScreen() {
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Macro correction modal state
+  const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+  const [correctedMacros, setCorrectedMacros] = useState<{ calories: number; proteinG: number; carbsG: number; fatG: number } | null>(null);
+  const [correctionPhoto, setCorrectionPhoto] = useState<string | null>(null);
+
+  const openCorrectMacros = (entry: EnrichedEntry) => {
+    setCorrectEntry(entry);
+    setCorrectedMacros(null);
+    setCorrectionPhoto(null);
+    setCorrecting(false);
+  };
+
+  const closeCorrectMacros = () => {
+    setCorrectEntry(null);
+    setCorrectedMacros(null);
+    setCorrectionPhoto(null);
+    setCorrecting(false);
+  };
+
+  const pickPhoto = async (useCamera: boolean) => {
+    const opts: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      quality: 0.5,
+      base64: true,
+      allowsEditing: true,
+      aspect: [4, 3] as [number, number],
+    };
+    let result: ImagePicker.ImagePickerResult;
+    if (useCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access is required.'); return; }
+      result = await ImagePicker.launchCameraAsync(opts);
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Photo library access is required.'); return; }
+      result = await ImagePicker.launchImageLibraryAsync(opts);
+    }
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    const tempUri = asset.uri;
+
+    // Copy to permanent location so the image survives app restarts
+    const permanentDir = `${FileSystem.documentDirectory}meal_photos/`;
+    await FileSystem.makeDirectoryAsync(permanentDir, { intermediates: true }).catch(() => {});
+    const filename = `meal_${correctEntry?.id ?? Date.now()}.jpg`;
+    const permanentUri = `${permanentDir}${filename}`;
+    await FileSystem.copyAsync({ from: tempUri, to: permanentUri });
+
+    const uri = permanentUri;
+    setCorrectionPhoto(uri);
+    setCorrecting(true);
+
+    try {
+      // Use base64 from picker (HEIC→JPEG conversion handled by expo-image-picker)
+      let base64 = asset.base64 ?? '';
+      if (!base64) {
+        console.log('[SpiceStrong] No base64 from picker, reading from file...');
+        base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+      }
+      console.log(`[SpiceStrong] Photo base64 length: ${base64.length} (${Math.round(base64.length / 1024)}KB)`);
+
+      // Truncate if too large (Claude limit ~20MB base64, but keep reasonable)
+      if (base64.length > 5_000_000) {
+        console.warn('[SpiceStrong] Image too large, retrying with lower quality...');
+        // Re-pick is not practical, just truncate warning
+        throw new Error('Image too large. Please crop or use a smaller image.');
+      }
+
+      const macros = await analyzeFoodPhoto(base64, correctEntry?.recipeName ?? 'meal');
+      console.log('[SpiceStrong] Macro analysis result:', macros);
+      setCorrectedMacros(macros);
+    } catch (err: any) {
+      console.error('[SpiceStrong] Macro correction failed:', err?.message ?? err, err);
+      Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again.`);
+      setCorrectionPhoto(null);
+    } finally {
+      setCorrecting(false);
+    }
+  };
+
+  const applyCorrection = async () => {
+    if (!correctEntry || !correctedMacros || !correctionPhoto) return;
+    const override: MacroOverride = { ...correctedMacros, photoUri: correctionPhoto };
+    await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
+    // Update enriched list in-place — macros + hero image
+    setEnriched((prev) =>
+      prev.map((e) =>
+        e.id === correctEntry.id
+          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: correctionPhoto }
+          : e
+      )
+    );
+    closeCorrectMacros();
+  };
+
+  // Calendar picker state
+  const [calendarVisible, setCalendarVisible] = useState(false);
+  const [calMonth, setCalMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+
+  const openCalendar = () => {
+    const d = dateFromString(currentDate);
+    setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    setCalendarVisible(true);
+  };
+  const closeCalendar = () => setCalendarVisible(false);
+  const prevCalMonth = () => setCalMonth(({ year, month }) =>
+    month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 }
+  );
+  const nextCalMonth = () => setCalMonth(({ year, month }) =>
+    month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 }
+  );
+  const selectCalDay = (day: number) => {
+    const dateStr = `${calMonth.year}-${String(calMonth.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    setCurrentDate(dateStr);
+    setCalendarVisible(false);
+  };
+
   const loadEntries = useCallback(async (date: string) => {
     setLoading(true);
     const entries = await getMealPlanForDate(date);
@@ -113,6 +404,15 @@ export default function MealPlanScreen() {
           carbsG = stats.carbsG;
           fatG = stats.fatG;
         }
+        // Apply saved macro override + hero image if user corrected via photo
+        try {
+          const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
+          if (overrideStr) {
+            const o: MacroOverride = JSON.parse(overrideStr);
+            calories = o.calories; proteinG = o.proteinG; carbsG = o.carbsG; fatG = o.fatG;
+            if (o.photoUri) imageUri = o.photoUri;
+          }
+        } catch {}
         return { ...entry, recipe, imageUri, calories, proteinG, carbsG, fatG };
       })
     );
@@ -188,18 +488,113 @@ export default function MealPlanScreen() {
         <TouchableOpacity onPress={goToPrev} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
           <Text style={styles.navArrow}>‹</Text>
         </TouchableOpacity>
-        <View style={styles.dayCenter}>
-          <Text style={styles.dayLabel}>{formatDisplayDate(currentDate)}</Text>
+        <TouchableOpacity style={styles.dayCenter} onPress={openCalendar} activeOpacity={0.7}>
+          <View style={styles.dayLabelRow}>
+            <Text style={styles.dayLabel}>{formatDisplayDate(currentDate)}</Text>
+            <Text style={styles.calendarHint}>▾</Text>
+          </View>
           {isToday && (
             <View style={styles.todayPill}>
               <Text style={styles.todayPillText}>TODAY</Text>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
           <Text style={styles.navArrow}>›</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Month calendar picker modal */}
+      <Modal
+        visible={calendarVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCalendar}
+        statusBarTranslucent
+      >
+        <Pressable style={styles.calBackdrop} onPress={closeCalendar}>
+          <Pressable style={styles.calSheet} onPress={() => {}}>
+            {/* Month header */}
+            <View style={styles.calHeader}>
+              <TouchableOpacity onPress={prevCalMonth} hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}>
+                <Text style={styles.calNavArrow}>‹</Text>
+              </TouchableOpacity>
+              <Text style={styles.calMonthTitle}>
+                {MONTH_NAMES[calMonth.month]} {calMonth.year}
+              </Text>
+              <TouchableOpacity onPress={nextCalMonth} hitSlop={{ top: 10, bottom: 10, left: 16, right: 16 }}>
+                <Text style={styles.calNavArrow}>›</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Day-of-week row */}
+            <View style={styles.calDayRow}>
+              {DAY_SHORT.map((d) => (
+                <Text key={d} style={styles.calDayName}>{d}</Text>
+              ))}
+            </View>
+
+            {/* Day grid */}
+            <View style={styles.calGrid}>
+              {(() => {
+                const daysInMonth = getDaysInMonth(calMonth.year, calMonth.month);
+                const firstDay = getFirstDayOfWeek(calMonth.year, calMonth.month);
+                const todayD = dateFromString(today);
+                const selectedD = dateFromString(currentDate);
+                const cells: React.ReactElement[] = [];
+
+                // Leading empty cells
+                for (let i = 0; i < firstDay; i++) {
+                  cells.push(<View key={`empty-${i}`} style={styles.calCell} />);
+                }
+
+                for (let day = 1; day <= daysInMonth; day++) {
+                  const cellDate = new Date(calMonth.year, calMonth.month, day);
+                  const isSelected =
+                    selectedD.getFullYear() === calMonth.year &&
+                    selectedD.getMonth() === calMonth.month &&
+                    selectedD.getDate() === day;
+                  const isTodayCell =
+                    todayD.getFullYear() === calMonth.year &&
+                    todayD.getMonth() === calMonth.month &&
+                    todayD.getDate() === day;
+
+                  cells.push(
+                    <TouchableOpacity
+                      key={day}
+                      style={[
+                        styles.calCell,
+                        isSelected && styles.calCellSelected,
+                        !isSelected && isTodayCell && styles.calCellToday,
+                      ]}
+                      onPress={() => selectCalDay(day)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[
+                        styles.calCellText,
+                        isSelected && styles.calCellTextSelected,
+                        !isSelected && isTodayCell && styles.calCellTextToday,
+                      ]}>
+                        {day}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }
+                return cells;
+              })()}
+            </View>
+
+            {/* Today shortcut */}
+            <TouchableOpacity
+              style={styles.calTodayBtn}
+              onPress={() => { setCurrentDate(today); setCalendarVisible(false); }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.calTodayBtnText}>Jump to Today</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {loading ? (
         <View style={styles.center}>
@@ -238,30 +633,18 @@ export default function MealPlanScreen() {
             </View>
           )}
 
-          {enriched.length === 0 && (
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyEmoji}>📅</Text>
-              <Text style={styles.emptyTitle}>No meals planned</Text>
-              <Text style={styles.emptySub}>
-                Tap{' '}
-                <Text style={styles.emptyHighlight}>Meal Plan</Text>
-                {' '}on any recipe overview to add it here.
-              </Text>
-            </View>
-          )}
-
           {SLOT_ORDER.map((slot) => {
             const slotEntries = grouped[slot];
+            const limit = SLOT_LIMITS[slot];
+            const emptyCount = Math.max(0, limit - slotEntries.length);
             return (
               <View key={slot} style={styles.slotSection}>
-                <Text style={styles.slotTitle}>{SLOT_LABELS[slot]}</Text>
+                <View style={styles.slotHeader}>
+                  <Text style={styles.slotTitle}>{SLOT_LABELS[slot]}</Text>
+                  <Text style={styles.slotCount}>{slotEntries.length}/{limit}</Text>
+                </View>
 
-                {slotEntries.length === 0 ? (
-                  <View style={styles.emptySlot}>
-                    <Text style={styles.emptySlotText}>No recipe planned</Text>
-                  </View>
-                ) : (
-                  slotEntries.map((entry) => {
+                {slotEntries.map((entry) => {
                     const builtinImg = entry.recipe ? getRecipeCardImage(entry.recipe) : null;
                     return (
                       <View key={entry.id} style={styles.card}>
@@ -334,16 +717,112 @@ export default function MealPlanScreen() {
                               )}
                             </View>
                           ) : null}
+                          <TouchableOpacity
+                            style={styles.correctBtn}
+                            onPress={() => openCorrectMacros(entry)}
+                            activeOpacity={0.75}
+                          >
+                            <Text style={styles.correctBtnText}>📸 Correct Macros</Text>
+                          </TouchableOpacity>
                         </View>
                       </View>
                     );
-                  })
-                )}
+                  })}
+
+                {/* Empty slot placeholders — tappable to add a recipe */}
+                {Array.from({ length: emptyCount }).map((_, i) => (
+                  <TouchableOpacity
+                    key={`empty-${slot}-${i}`}
+                    style={styles.emptySlot}
+                    onPress={() => router.push('/screens/ProteinSelectionScreen')}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.emptySlotPlus}>+</Text>
+                    <Text style={styles.emptySlotText}>Add Recipe</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             );
           })}
         </ScrollView>
       )}
+
+      {/* Correct Macros Modal */}
+      <Modal visible={!!correctEntry} transparent animationType="fade" onRequestClose={closeCorrectMacros} statusBarTranslucent>
+        <Pressable style={styles.cmBackdrop} onPress={closeCorrectMacros}>
+          <Pressable style={styles.cmSheet} onPress={() => {}}>
+            <View style={styles.cmHandle} />
+            <Text style={styles.cmTitle}>Correct Macros</Text>
+            <Text style={styles.cmRecipeName}>{correctEntry?.recipeName}</Text>
+
+            {/* Current macros */}
+            <View style={styles.cmSection}>
+              <Text style={styles.cmSectionLabel}>CURRENT ESTIMATE</Text>
+              <View style={styles.cmMacroRow}>
+                <Text style={styles.cmMacroVal}>{correctEntry?.calories ?? 0} kcal</Text>
+                <Text style={styles.cmMacroDot}>·</Text>
+                <Text style={[styles.cmMacroVal, { color: ORANGE }]}>{correctEntry?.proteinG ?? 0}g P</Text>
+                <Text style={styles.cmMacroDot}>·</Text>
+                <Text style={styles.cmMacroVal}>{correctEntry?.carbsG ?? 0}g C</Text>
+                <Text style={styles.cmMacroDot}>·</Text>
+                <Text style={styles.cmMacroVal}>{correctEntry?.fatG ?? 0}g F</Text>
+              </View>
+            </View>
+
+            {/* Photo upload */}
+            {!correctionPhoto && !correcting && (
+              <View style={styles.cmPhotoActions}>
+                <Text style={styles.cmPhotoHint}>Take a photo of your meal or its nutrition label to get accurate macros</Text>
+                <View style={styles.cmBtnRow}>
+                  <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickPhoto(true)} activeOpacity={0.75}>
+                    <Text style={styles.cmPhotoBtnText}>📷 Camera</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickPhoto(false)} activeOpacity={0.75}>
+                    <Text style={styles.cmPhotoBtnText}>🖼 Gallery</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Analyzing state */}
+            {correcting && (
+              <View style={styles.cmAnalyzing}>
+                <ActivityIndicator color={ORANGE} size="small" />
+                <Text style={styles.cmAnalyzingText}>Analyzing your meal...</Text>
+              </View>
+            )}
+
+            {/* Photo preview + results */}
+            {correctionPhoto && !correcting && (
+              <View style={styles.cmResultWrap}>
+                <Image source={{ uri: correctionPhoto }} style={styles.cmPhotoPreview} contentFit="cover" />
+                {correctedMacros && (
+                  <>
+                    <Text style={styles.cmSectionLabel}>AI-ESTIMATED MACROS</Text>
+                    <View style={styles.cmMacroRow}>
+                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.calories} kcal</Text>
+                      <Text style={styles.cmMacroDot}>·</Text>
+                      <Text style={[styles.cmMacroVal, { color: ORANGE }]}>{correctedMacros.proteinG}g P</Text>
+                      <Text style={styles.cmMacroDot}>·</Text>
+                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.carbsG}g C</Text>
+                      <Text style={styles.cmMacroDot}>·</Text>
+                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.fatG}g F</Text>
+                    </View>
+                    <View style={styles.cmBtnRow}>
+                      <TouchableOpacity style={styles.cmApplyBtn} onPress={applyCorrection} activeOpacity={0.8}>
+                        <Text style={styles.cmApplyBtnText}>Apply Correction</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.cmRetryBtn} onPress={() => { setCorrectionPhoto(null); setCorrectedMacros(null); }} activeOpacity={0.75}>
+                        <Text style={styles.cmRetryBtnText}>Retake</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </View>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -377,7 +856,9 @@ const styles = StyleSheet.create({
   },
   navArrow: { fontSize: 34, color: ORANGE, fontWeight: '700', lineHeight: 38 },
   dayCenter: { alignItems: 'center', gap: 6 },
+  dayLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dayLabel: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  calendarHint: { fontSize: 12, color: ORANGE, marginTop: 2 },
   todayPill: {
     backgroundColor: 'rgba(232,93,38,0.20)',
     borderRadius: 8,
@@ -387,6 +868,88 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(232,93,38,0.45)',
   },
   todayPillText: { fontSize: 10, fontWeight: '800', color: ORANGE, letterSpacing: 1 },
+
+  // Calendar picker modal
+  calBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  calSheet: {
+    width: '100%',
+    backgroundColor: '#1C1C1E',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
+      android: { elevation: 16 },
+    }),
+  },
+  calHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  calNavArrow: { fontSize: 28, color: ORANGE, fontWeight: '700', lineHeight: 32 },
+  calMonthTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
+  calDayRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  calDayName: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.35)',
+    letterSpacing: 0.5,
+  },
+  calGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  calCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 100,
+  },
+  calCellSelected: {
+    backgroundColor: ORANGE,
+  },
+  calCellToday: {
+    borderWidth: 1.5,
+    borderColor: ORANGE,
+  },
+  calCellText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.80)',
+  },
+  calCellTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  calCellTextToday: {
+    color: ORANGE,
+    fontWeight: '800',
+  },
+  calTodayBtn: {
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: 'rgba(232,93,38,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.35)',
+    alignItems: 'center',
+  },
+  calTodayBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
 
   scroll: { paddingHorizontal: 20, paddingTop: 20 },
 
@@ -415,33 +978,44 @@ const styles = StyleSheet.create({
   macroLabel: { fontSize: 11, color: 'rgba(255,255,255,0.50)', marginTop: 2 },
   macroDivider: { width: 1, height: 36, backgroundColor: BORDER },
 
-  // Empty states
-  emptyWrap: { alignItems: 'center', paddingTop: 60, paddingBottom: 40 },
-  emptyEmoji: { fontSize: 64, marginBottom: 16 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginBottom: 10 },
-  emptySub: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center', lineHeight: 22 },
-  emptyHighlight: { color: ORANGE, fontWeight: '700' },
-
   // Slot sections
   slotSection: { marginBottom: 28 },
+  slotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   slotTitle: {
     fontSize: 13,
     fontWeight: '800',
     color: 'rgba(255,255,255,0.50)',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    marginBottom: 12,
+  },
+  slotCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.30)',
   },
   emptySlot: {
     backgroundColor: SURFACE,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
+    borderWidth: 1.5,
+    borderColor: 'rgba(232,93,38,0.25)',
     borderStyle: 'dashed',
-    paddingVertical: 20,
+    paddingVertical: 28,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
   },
-  emptySlotText: { color: 'rgba(255,255,255,0.25)', fontSize: 14 },
+  emptySlotPlus: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: ORANGE,
+    marginBottom: 4,
+  },
+  emptySlotText: { color: 'rgba(255,255,255,0.40)', fontSize: 13, fontWeight: '600' },
 
   // Recipe hero card
   card: {
@@ -502,4 +1076,94 @@ const styles = StyleSheet.create({
   cardMacroRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardMacroText: { fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: '500' },
   cardMacroDot: { fontSize: 12, color: 'rgba(255,255,255,0.25)' },
+  correctBtn: {
+    marginTop: 10,
+    backgroundColor: 'rgba(232,93,38,0.15)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.35)',
+  },
+  correctBtnText: { fontSize: 12, fontWeight: '700', color: ORANGE },
+
+  // Correct Macros modal
+  cmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  cmSheet: {
+    width: '100%',
+    backgroundColor: '#1C1C1E',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 20,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
+      android: { elevation: 16 },
+    }),
+  },
+  cmHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  cmTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4 },
+  cmRecipeName: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center', marginBottom: 16 },
+  cmSection: { marginBottom: 16 },
+  cmSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.35)',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  cmMacroRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  cmMacroVal: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.80)' },
+  cmMacroNew: { color: '#22C55E' },
+  cmMacroDot: { fontSize: 14, color: 'rgba(255,255,255,0.20)' },
+  cmPhotoActions: { alignItems: 'center', gap: 14, marginBottom: 8 },
+  cmPhotoHint: { fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 20 },
+  cmBtnRow: { flexDirection: 'row', gap: 10 },
+  cmPhotoBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(232,93,38,0.20)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.40)',
+  },
+  cmPhotoBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
+  cmAnalyzing: { alignItems: 'center', gap: 10, paddingVertical: 20 },
+  cmAnalyzingText: { fontSize: 14, color: 'rgba(255,255,255,0.55)' },
+  cmResultWrap: { gap: 12 },
+  cmPhotoPreview: { width: '100%', height: 160, borderRadius: 14 },
+  cmApplyBtn: {
+    flex: 2,
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  cmApplyBtnText: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  cmRetryBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  cmRetryBtnText: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.60)' },
 });

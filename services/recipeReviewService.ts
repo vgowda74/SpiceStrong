@@ -609,15 +609,17 @@ export async function submitRecipeForReview(recipe: SavedRecipe): Promise<void> 
           imageIssues.unshift(`Hero photo doesn't match dish: ${imageVerification.heroResult.issue || 'not the finished dish'}`);
         }
 
-        // Only fail if there are high-confidence mismatches
-        const highConfidenceFails = imageVerification.stepResults
-          .filter(r => !r.matches && r.confidence === 'high');
-        if (highConfidenceFails.length > 0) {
+        // Fail if there are high or medium confidence mismatches
+        const significantFails = imageVerification.stepResults
+          .filter(r => !r.matches && (r.confidence === 'high' || r.confidence === 'medium'));
+        const heroFailed = imageVerification.heroResult && !imageVerification.heroResult.matches
+          && imageVerification.heroResult.confidence !== 'low';
+        if (significantFails.length > 0 || heroFailed) {
           reviewResult.approved = false;
-          reviewResult.score = Math.min(reviewResult.score, 60);
+          reviewResult.score = Math.min(reviewResult.score, 55);
           reviewResult.issues = [...reviewResult.issues, ...imageIssues];
         } else {
-          // Low/medium confidence — add as suggestions, don't block
+          // Low confidence only — add as suggestions, don't block
           reviewResult.suggestions = [...reviewResult.suggestions, ...imageIssues];
         }
       }

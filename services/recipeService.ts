@@ -53,7 +53,7 @@ interface SupabaseRecipeRow {
   gradient: unknown;
   nutrition: unknown;
   ai_nutrition: unknown;
-  source: 'curated' | 'ai';
+  source: 'curated' | 'ai' | 'user';
   is_active: boolean;
   is_pro: boolean;
   spice_level: string | null;
@@ -199,7 +199,7 @@ function mapSupabaseRowToRecipe(row: SupabaseRecipeRow): SavedRecipe & Partial<B
     steps: normalizeSteps(row.steps),
     createdAt: new Date(row.created_at).getTime(),
     status: row.status === 'building' ? 'building' : 'ready',
-    source: (row as any).source === 'ai' && row.id.startsWith('user-') ? 'user' as const : (row as any).source ?? undefined,
+    source: ((row as any).source as 'curated' | 'ai' | 'user') ?? undefined,
     aiNutrition: aiNutrition,
     communityCookCount: row.cook_count ?? 0,
     cuisine: (row as any).cuisine ?? undefined,
@@ -349,11 +349,14 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           const isAvailable = await checkRecipeTableAvailable();
           if (!isAvailable) return null;
 
+          const deviceId = await getDeviceId();
+          // Only fetch curated recipes + this device's own AI/user recipes
           const { data, error } = await supabase
             .from('recipes')
             .select('*, recipe_images(*)')
             .eq('protein_id', proteinId)
             .eq('is_active', true)
+            .or(`source.eq.curated,device_id.eq.${deviceId}`)
             .order('created_at', { ascending: true });
 
           if (error || !data) return null;
@@ -371,6 +374,15 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           const freshLocal = await getLocalRecipes();
           const freshLocalForProtein = freshLocal.filter((r) => r.proteinId === proteinId);
           const localOnlyAI = freshLocalForProtein.filter((r) => !supabaseIds.has(r.id));
+
+          // Preserve local source field over Supabase (local 'user' source is authoritative)
+          const localById = new Map(freshLocalForProtein.map((r) => [r.id, r]));
+          const patchedSupabase = supabaseRecipes.map((r) => {
+            const local = localById.get(r.id);
+            if (local?.source && local.source !== r.source) return { ...r, source: local.source };
+            return r;
+          });
+
           // Re-read blocklist (may have changed since load started)
           let freshDeletedIds: Set<string>;
           try {
@@ -378,7 +390,7 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
             freshDeletedIds = new Set(bd ? JSON.parse(bd) : []);
           } catch { freshDeletedIds = new Set(); }
 
-          const merged = [...supabaseRecipes, ...localOnlyAI].filter(r => !freshDeletedIds.has(r.id));
+          const merged = [...patchedSupabase, ...localOnlyAI].filter(r => !freshDeletedIds.has(r.id));
 
           // Update cache
           await setCachedRecipes(proteinId, merged);
@@ -521,7 +533,7 @@ async function syncRecipeToSupabase(
     meal_type: recipe.mealType ?? null,
     ingredients: recipe.ingredients,
     steps: recipe.steps,
-    source: 'ai' as const,
+    source: recipe.source === 'user' ? 'user' : 'ai' as const,
     is_active: true,
     is_pro: false,
     // DB CHECK constraint only allows 'building' or 'ready'
@@ -616,10 +628,13 @@ export async function refreshRecipeCache(): Promise<void> {
     const isAvailable = await checkRecipeTableAvailable();
     if (!isAvailable) return;
 
+    const deviceId = await getDeviceId();
+    // Only fetch curated recipes + this device's own AI/user recipes
     const { data, error } = await supabase
       .from('recipes')
       .select('*, recipe_images(*)')
       .eq('is_active', true)
+      .or(`source.eq.curated,device_id.eq.${deviceId}`)
       .order('created_at', { ascending: true });
 
     if (error || !data) return;

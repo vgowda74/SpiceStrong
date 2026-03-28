@@ -19,7 +19,7 @@ export type MealSlot = 'breakfast' | 'lunch_dinner' | 'snack_dessert';
 export const SLOT_LIMITS: Record<MealSlot, number> = {
   breakfast: 1,
   lunch_dinner: 2,
-  snack_dessert: 2,
+  snack_dessert: 1,
 };
 
 export const SLOT_LABELS: Record<MealSlot, string> = {

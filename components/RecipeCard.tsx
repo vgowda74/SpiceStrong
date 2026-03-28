@@ -55,6 +55,7 @@ export interface RecipeCardProps {
   actionRow?: React.ReactNode;
   nutrition?: CardNutrition;
   isBuilding?: boolean;
+  onMealPlan?: (e: GestureResponderEvent) => void;
 }
 
 export function RecipeCard({
@@ -75,6 +76,7 @@ export function RecipeCard({
   imageSource,
   isBuilding,
   nutrition,
+  onMealPlan,
 }: RecipeCardProps) {
   const cleanName = name.replace(/^High-Protein\s+/i, '');
   const nameParts = cleanName.includes(' (') ? cleanName.split(/ \((.+)\)$/) : [cleanName, ''];
@@ -178,6 +180,16 @@ export function RecipeCard({
                 <View style={[styles.statPill, styles.statPillGreen, { marginTop: 4 }]}>
                   <Text style={styles.statPillText}>🍳 {cookCount} cooked</Text>
                 </View>
+              )}
+              {onMealPlan && (
+                <TouchableOpacity
+                  style={[styles.mealPlanBtn, { marginTop: 4 }]}
+                  onPress={(e) => { e.stopPropagation(); onMealPlan(e); }}
+                  activeOpacity={0.75}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                >
+                  <Text style={styles.mealPlanBtnText}>+ Meal Plan</Text>
+                </TouchableOpacity>
               )}
               {actionRow && (
                 <View style={{ marginTop: 4 }}>{actionRow}</View>
@@ -332,6 +344,17 @@ const styles = StyleSheet.create({
   statPillText: {
     fontSize: 11,
     fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  mealPlanBtn: {
+    backgroundColor: 'rgba(232,93,38,0.85)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  mealPlanBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
     color: '#FFFFFF',
   },
 

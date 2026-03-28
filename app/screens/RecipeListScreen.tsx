@@ -3,10 +3,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   Dimensions,
   FlatList,
   ImageBackground,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,6 +27,13 @@ import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, SavedRecip
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
 import { getDietaryRestrictions, applyDietaryFilter } from '../../services/dietaryService';
+import {
+  addToMealPlan,
+  getMealPlanForDate,
+  SLOT_LABELS,
+  SLOT_LIMITS,
+  type MealSlot,
+} from '../../services/mealPlanService';
 // imageCacheService no longer needed — expo-image handles caching
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
@@ -90,8 +100,6 @@ export default function RecipeListScreen() {
     f_cookingTime?: string;
     f_difficulty?: string;
     f_meatType?: string;
-    f_dietary?: string;
-    f_allergens?: string;
     f_cookingMethod?: string;
     f_cuisine?: string;
     f_calorieRange?: string;
@@ -112,12 +120,86 @@ export default function RecipeListScreen() {
   const [filterTime, setFilterTime] = useState<string | null>(null);
   const [filterDifficulty, setFilterDifficulty] = useState<string | null>(null);
   const [filterMeatType, setFilterMeatType] = useState<string | null>(null);
-  const [filterDietary, setFilterDietary] = useState<string[]>([]);
-  const [filterAllergens, setFilterAllergens] = useState<string[]>([]);
   const [filterCookingMethod, setFilterCookingMethod] = useState<string | null>(null);
   const [filterCuisine, setFilterCuisine] = useState<string | null>(null);
   const [filterCalorieRange, setFilterCalorieRange] = useState<string | null>(null);
   const [filterMealPrep, setFilterMealPrep] = useState<string[]>([]);
+
+  // ── Meal Plan modal state ──
+  const [mealPlanRecipe, setMealPlanRecipe] = useState<SavedRecipe | null>(null);
+  const [mealPlanOpen, setMealPlanOpen] = useState(false);
+  const [mpSelectedDate, setMpSelectedDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+  const [mpCalMonth, setMpCalMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  });
+  const [mpSelectedSlot, setMpSelectedSlot] = useState<MealSlot | null>(null);
+  const [mpSlotCounts, setMpSlotCounts] = useState<Record<MealSlot, number>>({ breakfast: 0, lunch_dinner: 0, snack_dessert: 0 });
+  const [mpAdding, setMpAdding] = useState(false);
+  const mpSlideAnim = useRef(new Animated.Value(300)).current;
+
+  const mpToday = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+
+  const MP_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  useEffect(() => {
+    if (!mealPlanOpen) return;
+    getMealPlanForDate(mpSelectedDate).then((entries) => {
+      const counts: Record<MealSlot, number> = { breakfast: 0, lunch_dinner: 0, snack_dessert: 0 };
+      entries.forEach((e) => { counts[e.slot] = (counts[e.slot] ?? 0) + 1; });
+      setMpSlotCounts(counts);
+    });
+  }, [mpSelectedDate, mealPlanOpen]);
+
+  const mpCalendarDays = useMemo(() => {
+    const { year, month } = mpCalMonth;
+    const firstDay = new Date(year, month - 1, 1).getDay();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const days: (string | null)[] = Array(firstDay).fill(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      days.push(`${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+    return days;
+  }, [mpCalMonth]);
+
+  const openMealPlan = (recipe: SavedRecipe) => {
+    setMealPlanRecipe(recipe);
+    setMpSelectedSlot((recipe.mealType as MealSlot) ?? null);
+    setMealPlanOpen(true);
+    Animated.spring(mpSlideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }).start();
+  };
+
+  const closeMealPlan = () => {
+    Animated.timing(mpSlideAnim, { toValue: 300, duration: 220, useNativeDriver: true }).start(() => {
+      setMealPlanOpen(false);
+      setMealPlanRecipe(null);
+    });
+  };
+
+  const handleAddToMealPlan = async () => {
+    if (!mealPlanRecipe || !mpSelectedSlot) return;
+    setMpAdding(true);
+    const result = await addToMealPlan(mpSelectedDate, mpSelectedSlot, {
+      id: mealPlanRecipe.id,
+      name: mealPlanRecipe.name,
+      proteinName: mealPlanRecipe.proteinName,
+      proteinEmoji: mealPlanRecipe.proteinEmoji,
+      mealType: mealPlanRecipe.mealType,
+    });
+    setMpAdding(false);
+    if (result.success) {
+      closeMealPlan();
+      Alert.alert('Added!', `${mealPlanRecipe.name} added to your meal plan.`);
+    } else {
+      Alert.alert('Slot Full', result.error ?? 'Could not add to meal plan.');
+    }
+  };
 
   // Pick up filter params returned from RecipeFilterScreen
   useEffect(() => {
@@ -138,17 +220,14 @@ export default function RecipeListScreen() {
     setFilterCookingMethod(str(params.f_cookingMethod));
     setFilterCuisine(str(params.f_cuisine));
     setFilterCalorieRange(str(params.f_calorieRange));
-    setFilterDietary(arr(params.f_dietary));
-    setFilterAllergens(arr(params.f_allergens));
     setFilterMealPrep(arr(params.f_mealPrep));
     console.log('[SpiceStrong] Filters applied:', {
       fitnessGoal: str(params.f_fitnessGoal),
       difficulty: str(params.f_difficulty),
       spice: str(params.f_spiceLevel),
       time: str(params.f_cookingTime),
-      dietary: arr(params.f_dietary),
     });
-  }, [params.filterApplied, params.f_fitnessGoal, params.f_proteinRange, params.f_carbsRange, params.f_fatRange, params.f_spiceLevel, params.f_cookingTime, params.f_difficulty, params.f_meatType, params.f_dietary, params.f_allergens, params.f_cookingMethod, params.f_cuisine, params.f_calorieRange, params.f_mealPrep]);
+  }, [params.filterApplied, params.f_fitnessGoal, params.f_proteinRange, params.f_carbsRange, params.f_fatRange, params.f_spiceLevel, params.f_cookingTime, params.f_difficulty, params.f_meatType, params.f_cookingMethod, params.f_cuisine, params.f_calorieRange, params.f_mealPrep]);
 
   const [ratings, setRatings] = useState<RatingsMap>({});
   const [favourites, setFavourites] = useState<string[]>([]);
@@ -470,6 +549,7 @@ export default function RecipeListScreen() {
         }
         onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
         onRatingPress={() => handleRatingPress(item.id, item.name)}
+        onMealPlan={() => openMealPlan(item)}
         accentColors={gradient}
         nutrition={cardNutrition}
         isBuilding={item.status === 'building'}
@@ -545,7 +625,7 @@ export default function RecipeListScreen() {
     filterFitnessGoal, filterProteinRange, filterCarbsRange, filterFatRange,
     filterSpice, filterTime, filterDifficulty, filterMeatType,
     filterCookingMethod, filterCuisine, filterCalorieRange,
-  ].filter(Boolean).length + filterDietary.length + filterAllergens.length + filterMealPrep.length;
+  ].filter(Boolean).length + filterMealPrep.length;
 
   const listData = useMemo(() => {
     let filtered: SavedRecipe[];
@@ -655,20 +735,6 @@ export default function RecipeListScreen() {
         return m.toLowerCase().includes(filterCookingMethod.toLowerCase());
       });
     }
-    // Dietary tags (AND — all selected must match)
-    if (filterDietary.length > 0) {
-      filtered = filtered.filter(r => {
-        const tags = (r.dietaryTags || []).map((t: string) => t.toLowerCase());
-        return filterDietary.every(d => tags.some(t => t.includes(d.toLowerCase())));
-      });
-    }
-    // Allergen tags (AND — all selected must match, e.g. "Nuts" matches "Nut free")
-    if (filterAllergens.length > 0) {
-      filtered = filtered.filter(r => {
-        const tags = (r.allergenTags || []).map((t: string) => t.toLowerCase());
-        return filterAllergens.every(a => tags.some(t => t.includes(a.toLowerCase())));
-      });
-    }
     // Meal prep / storage tags
     if (filterMealPrep.length > 0) {
       filtered = filtered.filter(r => {
@@ -681,7 +747,7 @@ export default function RecipeListScreen() {
   }, [recipes, activeFilter, ratings, favourites,
     filterDifficulty, filterSpice, filterTime, filterFitnessGoal,
     filterProteinRange, filterCarbsRange, filterFatRange, filterMeatType,
-    filterDietary, filterAllergens, filterCookingMethod, filterCuisine,
+    filterCookingMethod, filterCuisine,
     filterCalorieRange, filterMealPrep]);
 
   return (
@@ -745,8 +811,6 @@ export default function RecipeListScreen() {
                   cookingTime: filterTime || '',
                   difficulty: filterDifficulty || '',
                   meatType: filterMeatType || '',
-                  dietary: JSON.stringify(filterDietary),
-                  allergens: JSON.stringify(filterAllergens),
                   cookingMethod: filterCookingMethod || '',
                   cuisine: filterCuisine || '',
                   calorieRange: filterCalorieRange || '',
@@ -866,6 +930,122 @@ export default function RecipeListScreen() {
           reviews: [],
         }}
       />
+      {/* Meal Plan Modal */}
+      <Modal visible={mealPlanOpen} transparent animationType="none" onRequestClose={closeMealPlan} statusBarTranslucent>
+        <Pressable style={styles.mpBackdrop} onPress={closeMealPlan}>
+          <Animated.View style={[styles.mpSheet, { transform: [{ translateY: mpSlideAnim }] }]}>
+            <Pressable onPress={() => {}}>
+              <View style={styles.mpHandle} />
+              <Text style={styles.mpTitle}>
+                {mealPlanRecipe ? `Add "${mealPlanRecipe.name.replace(/^High-Protein\s+/i, '')}"` : 'Add to Meal Plan'}
+              </Text>
+
+              {/* Month navigator */}
+              <View style={styles.mpMonthRow}>
+                <TouchableOpacity
+                  onPress={() => setMpCalMonth(({ year, month }) => month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 })}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Text style={styles.mpNavArrow}>‹</Text>
+                </TouchableOpacity>
+                <Text style={styles.mpMonthLabel}>
+                  {MP_MONTH_NAMES[mpCalMonth.month - 1]} {mpCalMonth.year}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setMpCalMonth(({ year, month }) => month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 })}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Text style={styles.mpNavArrow}>›</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Day headers */}
+              <View style={styles.mpDayHeaders}>
+                {['Su','Mo','Tu','We','Th','Fr','Sa'].map((d) => (
+                  <Text key={d} style={styles.mpDayHeader}>{d}</Text>
+                ))}
+              </View>
+
+              {/* Calendar grid */}
+              <View style={styles.mpGrid}>
+                {mpCalendarDays.map((date, idx) => {
+                  if (!date) return <View key={`empty-${idx}`} style={styles.mpDayCell} />;
+                  const isToday = date === mpToday;
+                  const isSelected = date === mpSelectedDate;
+                  const isPast = date < mpToday;
+                  return (
+                    <TouchableOpacity
+                      key={date}
+                      style={[
+                        styles.mpDayCell,
+                        isToday && styles.mpDayCellToday,
+                        isSelected && styles.mpDayCellSelected,
+                        isPast && styles.mpDayCellPast,
+                      ]}
+                      onPress={() => !isPast && setMpSelectedDate(date)}
+                      activeOpacity={isPast ? 1 : 0.7}
+                    >
+                      <Text style={[
+                        styles.mpDayNum,
+                        isSelected && styles.mpDayNumSelected,
+                        isPast && styles.mpDayNumPast,
+                      ]}>
+                        {parseInt(date.split('-')[2], 10)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Slot selector */}
+              <Text style={styles.mpSlotLabel}>MEAL SLOT</Text>
+              {(Object.keys(SLOT_LABELS) as MealSlot[]).map((slot) => {
+                const count = mpSlotCounts[slot] ?? 0;
+                const limit = SLOT_LIMITS[slot];
+                const full = count >= limit;
+                const selected = mpSelectedSlot === slot;
+                const isRecommended = mealPlanRecipe?.mealType === slot;
+                const notRecommended = !!mealPlanRecipe?.mealType && !isRecommended;
+                return (
+                  <TouchableOpacity
+                    key={slot}
+                    style={[
+                      styles.mpSlot,
+                      selected && styles.mpSlotSelected,
+                      full && styles.mpSlotFull,
+                      notRecommended && styles.mpSlotDimmed,
+                    ]}
+                    onPress={() => !full && setMpSelectedSlot(slot)}
+                    activeOpacity={full ? 1 : 0.75}
+                  >
+                    <View style={styles.mpSlotLeft}>
+                      <Text style={[styles.mpSlotText, selected && styles.mpSlotTextSelected, full && styles.mpSlotTextFull]}>
+                        {SLOT_LABELS[slot]}
+                      </Text>
+                      {isRecommended && (
+                        <View style={styles.mpSlotBadge}>
+                          <Text style={styles.mpSlotBadgeText}>Recommended</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.mpSlotCount}>{count}/{limit}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {/* Confirm */}
+              <TouchableOpacity
+                style={[styles.mpConfirmBtn, (!mpSelectedSlot || mpAdding) && styles.mpConfirmBtnDisabled]}
+                onPress={handleAddToMealPlan}
+                disabled={!mpSelectedSlot || mpAdding}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.mpConfirmText}>{mpAdding ? 'Adding…' : 'Add to Meal Plan'}</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Animated.View>
+        </Pressable>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -1141,6 +1321,112 @@ const styles = StyleSheet.create({
   publishBtnTextRejected: {
     color: '#E85D26',
   },
+
+  // Meal plan modal
+  mpBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  mpSheet: {
+    backgroundColor: '#1A1A1A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+  },
+  mpHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  mpTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  mpMonthRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 8,
+  },
+  mpNavArrow: { fontSize: 28, color: '#E85D26', fontWeight: '700', lineHeight: 32 },
+  mpMonthLabel: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  mpDayHeaders: { flexDirection: 'row', marginBottom: 4 },
+  mpDayHeader: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.40)',
+    textTransform: 'uppercase',
+  },
+  mpGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 },
+  mpDayCell: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mpDayCellToday: { borderRadius: 100, borderWidth: 1.5, borderColor: '#E85D26' },
+  mpDayCellSelected: { borderRadius: 100, backgroundColor: '#E85D26' },
+  mpDayCellPast: { opacity: 0.30 },
+  mpDayNum: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
+  mpDayNumSelected: { color: '#FFFFFF', fontWeight: '800' },
+  mpDayNumPast: { color: 'rgba(255,255,255,0.4)' },
+  mpSlotLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.40)',
+    letterSpacing: 1.5,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  mpSlot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#252525',
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  mpSlotSelected: { borderColor: '#E85D26', backgroundColor: 'rgba(232,93,38,0.15)' },
+  mpSlotFull: { opacity: 0.40 },
+  mpSlotDimmed: { opacity: 0.45 },
+  mpSlotLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  mpSlotText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  mpSlotTextSelected: { color: '#E85D26' },
+  mpSlotTextFull: { color: 'rgba(255,255,255,0.5)' },
+  mpSlotCount: { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontWeight: '600' },
+  mpSlotBadge: {
+    backgroundColor: 'rgba(232,93,38,0.20)',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.40)',
+  },
+  mpSlotBadgeText: { fontSize: 10, fontWeight: '800', color: '#E85D26', letterSpacing: 0.3 },
+  mpConfirmBtn: {
+    backgroundColor: '#E85D26',
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  mpConfirmBtnDisabled: { opacity: 0.45 },
+  mpConfirmText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
 
   // Loading skeleton
   skeletonWrap: {
