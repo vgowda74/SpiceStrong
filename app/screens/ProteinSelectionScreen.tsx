@@ -198,6 +198,27 @@ export default function ProteinSelectionScreen() {
             ))}
           </ScrollView>
 
+          {/* Scan My Fridge card */}
+          <TouchableOpacity
+            style={styles.scanFridgeCard}
+            onPress={() => router.push('/screens/ScanFridgeScreen')}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={['#3D1A0A', '#1A0500']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.scanFridgeGradient}
+            >
+              <Text style={styles.scanFridgeEmoji}>📸</Text>
+              <View style={styles.scanFridgeTextBlock}>
+                <Text style={styles.scanFridgeTitle}>Scan My Fridge</Text>
+                <Text style={styles.scanFridgeSub}>Snap a photo — we'll find what you can cook</Text>
+              </View>
+              <Text style={styles.scanFridgeArrow}>›</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
           {nonVeg.length > 0 && (
             <>
               <Text style={styles.sectionHeader}>NON-VEGETARIAN</Text>
@@ -337,6 +358,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
+  scanFridgeCard: {
+    marginBottom: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.30)',
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 4 },
+    }),
+  },
+  scanFridgeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  scanFridgeEmoji: { fontSize: 32 },
+  scanFridgeTextBlock: { flex: 1 },
+  scanFridgeTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
+  scanFridgeSub: { fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
+  scanFridgeArrow: { fontSize: 24, fontWeight: '700', color: ORANGE },
   sectionHeader: {
     fontSize: 11,
     letterSpacing: 3,

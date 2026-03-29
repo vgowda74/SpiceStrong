@@ -10,7 +10,6 @@
  * Dependencies: expo-image-manipulator (install: npx expo install expo-image-manipulator)
  */
 
-import * as FileSystem from 'expo-file-system';
 import { FRIDGE_SCAN_SYSTEM_PROMPT, FRIDGE_SCAN_USER_PROMPT } from '../src/prompts/fridgeScanPrompt';
 import { applyDietaryFilter, getDietaryRestrictions } from './dietaryService';
 import { fetchRecipesByProtein } from './recipeService';
@@ -56,47 +55,34 @@ export interface MatchedRecipe {
  * sends multiple small images in one API call — similar token cost
  * but simpler implementation.
  */
-export async function prepareImagesForAPI(
-  photoUris: string[],
-): Promise<{ base64: string; mediaType: string }[]> {
+/**
+ * Prepares images for the Claude API.
+ * Tries picker base64 first, falls back to reading file via expo-file-system File API.
+ */
+export function prepareImagesFromBase64(
+  base64Images: { base64: string | null | undefined; uri: string }[],
+): { base64: string; mediaType: string }[] {
   const results: { base64: string; mediaType: string }[] = [];
-
-  for (const uri of photoUris) {
-    try {
-      // Try expo-image-manipulator for resize + JPEG conversion
-      let processedUri = uri;
-      let mediaType = 'image/jpeg';
-
+  for (const img of base64Images) {
+    let b64 = img.base64;
+    // Fallback: read from file if picker didn't return base64
+    if (!b64) {
       try {
-        const ImageManipulator = require('expo-image-manipulator');
-        const manipulated = await ImageManipulator.manipulateAsync(
-          uri,
-          [{ resize: { width: 768 } }],
-          { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG },
-        );
-        processedUri = manipulated.uri;
-      } catch {
-        // expo-image-manipulator not installed — use raw image
-        // Detect media type from extension
-        if (uri.toLowerCase().endsWith('.png')) mediaType = 'image/png';
-        else if (uri.toLowerCase().endsWith('.webp')) mediaType = 'image/webp';
+        const { File } = require('expo-file-system');
+        b64 = new File(img.uri).base64();
+      } catch (e) {
+        console.warn('[SpiceStrong] Could not read base64 from file:', e);
       }
-
-      const base64 = await FileSystem.readAsStringAsync(processedUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Detect from base64 header if extension wasn't helpful
-      if (base64.startsWith('iVBOR')) mediaType = 'image/png';
-      else if (base64.startsWith('/9j/')) mediaType = 'image/jpeg';
-      else if (base64.startsWith('UklGR')) mediaType = 'image/webp';
-
-      results.push({ base64, mediaType });
-    } catch (err) {
-      console.warn(`[SpiceStrong] Failed to process image: ${uri}`, err);
     }
+    if (!b64 || typeof b64 !== 'string') {
+      console.warn('[SpiceStrong] Skipping image — no base64 available:', img.uri);
+      continue;
+    }
+    let mediaType = 'image/jpeg';
+    if (b64.startsWith('iVBOR')) mediaType = 'image/png';
+    else if (b64.startsWith('UklGR')) mediaType = 'image/webp';
+    results.push({ base64: b64, mediaType });
   }
-
   return results;
 }
 
@@ -105,17 +91,18 @@ export async function prepareImagesForAPI(
 // ═══════════════════════════════════════
 
 export async function identifyIngredients(
-  photoUris: string[],
+  base64Images: { base64: string; uri: string }[],
 ): Promise<ScannedIngredient[]> {
   if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
-  if (photoUris.length === 0) throw new Error('No photos provided');
+  if (base64Images.length === 0) throw new Error('No photos provided');
 
-  const images = await prepareImagesForAPI(photoUris);
+  const images = prepareImagesFromBase64(base64Images);
   if (images.length === 0) throw new Error('Could not process any photos');
 
   // Build multi-image content array
   const content: any[] = [];
   for (const img of images) {
+    console.log(`[SpiceStrong] Fridge image: mediaType=${img.mediaType}, base64Length=${img.base64?.length ?? 0}, starts=${img.base64?.substring(0, 20)}`);
     content.push({
       type: 'image',
       source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
@@ -142,7 +129,13 @@ export async function identifyIngredients(
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
     console.error(`[SpiceStrong] Fridge scan API error ${res.status}:`, errBody);
-    throw new Error(`API returned ${res.status}`);
+    // Parse error message from Claude API response
+    let errMsg = `API returned ${res.status}`;
+    try {
+      const errJson = JSON.parse(errBody);
+      errMsg = errJson.error?.message || errMsg;
+    } catch {}
+    throw new Error(errMsg);
   }
 
   const data = await res.json();

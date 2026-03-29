@@ -91,7 +91,12 @@ export function ProfileMenu() {
     closeMenu(() => router.push('/screens/DietaryRestrictionsScreen'));
   };
 
+  const handleScanFridge = () => {
+    closeMenu(() => router.push('/screens/ScanFridgeScreen'));
+  };
+
   const MENU_ITEMS: MenuItem[] = [
+    { icon: 'scan-outline', label: 'Scan My Fridge', onPress: handleScanFridge },
     { icon: 'calendar-outline', label: 'Meal Plan', onPress: handleMealPlan },
     { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
     { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },
@@ -116,10 +121,10 @@ export function ProfileMenu() {
         visible={open}
         transparent
         animationType="none"
-        onRequestClose={closeMenu}
+        onRequestClose={() => closeMenu()}
         statusBarTranslucent
       >
-        <Pressable style={styles.backdrop} onPress={closeMenu}>
+        <Pressable style={styles.backdrop} onPress={() => closeMenu()}>
           <Animated.View
             style={[
               styles.menu,

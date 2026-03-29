@@ -16,7 +16,7 @@ import { analyzeNutrition } from './nutritionService';
 import { saveAIRecipe, updateRecipeStatus, classifyAndEnrichRecipe, uploadRecipeHeroImage, uploadRecipeStepImage } from './recipeService';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -384,9 +384,7 @@ async function verifyStepImage(
 
   try {
     // Read image as base64
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const base64 = new File(imageUri).base64();
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -455,9 +453,7 @@ async function verifyHeroImage(
   }
 
   try {
-    const base64 = await FileSystem.readAsStringAsync(imageUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+    const base64 = new File(imageUri).base64();
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
