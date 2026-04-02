@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 
-import { getRecipeById, type SavedRecipe, type QuantityTier } from '../../src/store/recipes';
+import { getRecipeById, getCompletionStats, type SavedRecipe, type QuantityTier } from '../../src/store/recipes';
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
@@ -71,14 +71,13 @@ export default function RecipeOverviewScreen() {
 
   const ingredients = recipe.ingredients[quantityTier] ?? recipe.ingredients['2-3 servings'] ?? [];
   const timeMinutes = (recipe as BuiltInRecipe).timeMinutes ?? null;
-  const nutrition = (recipe as BuiltInRecipe).nutrition ?? null;
-  // Nutrition is stored as whole "2-3 servings" batch — show batch total
-  const batchProteinG = nutrition?.proteinG ?? recipe.aiNutrition?.proteinG ?? null;
+  const stats = getCompletionStats(recipe, quantityTier);
   const gradient: readonly [string, string] = (recipe as BuiltInRecipe).gradient ?? ['#8B4513', '#5D2E0C'];
   const builtInImage = getRecipeCardImage(recipe.id);
   // Image fallback: Supabase/AI URI → built-in static → null (emoji)
   const cardImage = heroImageUri ? { uri: heroImageUri } : builtInImage;
   const stepsCount = recipe.steps?.length ?? 0;
+  const hasNutrition = stats.calories > 0;
 
   return (
     <ImageBackground
@@ -109,18 +108,12 @@ export default function RecipeOverviewScreen() {
           <View style={styles.infoCard}>
             <Text style={styles.recipeName}>{recipe.name.replace(/^High-Protein\s+/i, '')}</Text>
 
-            {/* Quick stats: cook time, protein, steps */}
+            {/* Quick stats: cook time, steps */}
             <View style={styles.statsRow}>
               {timeMinutes != null && (
                 <View style={styles.statBadge}>
                   <Text style={styles.statEmoji}>⏱️</Text>
                   <Text style={styles.statText}>{timeMinutes} min</Text>
-                </View>
-              )}
-              {batchProteinG != null && (
-                <View style={styles.statBadge}>
-                  <Text style={styles.statEmoji}>💪</Text>
-                  <Text style={styles.statText}>{batchProteinG}g protein</Text>
                 </View>
               )}
               {stepsCount > 0 && (
@@ -129,7 +122,39 @@ export default function RecipeOverviewScreen() {
                   <Text style={styles.statText}>{stepsCount} steps</Text>
                 </View>
               )}
+              <View style={styles.statBadge}>
+                <Text style={styles.statEmoji}>🍽</Text>
+                <Text style={styles.statText}>{stats.servings} servings</Text>
+              </View>
             </View>
+
+            {/* Per-serving nutrition */}
+            {hasNutrition && (
+              <View style={styles.macroCard}>
+                <Text style={styles.macroCardTitle}>Per Serving</Text>
+                <View style={styles.macroCardRow}>
+                  <View style={styles.macroCardItem}>
+                    <Text style={styles.macroCardValue}>{stats.calories}</Text>
+                    <Text style={styles.macroCardLabel}>kcal</Text>
+                  </View>
+                  <View style={styles.macroCardDivider} />
+                  <View style={styles.macroCardItem}>
+                    <Text style={[styles.macroCardValue, styles.macroCardProtein]}>{stats.proteinG}g</Text>
+                    <Text style={styles.macroCardLabel}>Protein</Text>
+                  </View>
+                  <View style={styles.macroCardDivider} />
+                  <View style={styles.macroCardItem}>
+                    <Text style={styles.macroCardValue}>{stats.carbsG}g</Text>
+                    <Text style={styles.macroCardLabel}>Carbs</Text>
+                  </View>
+                  <View style={styles.macroCardDivider} />
+                  <View style={styles.macroCardItem}>
+                    <Text style={styles.macroCardValue}>{stats.fatG}g</Text>
+                    <Text style={styles.macroCardLabel}>Fat</Text>
+                  </View>
+                </View>
+              </View>
+            )}
 
             {/* One-line description */}
             {(recipe.description || recipe.chefTip) ? (
@@ -259,6 +284,35 @@ const styles = StyleSheet.create({
   },
   statEmoji: { fontSize: 13 },
   statText: { fontSize: 13, fontWeight: '600', color: '#8B4513' },
+
+  // Per-serving macro card
+  macroCard: {
+    backgroundColor: '#FFF8F4',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#F0E4DC',
+    padding: 14,
+    marginBottom: 14,
+  },
+  macroCardTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#8B7355',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  macroCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  macroCardItem: { alignItems: 'center', flex: 1 },
+  macroCardValue: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
+  macroCardProtein: { color: '#E85D26' },
+  macroCardLabel: { fontSize: 11, color: '#8B7355', marginTop: 2 },
+  macroCardDivider: { width: 1, height: 30, backgroundColor: '#F0E4DC' },
 
   // Description
   description: {

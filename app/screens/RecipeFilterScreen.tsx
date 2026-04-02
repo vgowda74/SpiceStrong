@@ -234,8 +234,6 @@ export default function RecipeFilterScreen() {
     setCookingTime(null);
     setDifficulty(null);
     setMeatType(null);
-    setDietary([]);
-    setAllergens([]);
     setCookingMethod(null);
     setCuisine(null);
     setCalorieRange(null);

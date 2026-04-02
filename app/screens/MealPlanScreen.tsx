@@ -31,6 +31,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { File, Directory, Paths } from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  addToMealPlan,
   getMealPlanForDate,
   removeFromMealPlan,
   SLOT_LABELS,
@@ -239,10 +240,12 @@ function getFirstDayOfWeek(year: number, month: number): number {
 interface EnrichedEntry extends MealPlanEntry {
   recipe: SavedRecipe | null;
   imageUri: string | null;
+  builtinImage: any | null; // require() source for built-in recipes
   calories: number;
   proteinG: number;
   carbsG: number;
   fatG: number;
+  isQuickAdd?: boolean; // true for manually added meals (no recipe)
 }
 
 function dateFromString(dateStr: string): Date {
@@ -463,6 +466,126 @@ export default function MealPlanScreen() {
     setCalendarVisible(false);
   };
 
+  // ── Quick Add Meal state ──
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddSlot, setQuickAddSlot] = useState<MealSlot>('lunch_dinner');
+  const [quickAddName, setQuickAddName] = useState('');
+  const [quickAddPhoto, setQuickAddPhoto] = useState<string | null>(null);
+  const [quickAddBase64, setQuickAddBase64] = useState<string>('');
+  const [quickAddScanning, setQuickAddScanning] = useState(false);
+  const [quickAddMacros, setQuickAddMacros] = useState<{ calories: string; proteinG: string; carbsG: string; fatG: string }>({ calories: '', proteinG: '', carbsG: '', fatG: '' });
+
+  const openQuickAdd = (slot: MealSlot) => {
+    setQuickAddSlot(slot);
+    setQuickAddName('');
+    setQuickAddPhoto(null);
+    setQuickAddBase64('');
+    setQuickAddScanning(false);
+    setQuickAddMacros({ calories: '', proteinG: '', carbsG: '', fatG: '' });
+    setQuickAddOpen(true);
+  };
+
+  const closeQuickAdd = () => {
+    Keyboard.dismiss();
+    setQuickAddOpen(false);
+  };
+
+  const pickQuickAddPhoto = async (useCamera: boolean) => {
+    const opts: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      quality: 0.5,
+      base64: true,
+      allowsEditing: true,
+      aspect: [4, 3] as [number, number],
+    };
+    let result: ImagePicker.ImagePickerResult;
+    if (useCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required.'); return; }
+      result = await ImagePicker.launchCameraAsync(opts);
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Gallery access required.'); return; }
+      result = await ImagePicker.launchImageLibraryAsync(opts);
+    }
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    let b64 = asset.base64 ?? '';
+    if (b64.includes(',')) b64 = b64.split(',')[1];
+
+    // Save to permanent location
+    let permanentUri = asset.uri;
+    try {
+      const dir = new Directory(Paths.document, 'meal_photos');
+      if (!dir.exists) dir.create();
+      const fname = `quick_${Date.now()}.jpg`;
+      const dest = new File(dir, fname);
+      if (dest.exists) dest.delete();
+      new File(asset.uri).move(dest);
+      permanentUri = dest.uri;
+    } catch {}
+
+    setQuickAddPhoto(permanentUri);
+    setQuickAddBase64(b64);
+
+    // Auto-scan if we have base64
+    if (b64 && b64.length > 100) {
+      setQuickAddScanning(true);
+      try {
+        const macros = await analyzeFoodPhoto(b64, quickAddName || 'meal');
+        setQuickAddMacros({
+          calories: String(macros.calories),
+          proteinG: String(macros.proteinG),
+          carbsG: String(macros.carbsG),
+          fatG: String(macros.fatG),
+        });
+      } catch (err: any) {
+        console.warn('[SpiceStrong] Quick add scan failed:', err);
+        // Silent — user can enter manually
+      } finally {
+        setQuickAddScanning(false);
+      }
+    }
+  };
+
+  const saveQuickAdd = async () => {
+    const name = quickAddName.trim() || 'My Meal';
+    const entryId = `quick_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const macros = {
+      calories: Math.round(Number(quickAddMacros.calories) || 0),
+      proteinG: Math.round(Number(quickAddMacros.proteinG) || 0),
+      carbsG: Math.round(Number(quickAddMacros.carbsG) || 0),
+      fatG: Math.round(Number(quickAddMacros.fatG) || 0),
+    };
+
+    // Save to meal plan service
+    const result = await addToMealPlan(currentDate, quickAddSlot, {
+      id: entryId,
+      name,
+      proteinName: 'Custom',
+      proteinEmoji: '🍽',
+      mealType: quickAddSlot,
+    });
+
+    if (!result.success) {
+      Alert.alert('Slot Full', result.error ?? 'Could not add meal.');
+      return;
+    }
+
+    // Save macros + photo as override
+    const override: MacroOverride = { ...macros, photoUri: quickAddPhoto ?? '' };
+    // Need the actual entry ID from the service — use the same ID format
+    const entries = await getMealPlanForDate(currentDate);
+    const newEntry = entries.find((e) => e.recipeName === name && e.slot === quickAddSlot);
+    if (newEntry) {
+      await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${newEntry.id}`, JSON.stringify(override));
+    }
+
+    closeQuickAdd();
+    loadEntries(currentDate);
+  };
+
   const loadEntries = useCallback(async (date: string) => {
     setLoading(true);
     const entries = await getMealPlanForDate(date);
@@ -470,8 +593,26 @@ export default function MealPlanScreen() {
     // Enrich each entry with full recipe details + images + nutrition
     const enrichedEntries = await Promise.all(
       entries.map(async (entry): Promise<EnrichedEntry> => {
+        const isQuickAdd = entry.recipeId.startsWith('quick_');
+
+        // Quick-add meals store macros in the override, no recipe to look up
+        if (isQuickAdd) {
+          let imageUri: string | null = null;
+          let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
+          try {
+            const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
+            if (overrideStr) {
+              const o: MacroOverride = JSON.parse(overrideStr);
+              calories = o.calories; proteinG = o.proteinG; carbsG = o.carbsG; fatG = o.fatG;
+              if (o.photoUri) imageUri = o.photoUri;
+            }
+          } catch {}
+          return { ...entry, recipe: null, imageUri, builtinImage: null, calories, proteinG, carbsG, fatG, isQuickAdd: true };
+        }
+
         const recipe = await getRecipeById(entry.recipeId);
-        const imageUri = await resolveImage(entry.recipeId, recipe);
+        let imageUri = await resolveImage(entry.recipeId, recipe);
+        const builtinImage = recipe ? getRecipeCardImage(recipe) : null;
         let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
         if (recipe) {
           const stats = getCompletionStats(recipe, '2-3 servings');
@@ -489,7 +630,7 @@ export default function MealPlanScreen() {
             if (o.photoUri) imageUri = o.photoUri;
           }
         } catch {}
-        return { ...entry, recipe, imageUri, calories, proteinG, carbsG, fatG };
+        return { ...entry, recipe, imageUri, builtinImage, calories, proteinG, carbsG, fatG };
       })
     );
 
@@ -721,7 +862,6 @@ export default function MealPlanScreen() {
                 </View>
 
                 {slotEntries.map((entry) => {
-                    const builtinImg = entry.recipe ? getRecipeCardImage(entry.recipe) : null;
                     return (
                       <View key={entry.id} style={styles.card}>
                         {/* Hero image */}
@@ -732,9 +872,9 @@ export default function MealPlanScreen() {
                               style={styles.cardHeroImg}
                               contentFit="cover"
                             />
-                          ) : builtinImg ? (
+                          ) : entry.builtinImage ? (
                             <Image
-                              source={builtinImg}
+                              source={entry.builtinImage}
                               style={styles.cardHeroImg}
                               contentFit="cover"
                             />
@@ -805,16 +945,22 @@ export default function MealPlanScreen() {
                     );
                   })}
 
-                {/* Empty slot placeholders — tappable to add a recipe */}
+                {/* Empty slot placeholders — tappable to add */}
                 {Array.from({ length: emptyCount }).map((_, i) => (
                   <TouchableOpacity
                     key={`empty-${slot}-${i}`}
                     style={styles.emptySlot}
-                    onPress={() => router.push('/screens/ProteinSelectionScreen')}
+                    onPress={() => {
+                      Alert.alert('Add to ' + SLOT_LABELS[slot].replace(/^[^\s]+\s/, ''), 'How would you like to add a meal?', [
+                        { text: 'Browse Recipes', onPress: () => router.push('/screens/ProteinSelectionScreen') },
+                        { text: 'Quick Add Meal', onPress: () => openQuickAdd(slot) },
+                        { text: 'Cancel', style: 'cancel' },
+                      ]);
+                    }}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.emptySlotPlus}>+</Text>
-                    <Text style={styles.emptySlotText}>Add Recipe</Text>
+                    <Text style={styles.emptySlotText}>Add Meal</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -822,6 +968,106 @@ export default function MealPlanScreen() {
           })}
         </ScrollView>
       )}
+
+      {/* Quick Add Meal Modal */}
+      <Modal visible={quickAddOpen} transparent animationType="fade" onRequestClose={() => { Keyboard.dismiss(); closeQuickAdd(); }} statusBarTranslucent>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable style={styles.cmBackdrop} onPress={() => { Keyboard.dismiss(); closeQuickAdd(); }}>
+          <Pressable style={styles.cmSheet} onPress={() => Keyboard.dismiss()}>
+            <View style={styles.cmHandle} />
+            <Text style={styles.cmTitle}>Quick Add Meal</Text>
+
+            {/* Meal name */}
+            <TextInput
+              style={styles.qaNameInput}
+              value={quickAddName}
+              onChangeText={setQuickAddName}
+              placeholder="Meal name (e.g., Chipotle Bowl)"
+              placeholderTextColor="rgba(255,255,255,0.30)"
+              returnKeyType="done"
+            />
+
+            {/* Photo section */}
+            {!quickAddPhoto ? (
+              <View style={styles.cmBtnRow}>
+                <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(true)} activeOpacity={0.75}>
+                  <Text style={styles.cmPhotoBtnText}>📷 Camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(false)} activeOpacity={0.75}>
+                  <Text style={styles.cmPhotoBtnText}>🖼 Gallery</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.qaPhotoRow}>
+                <Image source={{ uri: quickAddPhoto }} style={styles.qaPhotoThumb} contentFit="cover" />
+                <TouchableOpacity onPress={() => { setQuickAddPhoto(null); setQuickAddBase64(''); }} activeOpacity={0.7}>
+                  <Text style={styles.qaPhotoChange}>Change</Text>
+                </TouchableOpacity>
+                {quickAddScanning && <ActivityIndicator color={ORANGE} size="small" style={{ marginLeft: 8 }} />}
+              </View>
+            )}
+
+            {/* Macro inputs */}
+            <Text style={[styles.cmSectionLabel, { marginTop: 16 }]}>MACROS</Text>
+            <View style={styles.cmManualGrid}>
+              <View style={styles.cmManualField}>
+                <Text style={styles.cmManualLabel}>Calories</Text>
+                <TextInput
+                  style={styles.cmManualInput}
+                  value={quickAddMacros.calories}
+                  onChangeText={(v) => setQuickAddMacros((p) => ({ ...p, calories: v }))}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  placeholder="0"
+                  placeholderTextColor="rgba(255,255,255,0.20)"
+                />
+              </View>
+              <View style={styles.cmManualField}>
+                <Text style={[styles.cmManualLabel, { color: ORANGE }]}>Protein (g)</Text>
+                <TextInput
+                  style={styles.cmManualInput}
+                  value={quickAddMacros.proteinG}
+                  onChangeText={(v) => setQuickAddMacros((p) => ({ ...p, proteinG: v }))}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  placeholder="0"
+                  placeholderTextColor="rgba(255,255,255,0.20)"
+                />
+              </View>
+              <View style={styles.cmManualField}>
+                <Text style={styles.cmManualLabel}>Carbs (g)</Text>
+                <TextInput
+                  style={styles.cmManualInput}
+                  value={quickAddMacros.carbsG}
+                  onChangeText={(v) => setQuickAddMacros((p) => ({ ...p, carbsG: v }))}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  placeholder="0"
+                  placeholderTextColor="rgba(255,255,255,0.20)"
+                />
+              </View>
+              <View style={styles.cmManualField}>
+                <Text style={styles.cmManualLabel}>Fat (g)</Text>
+                <TextInput
+                  style={styles.cmManualInput}
+                  value={quickAddMacros.fatG}
+                  onChangeText={(v) => setQuickAddMacros((p) => ({ ...p, fatG: v }))}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  placeholder="0"
+                  placeholderTextColor="rgba(255,255,255,0.20)"
+                />
+              </View>
+            </View>
+
+            {/* Save button */}
+            <TouchableOpacity style={styles.cmApplyBtn} onPress={saveQuickAdd} activeOpacity={0.8}>
+              <Text style={styles.cmApplyBtnText}>Add to Meal Plan</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Correct Macros Modal */}
       <Modal visible={!!correctEntry} transparent animationType="fade" onRequestClose={() => { Keyboard.dismiss(); closeCorrectMacros(); }} statusBarTranslucent>
@@ -1321,6 +1567,35 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.15)',
   },
   cmRetryBtnText: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.60)' },
+  // Quick Add styles
+  qaNameInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: '#FFFFFF',
+    fontSize: 15,
+    marginBottom: 14,
+  },
+  qaPhotoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 4,
+  },
+  qaPhotoThumb: {
+    width: 80,
+    height: 60,
+    borderRadius: 10,
+  },
+  qaPhotoChange: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: ORANGE,
+  },
+
   cmManualLink: {
     fontSize: 13,
     fontWeight: '600',

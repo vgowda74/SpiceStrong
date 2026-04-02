@@ -526,6 +526,9 @@ export default function AIRecipeBuilderScreen() {
   const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
   const [selectedCuisine, setSelectedCuisine] = useState<string>('indian');
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genStep, setGenStep] = useState('');
+  const [genRecipeId, setGenRecipeId] = useState<string | null>(null);
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
   const [filtersConfirmed, setFiltersConfirmed] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
@@ -726,121 +729,101 @@ export default function AIRecipeBuilderScreen() {
       return;
     }
 
-    // Show confirmation and navigate to recipe list
-    Alert.alert(
-      'Recipe is Being Crafted!',
-      `Your custom ${proteinName} recipe will be ready in a few minutes. Check back under ${proteinName} recipes soon!`,
-    );
-    router.back();
+    // Stay on screen with progress steps
+    setGenerating(true);
+    setGenStep('Understanding your preferences...');
 
-    // Fire-and-forget: generate recipe + images in background
     const findLabel = (options: { id: string; label: string }[], id: string) =>
       options.find((o) => o.id === id)?.label.replace(/^.\s/, '') ?? '';
 
-    (async () => {
-      let saved: SavedRecipe | null = null;
-      try {
-        // Step 1: Generate recipe via Claude API
-        console.log('[SpiceStrong] Background: generating recipe...');
-        // Merge user-selected dietary with globally saved dietary restrictions
-        const globalDietary = await getDietaryRestrictions();
-        const globalDietaryLabels = [
-          ...globalDietary.dietaryTags,
-          ...globalDietary.allergenTags,
-        ];
-        const userDietaryLabels = selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id));
-        const mergedDietary = Array.from(new Set([...globalDietaryLabels, ...userDietaryLabels]));
+    let saved: SavedRecipe | null = null;
+    try {
+      // Step 1: Generate recipe via Claude API
+      setGenStep('Understanding your preferences...');
+      const globalDietary = await getDietaryRestrictions();
+      const globalDietaryLabels = [
+        ...globalDietary.dietaryTags,
+        ...globalDietary.allergenTags,
+      ];
+      const userDietaryLabels = selectedDietary.map((id) => findLabel(ALL_DIETARY_OPTIONS, id));
+      const mergedDietary = Array.from(new Set([...globalDietaryLabels, ...userDietaryLabels]));
 
-        const result = await callClaudeAPI(
-          proteinId,
-          proteinName,
-          isDrinkProtein
-            ? {
-                meatType: findLabel(DRINK_TYPE_OPTIONS, selectedDrinkType),
-                proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
-                mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
-                cookingTime: undefined,
-                spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
-                dietary: mergedDietary,
-                cuisine: '',
-              }
-            : {
-                meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
-                proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
-                mealType: findLabel(ALL_MEAL_TYPE_OPTIONS, selectedMealType),
-                cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
-                spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
-                dietary: mergedDietary,
-                cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
-              },
-          proteinEmojiVal,
-        );
+      setGenStep('Gathering ingredients...');
+      const result = await callClaudeAPI(
+        proteinId,
+        proteinName,
+        isDrinkProtein
+          ? {
+              meatType: findLabel(DRINK_TYPE_OPTIONS, selectedDrinkType),
+              proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+              mealType: findLabel(DRINK_MEAL_OPTIONS, selectedMealType),
+              cookingTime: undefined,
+              spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
+              dietary: mergedDietary,
+              cuisine: '',
+            }
+          : {
+              meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
+              proteinGoal: findLabel(PROTEIN_GOAL_OPTIONS, selectedProteinGoal),
+              mealType: findLabel(ALL_MEAL_TYPE_OPTIONS, selectedMealType),
+              cookingTime: findLabel(COOKING_TIME_OPTIONS, selectedCookingTime),
+              spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
+              dietary: mergedDietary,
+              cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
+            },
+        proteinEmojiVal,
+      );
 
-        // Step 2: Save full recipe (update placeholder) — stays in 'building' status
-        console.log('[SpiceStrong] Background: recipe generated, saving...');
-        saved = await saveRecipeFromAI(result, placeholderId);
-        const syncResult = await saveAIRecipe(saved);
+      // Step 2: Save recipe
+      setGenStep('Crafting your recipe...');
+      saved = await saveRecipeFromAI(result, placeholderId);
+      const syncResult = await saveAIRecipe(saved);
 
-        // Handle duplicate detection — recipe is already saved locally,
-        // but Supabase rejected it because a similar recipe exists
-        if (syncResult.duplicate) {
-          console.log('[SpiceStrong] Duplicate detected, saving with override...');
-          await saveAIRecipe(saved, true); // Override: insert with null fingerprint
-        }
-
-        // Step 2b: Classify recipe and update Supabase with category columns
-        // (cuisine_type, dietary_tags, allergen_tags, fitness_goal, cooking_method, etc.)
-        console.log('[SpiceStrong] Background: classifying recipe...');
-        try {
-          await classifyAndEnrichRecipe(saved);
-        } catch (classErr) {
-          console.warn('[SpiceStrong] Classification failed (non-fatal):', classErr);
-        }
-
-        console.log('[SpiceStrong] Background: recipe saved, generating images...');
-
-        // Step 3: Generate DALL-E images
-        const imageResults = await generateAllRecipeImages({
-          id: saved.id,
-          name: String(result.name ?? ''),
-          ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
-          steps: (result.steps as { title?: string; description?: string }[]) ?? [],
-        });
-        await saveRecipeImages(saved.id, imageResults);
-
-        // Step 3b: Upload hero image to Supabase Storage (best-effort)
-        if (imageResults.dishImage) {
-          uploadRecipeHeroImage(saved.id, imageResults.dishImage).catch(() => {});
-        }
-
-        // Step 4: Mark recipe as ready only after images are done
-        saved.status = 'ready';
-        await saveAIRecipe(saved); // Update locally + Supabase
-        updateRecipeStatus(saved.id, 'ready').catch(() => {}); // Explicit status update
-        console.log('[SpiceStrong] Background: recipe complete with images!');
-
-        // Step 5: Send banner notification
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: '👨‍🍳 Your Recipe is Ready!',
-            body: `${saved.name} has been crafted. Tap to start cooking!`,
-            sound: 'default',
-            data: { recipeId: saved.id },
-            ...(Platform.OS === 'android' ? { channelId: 'recipe' } : {}),
-          },
-          trigger: null, // immediate
-        });
-      } catch (err) {
-        console.error('[SpiceStrong] Background recipe generation failed:', err);
-        // Mark as ready so it doesn't stay stuck in building state
-        try {
-          const toFix = saved ?? placeholder;
-          toFix.status = 'ready';
-          if (!saved) toFix.description = 'Recipe generation failed. Please delete and try again.';
-          await saveAIRecipe(toFix);
-        } catch { /* best effort */ }
+      if (syncResult.duplicate) {
+        await saveAIRecipe(saved, true);
       }
-    })();
+
+      // Classify (non-fatal)
+      try {
+        await classifyAndEnrichRecipe(saved);
+      } catch (classErr) {
+        console.warn('[SpiceStrong] Classification failed (non-fatal):', classErr);
+      }
+
+      // Step 3: Generate images (hero + steps)
+      setGenStep('Creating food photography...');
+      const imageResults = await generateAllRecipeImages({
+        id: saved.id,
+        name: String(result.name ?? ''),
+        ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
+        steps: (result.steps as { title?: string; description?: string }[]) ?? [],
+      });
+      await saveRecipeImages(saved.id, imageResults);
+
+      if (imageResults.dishImage) {
+        uploadRecipeHeroImage(saved.id, imageResults.dishImage).catch(() => {});
+      }
+
+      // Step 4: Finalize
+      setGenStep('Almost done...');
+      saved.status = 'ready';
+      await saveAIRecipe(saved);
+      updateRecipeStatus(saved.id, 'ready').catch(() => {});
+
+      setGenRecipeId(saved.id);
+      setGenStep('Your recipe is ready!');
+
+    } catch (err) {
+      console.error('[SpiceStrong] Recipe generation failed:', err);
+      try {
+        const toFix = saved ?? placeholder;
+        toFix.status = 'ready';
+        if (!saved) toFix.description = 'Recipe generation failed. Please delete and try again.';
+        await saveAIRecipe(toFix);
+      } catch { /* best effort */ }
+      setGenerating(false);
+      Alert.alert('Generation Failed', 'Something went wrong. Please try again.');
+    }
   };
 
   const ingredientCount = generatedRecipe?.ingredients
@@ -865,8 +848,35 @@ export default function AIRecipeBuilderScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
+        {/* Generation progress screen */}
+        {generating && (
+          <View style={styles.genOverlay}>
+            <View style={styles.genContent}>
+              <ActivityIndicator color="#E85D26" size="large" style={{ marginBottom: 24 }} />
+              <Text style={styles.genEmoji}>👨‍🍳</Text>
+              <Text style={styles.genTitle}>Creating Your Recipe</Text>
+              <Text style={styles.genStep}>{genStep}</Text>
+              {genRecipeId && (
+                <TouchableOpacity
+                  style={styles.genViewBtn}
+                  onPress={() => {
+                    setGenerating(false);
+                    router.replace({
+                      pathname: '/screens/RecipeOverviewScreen',
+                      params: { recipeId: genRecipeId, quantityTier: '2-3 servings' },
+                    });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.genViewBtnText}>View Recipe</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
         <ScrollView
-          style={styles.scroll}
+          style={[styles.scroll, generating && { display: 'none' }]}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -1163,6 +1173,44 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
   container: { flex: 1 },
+
+  // Generation progress overlay
+  genOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  genContent: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  genEmoji: { fontSize: 64, marginBottom: 8 },
+  genTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }),
+  },
+  genStep: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.55)',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  genViewBtn: {
+    marginTop: 24,
+    backgroundColor: '#E85D26',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  genViewBtnText: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

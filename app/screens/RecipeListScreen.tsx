@@ -23,7 +23,7 @@ const screenWidth = Dimensions.get('window').width;
 
 import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../components/RecipeCard';
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
-import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
+import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, getCompletionStats, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
 import { getDietaryRestrictions, applyDietaryFilter } from '../../services/dietaryService';
@@ -483,34 +483,15 @@ export default function RecipeListScreen() {
     const cardImage = isNativeRecipe
       ? (supabaseHeroUri ? { uri: supabaseHeroUri } : builtInImage)
       : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : null);
-    // Nutrition values are per serving
-    const nutritionData = (item as SavedRecipe & { nutrition?: NutritionInfo }).nutrition ?? null;
-    const proteinGPerServing = (item as SavedRecipe & { proteinGPerServing?: number }).proteinGPerServing ?? null;
-    const perServingProteinG = nutritionData?.proteinG ?? proteinGPerServing ?? item.aiNutrition?.proteinG ?? null;
-    const aiNut = item.aiNutrition;
-    // Pipeline per-serving values (from Edamam via classification pipeline)
+    // All nutrition displayed as PER SERVING using getCompletionStats
+    const stats = getCompletionStats(item, '2-3 servings');
+    // Pipeline per-serving values (from Edamam via classification pipeline) — already per-serving
     const pCal = item.pipelineCalories;
     const pPro = item.pipelineProteinG;
     const pFat = item.pipelineFatG;
     const pCarb = item.pipelineCarbsG;
 
-    const cardNutrition: CardNutrition | undefined = nutritionData ? {
-      calories: nutritionData.calories,
-      proteinG: nutritionData.proteinG,
-      fatG: nutritionData.fatG,
-      carbsG: nutritionData.carbsG,
-      fiberG: nutritionData.fiberG,
-      sugarG: nutritionData.sugarG,
-      sodiumMg: nutritionData.sodiumMg,
-    } : aiNut ? {
-      calories: aiNut.calories ?? 0,
-      proteinG: aiNut.proteinG ?? 0,
-      fatG: aiNut.fatG ?? 0,
-      carbsG: aiNut.carbsG ?? 0,
-      fiberG: aiNut.fiberG ?? 0,
-      sugarG: aiNut.sugarG ?? 0,
-      sodiumMg: aiNut.sodiumMg ?? 0,
-    } : (pCal || pPro) ? {
+    const cardNutrition: CardNutrition | undefined = (pCal || pPro) ? {
       calories: pCal ?? 0,
       proteinG: pPro ?? 0,
       fatG: pFat ?? 0,
@@ -518,6 +499,14 @@ export default function RecipeListScreen() {
       fiberG: 0,
       sugarG: 0,
       sodiumMg: 0,
+    } : stats.calories > 0 ? {
+      calories: stats.calories,
+      proteinG: stats.proteinG,
+      fatG: stats.fatG,
+      carbsG: stats.carbsG,
+      fiberG: stats.fiberG,
+      sugarG: stats.sugarG,
+      sodiumMg: stats.sodiumMg,
     } : undefined;
     // Use community rating if available, fall back to personal rating
     const community = communityRatings[item.id];
@@ -532,7 +521,7 @@ export default function RecipeListScreen() {
         name={item.name}
         description={description}
         time={timeMinutes != null ? `${timeMinutes} min` : '—'}
-        protein={perServingProteinG != null && perServingProteinG > 0 ? `${perServingProteinG}g protein` : '—'}
+        protein={stats.proteinG > 0 ? `${stats.proteinG}g protein` : '—'}
         difficulty={cardDifficulty}
         rating={ratingString}
         communityCount={ratingCount}
@@ -644,14 +633,14 @@ export default function RecipeListScreen() {
     }
 
     // ── Apply advanced filters ──
-    // Helper: get per-serving nutrition (uses pipeline values first, falls back to aiNutrition/2.5, then built-in nutrition)
+    // Helper: get per-serving nutrition (pipeline values first, then getCompletionStats)
     const perServing = (r: SavedRecipe) => {
-      const builtIn = (r as any).nutrition as { calories?: number; proteinG?: number; carbsG?: number; fatG?: number } | undefined;
+      const s = getCompletionStats(r, '2-3 servings');
       return {
-        protein: r.pipelineProteinG ?? (r.aiNutrition ? r.aiNutrition.proteinG / 2.5 : builtIn?.proteinG ?? 0),
-        carbs: r.pipelineCarbsG ?? (r.aiNutrition ? r.aiNutrition.carbsG / 2.5 : builtIn?.carbsG ?? 0),
-        fat: r.pipelineFatG ?? (r.aiNutrition ? r.aiNutrition.fatG / 2.5 : builtIn?.fatG ?? 0),
-        calories: r.pipelineCalories ?? (r.aiNutrition ? r.aiNutrition.calories / 2.5 : builtIn?.calories ?? 0),
+        protein: r.pipelineProteinG ?? s.proteinG,
+        carbs: r.pipelineCarbsG ?? s.carbsG,
+        fat: r.pipelineFatG ?? s.fatG,
+        calories: r.pipelineCalories ?? s.calories,
       };
     };
 
