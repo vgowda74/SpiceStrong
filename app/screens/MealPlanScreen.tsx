@@ -695,9 +695,18 @@ export default function MealPlanScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Meal Plan</Text>
-        <TouchableOpacity onPress={() => setCurrentDate(today)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={[styles.todayBtn, isToday && styles.todayBtnActive]}>Today</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.autoPlanBtn}
+            onPress={() => router.push('/screens/AutoMealPlanScreen')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.autoPlanBtnText}>Auto Plan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setCurrentDate(today)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[styles.todayBtn, isToday && styles.todayBtnActive]}>Today</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Day navigator */}
@@ -862,8 +871,24 @@ export default function MealPlanScreen() {
                 </View>
 
                 {slotEntries.map((entry) => {
+                    const isAutoplanPlaceholder = entry.recipeId.startsWith('autoplan_');
+                    const handleCardTap = () => {
+                      if (isAutoplanPlaceholder) {
+                        // Navigate to AI builder to generate the full recipe
+                        router.push({
+                          pathname: '/screens/AIRecipeBuilderScreen',
+                          params: { proteinId: 'chicken', proteinName: entry.proteinName || 'Chicken', proteinEmoji: entry.proteinEmoji || '🍽' },
+                        });
+                      } else if (!entry.isQuickAdd) {
+                        // Navigate to recipe overview
+                        router.push({
+                          pathname: '/screens/RecipeOverviewScreen',
+                          params: { recipeId: entry.recipeId, quantityTier: '2-3 servings' },
+                        });
+                      }
+                    };
                     return (
-                      <View key={entry.id} style={styles.card}>
+                      <TouchableOpacity key={entry.id} style={styles.card} onPress={handleCardTap} activeOpacity={0.85}>
                         {/* Hero image */}
                         <View style={styles.cardHero}>
                           {entry.imageUri ? (
@@ -941,7 +966,7 @@ export default function MealPlanScreen() {
                             <Text style={styles.correctBtnText}>📸 Correct Macros</Text>
                           </TouchableOpacity>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   })}
 
@@ -1243,6 +1268,16 @@ const styles = StyleSheet.create({
   },
   back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: PLAYFAIR },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  autoPlanBtn: {
+    backgroundColor: 'rgba(232,93,38,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.35)',
+  },
+  autoPlanBtnText: { fontSize: 12, fontWeight: '700', color: ORANGE },
   todayBtn: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.40)' },
   todayBtnActive: { color: ORANGE },
 

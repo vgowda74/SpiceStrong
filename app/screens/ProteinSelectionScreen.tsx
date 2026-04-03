@@ -198,7 +198,7 @@ export default function ProteinSelectionScreen() {
             ))}
           </ScrollView>
 
-          {/* Scan My Fridge card */}
+          {/* Scan My Grocery card */}
           <TouchableOpacity
             style={styles.scanFridgeCard}
             onPress={() => router.push('/screens/ScanFridgeScreen')}
@@ -212,8 +212,8 @@ export default function ProteinSelectionScreen() {
             >
               <Text style={styles.scanFridgeEmoji}>📸</Text>
               <View style={styles.scanFridgeTextBlock}>
-                <Text style={styles.scanFridgeTitle}>Scan My Fridge</Text>
-                <Text style={styles.scanFridgeSub}>Snap a photo — we'll find what you can cook</Text>
+                <Text style={styles.scanFridgeTitle}>Scan My Grocery</Text>
+                <Text style={styles.scanFridgeSub}>Scan your groceries — we'll match recipes for you</Text>
               </View>
               <Text style={styles.scanFridgeArrow}>›</Text>
             </LinearGradient>

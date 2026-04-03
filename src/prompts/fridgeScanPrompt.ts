@@ -1,5 +1,5 @@
 /**
- * fridgeScanPrompt.ts — Claude Vision prompt for fridge/pantry ingredient identification.
+ * fridgeScanPrompt.ts — Claude Vision prompt for groceries/fridge/pantry ingredient identification.
  *
  * Detects: ingredient name, category, state (raw/cooked/frozen/canned),
  * estimated quantity, and confidence level.
@@ -109,4 +109,4 @@ Return ONLY this JSON, no markdown fences, no explanation:
 export const FRIDGE_SCAN_USER_PROMPT = (recipeName?: string) =>
   recipeName
     ? `Identify all cooking ingredients visible in these photos. The user is planning to cook "${recipeName}".`
-    : `Identify all cooking ingredients visible in these photos of my fridge/pantry.`;
+    : `Identify all cooking ingredients visible in these photos of my groceries/fridge/pantry.`;

@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getPantryItems } from '../services/pantryService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 const ORANGE = '#E85D26';
@@ -72,17 +73,29 @@ export function ProfileMenu() {
           await Share.share({ message: 'Your SpiceStrong grocery list is empty. Add ingredients from any recipe!' });
           return;
         }
+        // Get pantry items to subtract
+        const pantry = await getPantryItems();
+        const pantryNames = new Set(pantry.map((p) => p.name.toLowerCase()));
+
         const grouped: Record<string, string[]> = {};
         keys.forEach((key) => {
           const recipeName = cartItems[key];
-          if (!grouped[recipeName]) grouped[recipeName] = [];
           const [name, qty] = key.split('|||');
+          // Skip if already in pantry
+          if (pantryNames.has(name.toLowerCase())) return;
+          if (Array.from(pantryNames).some((pn) => name.toLowerCase().includes(pn) || pn.includes(name.toLowerCase()))) return;
+          if (!grouped[recipeName]) grouped[recipeName] = [];
           grouped[recipeName].push(`  • ${qty} ${name}`);
         });
         const sections = Object.entries(grouped)
+          .filter(([, items]) => items.length > 0)
           .map(([recipeName, items]) => `📌 ${recipeName}\n${items.join('\n')}`)
           .join('\n\n');
-        await Share.share({ message: `🛒 Shopping List\n\n${sections}\n\nCooked with SpiceStrong 💪` });
+        if (!sections) {
+          await Share.share({ message: '✅ You already have everything in your pantry! No shopping needed.' });
+          return;
+        }
+        await Share.share({ message: `🛒 Shopping List (pantry items excluded)\n\n${sections}\n\nCooked with SpiceStrong 💪` });
       } catch {}
     });
   };
@@ -91,12 +104,17 @@ export function ProfileMenu() {
     closeMenu(() => router.push('/screens/DietaryRestrictionsScreen'));
   };
 
-  const handleScanFridge = () => {
+  const handleScanGrocery = () => {
     closeMenu(() => router.push('/screens/ScanFridgeScreen'));
   };
 
+  const handleMyPantry = () => {
+    closeMenu(() => router.push('/screens/MyPantryScreen'));
+  };
+
   const MENU_ITEMS: MenuItem[] = [
-    { icon: 'scan-outline', label: 'Scan My Fridge', onPress: handleScanFridge },
+    { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
+    { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
     { icon: 'calendar-outline', label: 'Meal Plan', onPress: handleMealPlan },
     { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
     { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },

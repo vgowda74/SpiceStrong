@@ -1,6 +1,6 @@
 /**
  * ScanFridgeScreen.tsx — SpiceStrong
- * Multi-step "Scan My Fridge" flow:
+ * Multi-step "Scan My Grocery" flow:
  *   Step 1: Photo capture (up to 4 photos)
  *   Step 2: AI identification (loading)
  *   Step 3: Ingredient review + edit
@@ -32,6 +32,7 @@ import {
   type ScannedIngredient,
   type IngredientCategory,
 } from '../../services/fridgeScanService';
+import { addPantryItemsBatch } from '../../services/pantryService';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -153,6 +154,13 @@ export default function ScanFridgeScreen() {
     // Merge identified ingredients + checked pantry staples
     const pantryItems = DEFAULT_PANTRY_STAPLES.filter((s) => pantryChecked.has(s.name));
     const allIngredients = [...ingredients, ...pantryItems.filter((p) => !ingredients.some((i) => i.name === p.name))];
+    // Save all scanned ingredients to persistent pantry
+    await addPantryItemsBatch(allIngredients.map((i) => ({
+      name: i.name,
+      category: i.category,
+      quantity: i.quantity,
+      state: i.state,
+    })));
     // Store in AsyncStorage for results screen
     await AsyncStorage.setItem('spicestrong_fridge_scan', JSON.stringify(allIngredients));
     router.push('/screens/FridgeRecipeResultsScreen');
@@ -172,15 +180,15 @@ export default function ScanFridgeScreen() {
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scan My Fridge</Text>
+        <Text style={styles.headerTitle}>Scan My Grocery</Text>
         <View style={{ width: 30 }} />
       </View>
 
       {/* Step 1: Photo Capture */}
       {step === 'capture' && (
         <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
-          <Text style={styles.stepTitle}>Take photos of your fridge & pantry</Text>
-          <Text style={styles.stepHint}>Up to {MAX_PHOTOS} photos — shelves, door, freezer, pantry</Text>
+          <Text style={styles.stepTitle}>Scan your groceries or pantry</Text>
+          <Text style={styles.stepHint}>Up to {MAX_PHOTOS} photos — grocery bags, fridge, pantry shelves</Text>
 
           {/* Photo grid */}
           <View style={styles.photoGrid}>

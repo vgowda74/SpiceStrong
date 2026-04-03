@@ -27,6 +27,7 @@ import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, getComplet
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
 import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
 import { getDietaryRestrictions, applyDietaryFilter } from '../../services/dietaryService';
+import { getPantryIngredientNames } from '../../services/pantryService';
 import {
   addToMealPlan,
   getMealPlanForDate,
@@ -74,10 +75,11 @@ const WARM_CREAM = '#FDF8F3';
 const TAB_INACTIVE = 'rgba(255,255,255,0.2)';
 const TAB_ACTIVE_BG = '#1A0A00';
 
-type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites';
+type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites' | 'pantry';
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
+  { key: 'pantry', label: '🛒 Pantry' },
   { key: 'breakfast', label: '🌅 Breakfast' },
   { key: 'lunch_dinner', label: '🍽️ Lunch/Dinner' },
   { key: 'snack_dessert', label: '🥜 Snack/Dessert' },
@@ -111,6 +113,7 @@ export default function RecipeListScreen() {
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const [selectedTierByRecipeId, setSelectedTierByRecipeId] = useState<Record<string, QuantityTier>>({});
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  const [pantryNames, setPantryNames] = useState<string[]>([]);
   // ── Advanced filter state (set via RecipeFilterScreen) ──
   const [filterFitnessGoal, setFilterFitnessGoal] = useState<string | null>(null);
   const [filterProteinRange, setFilterProteinRange] = useState<string | null>(null);
@@ -259,13 +262,15 @@ export default function RecipeListScreen() {
     useCallback(() => {
       let cancelled = false;
       const load = async () => {
-        const [result, ratingsMap, favouritesList, cookCountsMap, dietary] = await Promise.all([
+        const [result, ratingsMap, favouritesList, cookCountsMap, dietary, pantryNamesArr] = await Promise.all([
           getAllRecipesForProteinWithRefresh(proteinId),
           getRatings(),
           getFavourites(),
           getCookCounts(),
           getDietaryRestrictions(),
+          getPantryIngredientNames(),
         ]);
+        setPantryNames(pantryNamesArr);
 
         if (cancelled) return;
         // Filter out deleted + apply dietary restrictions
@@ -627,6 +632,16 @@ export default function RecipeListScreen() {
         // Default to lunch_dinner if no mealType set
         return activeFilter === 'lunch_dinner';
       });
+    } else if (activeFilter === 'pantry') {
+      // Show only recipes whose ingredients match pantry items
+      filtered = recipes.filter((r) => {
+        const recipeIngs = (r.ingredients?.['2-3 servings'] ?? []).map((i) => i.name.toLowerCase());
+        if (recipeIngs.length === 0) return false;
+        const matched = recipeIngs.filter((ing) =>
+          pantryNames.some((pn) => ing.includes(pn) || pn.includes(ing))
+        );
+        return matched.length >= recipeIngs.length * 0.5; // at least 50% ingredient match
+      });
     } else {
       // favourites
       filtered = recipes.filter((r) => favourites.includes(r.id));
@@ -733,7 +748,7 @@ export default function RecipeListScreen() {
     }
 
     return filtered;
-  }, [recipes, activeFilter, ratings, favourites,
+  }, [recipes, activeFilter, ratings, favourites, pantryNames,
     filterDifficulty, filterSpice, filterTime, filterFitnessGoal,
     filterProteinRange, filterCarbsRange, filterFatRange, filterMeatType,
     filterCookingMethod, filterCuisine,
