@@ -123,7 +123,12 @@ export function ProfileMenu() {
     }));
   };
 
+  const handleFitnessProfile = () => {
+    closeMenu(() => router.push('/screens/FitnessProfileScreen'));
+  };
+
   const MENU_ITEMS: MenuItem[] = [
+    { icon: 'body-outline', label: 'Fitness Profile', onPress: handleFitnessProfile },
     { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
     { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
     { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },

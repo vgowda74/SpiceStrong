@@ -8,7 +8,7 @@
  * Step 4: Done → navigate to Meal Plan
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { generateAutoMealPlan, type AutoPlanPreferences } from '../../services/autoMealPlanService';
+import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { type MealSlot } from '../../services/mealPlanService';
 
 const ORANGE = '#E85D26';
@@ -60,12 +61,27 @@ export default function AutoMealPlanScreen() {
 
   const [step, setStep] = useState<Step>('targets');
 
-  // Step 1: Targets
+  // Step 1: Targets (pre-filled from Fitness Profile if available)
   const [calories, setCalories] = useState('2000');
   const [protein, setProtein] = useState('150');
   const [carbs, setCarbs] = useState('200');
   const [fat, setFat] = useState('65');
   const [servingCount, setServingCount] = useState(2);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+
+  // Load fitness profile targets on mount
+  useEffect(() => {
+    (async () => {
+      const targets = await getSavedMacroTargets();
+      if (targets) {
+        setCalories(String(targets.calories));
+        setProtein(String(targets.proteinG));
+        setCarbs(String(targets.carbsG));
+        setFat(String(targets.fatG));
+        setProfileLoaded(true);
+      }
+    })();
+  }, []);
 
   // Step 2: Slots + options
   const [selectedSlots, setSelectedSlots] = useState<Set<number>>(new Set([0, 1, 2])); // breakfast, lunch, dinner default
@@ -150,6 +166,11 @@ export default function AutoMealPlanScreen() {
           >
             <Text style={styles.stepTitle}>Set your daily targets</Text>
             <Text style={styles.stepHint}>Per person — we'll adjust ingredients accordingly</Text>
+            {profileLoaded && (
+              <View style={styles.profileBanner}>
+                <Text style={styles.profileBannerText}>✅ Pre-filled from your Fitness Profile — adjust if needed</Text>
+              </View>
+            )}
 
             {/* Servings */}
             <View style={styles.servingsCard}>
@@ -410,6 +431,17 @@ const styles = StyleSheet.create({
   targetUnit: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.40)', width: 50 },
 
   // Servings selector
+  profileBanner: {
+    backgroundColor: 'rgba(34,197,94,0.10)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.25)',
+  },
+  profileBannerText: { fontSize: 12, fontWeight: '600', color: '#22C55E', textAlign: 'center' },
+
   servingsCard: {
     backgroundColor: SURFACE,
     borderRadius: 16,
