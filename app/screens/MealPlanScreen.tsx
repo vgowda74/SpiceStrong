@@ -594,8 +594,9 @@ export default function MealPlanScreen() {
     const enrichedEntries = await Promise.all(
       entries.map(async (entry): Promise<EnrichedEntry> => {
         const isQuickAdd = entry.recipeId.startsWith('quick_');
+        const isAutoplan = entry.recipeId.startsWith('autoplan_');
 
-        // Quick-add meals store macros in the override, no recipe to look up
+        // Quick-add meals — no recipe, macros from override only
         if (isQuickAdd) {
           let imageUri: string | null = null;
           let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
@@ -608,6 +609,30 @@ export default function MealPlanScreen() {
             }
           } catch {}
           return { ...entry, recipe: null, imageUri, builtinImage: null, calories, proteinG, carbsG, fatG, isQuickAdd: true };
+        }
+
+        // Autoplan placeholders — target macros stored in aiNutrition
+        if (isAutoplan) {
+          const recipe = await getRecipeById(entry.recipeId);
+          let imageUri = await resolveImage(entry.recipeId, recipe);
+          let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
+          if (recipe) {
+            const stats = getCompletionStats(recipe, '2-3 servings');
+            calories = stats.calories;
+            proteinG = stats.proteinG;
+            carbsG = stats.carbsG;
+            fatG = stats.fatG;
+          }
+          // Override with user correction if available
+          try {
+            const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
+            if (overrideStr) {
+              const o: MacroOverride = JSON.parse(overrideStr);
+              calories = o.calories; proteinG = o.proteinG; carbsG = o.carbsG; fatG = o.fatG;
+              if (o.photoUri) imageUri = o.photoUri;
+            }
+          } catch {}
+          return { ...entry, recipe, imageUri, builtinImage: null, calories, proteinG, carbsG, fatG };
         }
 
         const recipe = await getRecipeById(entry.recipeId);
@@ -694,7 +719,7 @@ export default function MealPlanScreen() {
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Meal Plan</Text>
+        <Text style={styles.headerTitle}>Meal Calendar</Text>
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.autoPlanBtn}
@@ -831,10 +856,9 @@ export default function MealPlanScreen() {
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Daily macro summary — only show if there are entries */}
-          {enriched.length > 0 && (
-            <View style={styles.macroBar}>
-              <Text style={styles.macroBarTitle}>Daily Total</Text>
+          {/* Daily macro summary — always visible */}
+          <View style={styles.macroBar}>
+            <Text style={styles.macroBarTitle}>Daily Total · Per Serving</Text>
               <View style={styles.macroRow}>
                 <View style={styles.macroItem}>
                   <Text style={styles.macroValue}>{totals.calories}</Text>
@@ -856,8 +880,7 @@ export default function MealPlanScreen() {
                   <Text style={styles.macroLabel}>Fat</Text>
                 </View>
               </View>
-            </View>
-          )}
+          </View>
 
           {SLOT_ORDER.map((slot) => {
             const slotEntries = grouped[slot];

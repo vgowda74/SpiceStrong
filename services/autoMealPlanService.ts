@@ -25,8 +25,12 @@ import { saveAIRecipe } from './recipeService';
 export interface AutoPlanPreferences {
   dailyCalories: number;       // e.g. 2000
   dailyProteinG: number;       // e.g. 150
+  dailyCarbsG: number;         // e.g. 200
+  dailyFatG: number;           // e.g. 65
   slots: MealSlot[];           // which slots to fill per day
   startDate: string;           // YYYY-MM-DD
+  samePlanEveryDay: boolean;   // replicate day 1 across all 7 days
+  pantryOnly: boolean;         // only use recipes matching pantry items
 }
 
 export interface AutoPlanResult {
@@ -47,11 +51,16 @@ const SLOT_CALORIE_SPLIT: Record<MealSlot, number> = {
 };
 
 function getSlotTargets(prefs: AutoPlanPreferences) {
-  return prefs.slots.map((slot) => ({
-    slot,
-    targetCal: Math.round(prefs.dailyCalories * (SLOT_CALORIE_SPLIT[slot] || 0.25)),
-    targetProtein: Math.round(prefs.dailyProteinG * (SLOT_CALORIE_SPLIT[slot] || 0.25)),
-  }));
+  return prefs.slots.map((slot) => {
+    const split = SLOT_CALORIE_SPLIT[slot] || 0.25;
+    return {
+      slot,
+      targetCal: Math.round(prefs.dailyCalories * split),
+      targetProtein: Math.round(prefs.dailyProteinG * split),
+      targetCarbs: Math.round(prefs.dailyCarbsG * split),
+      targetFat: Math.round(prefs.dailyFatG * split),
+    };
+  });
 }
 
 // ═══════════════════════════════════════
@@ -62,31 +71,45 @@ function scoreRecipeForSlot(
   recipe: SavedRecipe,
   targetCal: number,
   targetProtein: number,
+  targetCarbs: number,
+  targetFat: number,
   pantryNames: string[],
+  pantryOnly: boolean,
 ): number {
   const stats = getCompletionStats(recipe, '2-3 servings');
   if (stats.calories === 0) return 0;
 
+  // Pantry ingredient match
+  let pantryScore = 0;
+  const recipeIngs = (recipe.ingredients?.['2-3 servings'] ?? []).map((i) => i.name.toLowerCase());
+  if (pantryNames.length > 0 && recipeIngs.length > 0) {
+    const matched = recipeIngs.filter((ing) =>
+      pantryNames.some((pn) => ing.includes(pn) || pn.includes(ing))
+    );
+    pantryScore = matched.length / recipeIngs.length;
+  }
+
+  // If pantryOnly and less than 50% match, reject
+  if (pantryOnly && pantryScore < 0.5) return 0;
+
   // Calorie proximity (±20% is ideal)
-  const calDiff = Math.abs(stats.calories - targetCal) / targetCal;
-  const calScore = Math.max(0, 1 - calDiff); // 1.0 = perfect, 0 = way off
+  const calDiff = Math.abs(stats.calories - targetCal) / Math.max(targetCal, 1);
+  const calScore = Math.max(0, 1 - calDiff);
 
   // Protein proximity
   const protDiff = Math.abs(stats.proteinG - targetProtein) / Math.max(targetProtein, 1);
   const protScore = Math.max(0, 1 - protDiff);
 
-  // Pantry ingredient match bonus
-  let pantryScore = 0;
-  if (pantryNames.length > 0) {
-    const recipeIngs = (recipe.ingredients?.['2-3 servings'] ?? []).map((i) => i.name.toLowerCase());
-    const matched = recipeIngs.filter((ing) =>
-      pantryNames.some((pn) => ing.includes(pn) || pn.includes(ing))
-    );
-    pantryScore = recipeIngs.length > 0 ? matched.length / recipeIngs.length : 0;
-  }
+  // Carbs proximity
+  const carbDiff = Math.abs(stats.carbsG - targetCarbs) / Math.max(targetCarbs, 1);
+  const carbScore = Math.max(0, 1 - carbDiff);
 
-  // Weighted: calories 40%, protein 40%, pantry 20%
-  return calScore * 0.4 + protScore * 0.4 + pantryScore * 0.2;
+  // Fat proximity
+  const fatDiff = Math.abs(stats.fatG - targetFat) / Math.max(targetFat, 1);
+  const fatScore = Math.max(0, 1 - fatDiff);
+
+  // Weighted: cal 25%, protein 35%, carbs 15%, fat 10%, pantry 15%
+  return calScore * 0.25 + protScore * 0.35 + carbScore * 0.15 + fatScore * 0.10 + pantryScore * 0.15;
 }
 
 // ═══════════════════════════════════════
@@ -129,7 +152,7 @@ async function getAllRecipes(): Promise<SavedRecipe[]> {
 // PLACEHOLDER RECIPE FOR AI GENERATION
 // ═══════════════════════════════════════
 
-function createPlaceholderRecipe(slot: MealSlot, targetCal: number, targetProtein: number): SavedRecipe {
+function createPlaceholderRecipe(slot: MealSlot, targetCal: number, targetProtein: number, targetCarbs: number, targetFat: number): SavedRecipe {
   const slotNames: Record<MealSlot, string> = {
     breakfast: 'High-Protein Breakfast',
     lunch_dinner: 'High-Protein Meal',
@@ -152,6 +175,16 @@ function createPlaceholderRecipe(slot: MealSlot, targetCal: number, targetProtei
     mealType: slot,
     status: 'building',
     source: 'ai',
+    // Store target macros as batch values (×2.5 so getCompletionStats divides back to per-serving)
+    aiNutrition: {
+      calories: Math.round(targetCal * 2.5),
+      proteinG: Math.round(targetProtein * 2.5),
+      carbsG: Math.round(targetCarbs * 2.5),
+      fatG: Math.round(targetFat * 2.5),
+      fiberG: 0,
+      sugarG: 0,
+      sodiumMg: 0,
+    },
   };
 }
 
@@ -179,6 +212,9 @@ export async function generateAutoMealPlan(
 
     const slotTargets = getSlotTargets(prefs);
 
+    // Day 1 picks — reused for all 7 days when samePlanEveryDay is true
+    let day1Picks: { slot: MealSlot; recipeId: string; recipeName: string; proteinName: string; proteinEmoji: string; mealType?: string; isPlaceholder: boolean }[] = [];
+
     // Generate for 7 days
     for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
       const d = new Date(prefs.startDate);
@@ -194,14 +230,32 @@ export async function generateAutoMealPlan(
         await removeFromMealPlan(entry.id, entry.date);
       }
 
-      // Track used recipe IDs this week to avoid repeats
+      // If same plan every day and we already have day 1 picks, replicate
+      if (prefs.samePlanEveryDay && dayOffset > 0 && day1Picks.length > 0) {
+        for (const pick of day1Picks) {
+          const addResult = await addToMealPlan(dateStr, pick.slot, {
+            id: pick.recipeId,
+            name: pick.recipeName,
+            proteinName: pick.proteinName,
+            proteinEmoji: pick.proteinEmoji,
+            mealType: pick.mealType,
+          });
+          if (addResult.success) {
+            result.totalFilled++;
+            if (pick.isPlaceholder) result.aiGenerated++;
+            else result.fromLibrary++;
+          }
+        }
+        continue;
+      }
+
+      // Track used recipe IDs this week to avoid repeats (only when different each day)
       const usedThisWeek = new Set<string>();
 
-      for (const { slot, targetCal, targetProtein } of slotTargets) {
+      for (const { slot, targetCal, targetProtein, targetCarbs, targetFat } of slotTargets) {
         // Score all eligible recipes for this slot
         const slotRecipes = eligible
           .filter((r) => {
-            // Match meal type
             if (slot === 'breakfast' && r.mealType && r.mealType !== 'breakfast') return false;
             if (slot === 'snack_dessert' && r.mealType && r.mealType !== 'snack_dessert') return false;
             return true;
@@ -209,14 +263,14 @@ export async function generateAutoMealPlan(
           .filter((r) => !usedThisWeek.has(r.id))
           .map((r) => ({
             recipe: r,
-            score: scoreRecipeForSlot(r, targetCal, targetProtein, pantryNames),
+            score: scoreRecipeForSlot(r, targetCal, targetProtein, targetCarbs, targetFat, pantryNames, prefs.pantryOnly),
           }))
+          .filter((r) => r.score > 0) // Remove zero-scored (pantryOnly rejects)
           .sort((a, b) => b.score - a.score);
 
         const bestMatch = slotRecipes[0];
 
         if (bestMatch && bestMatch.score > 0.4) {
-          // Use library recipe
           const r = bestMatch.recipe;
           const addResult = await addToMealPlan(dateStr, slot, {
             id: r.id,
@@ -229,10 +283,11 @@ export async function generateAutoMealPlan(
             result.fromLibrary++;
             result.totalFilled++;
             usedThisWeek.add(r.id);
+            if (dayOffset === 0) day1Picks.push({ slot, recipeId: r.id, recipeName: r.name, proteinName: r.proteinName, proteinEmoji: r.proteinEmoji, mealType: r.mealType, isPlaceholder: false });
           }
         } else {
           // Create placeholder — hero image only, full recipe generated on tap
-          const placeholder = createPlaceholderRecipe(slot, targetCal, targetProtein);
+          const placeholder = createPlaceholderRecipe(slot, targetCal, targetProtein, targetCarbs, targetFat);
 
           try {
             // Generate hero image only
@@ -261,6 +316,7 @@ export async function generateAutoMealPlan(
           if (addResult.success) {
             result.aiGenerated++;
             result.totalFilled++;
+            if (dayOffset === 0) day1Picks.push({ slot, recipeId: placeholder.id, recipeName: placeholder.name, proteinName: placeholder.proteinName, proteinEmoji: placeholder.proteinEmoji, mealType: placeholder.mealType, isPlaceholder: true });
           }
         }
       }

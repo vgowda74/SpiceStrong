@@ -112,10 +112,15 @@ export function ProfileMenu() {
     closeMenu(() => router.push('/screens/MyPantryScreen'));
   };
 
+  const handleAutoMealPlan = () => {
+    closeMenu(() => router.push('/screens/AutoMealPlanScreen'));
+  };
+
   const MENU_ITEMS: MenuItem[] = [
     { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
     { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
-    { icon: 'calendar-outline', label: 'Meal Plan', onPress: handleMealPlan },
+    { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
+    { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
     { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
     { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },
   ];

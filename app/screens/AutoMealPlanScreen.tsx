@@ -63,9 +63,13 @@ export default function AutoMealPlanScreen() {
   // Step 1: Targets
   const [calories, setCalories] = useState('2000');
   const [protein, setProtein] = useState('150');
+  const [carbs, setCarbs] = useState('200');
+  const [fat, setFat] = useState('65');
 
-  // Step 2: Slots
+  // Step 2: Slots + options
   const [selectedSlots, setSelectedSlots] = useState<Set<number>>(new Set([0, 1, 2])); // breakfast, lunch, dinner default
+  const [samePlanEveryDay, setSamePlanEveryDay] = useState(true);
+  const [pantryOnly, setPantryOnly] = useState(false);
 
   // Step 3: Generating
   const [genProgress, setGenProgress] = useState('');
@@ -105,8 +109,12 @@ export default function AutoMealPlanScreen() {
     const prefs: AutoPlanPreferences = {
       dailyCalories: cal,
       dailyProteinG: prot,
+      dailyCarbsG: Math.max(0, Number(carbs) || 200),
+      dailyFatG: Math.max(0, Number(fat) || 65),
       slots,
       startDate,
+      samePlanEveryDay,
+      pantryOnly,
     };
 
     const result = await generateAutoMealPlan(prefs, setGenProgress);
@@ -157,19 +165,22 @@ export default function AutoMealPlanScreen() {
               </View>
             </View>
 
-            <View style={styles.targetCard}>
-              <Text style={[styles.targetLabel, { color: ORANGE }]}>Daily Protein</Text>
-              <View style={styles.targetInputRow}>
-                <TextInput
-                  style={styles.targetInput}
-                  value={protein}
-                  onChangeText={setProtein}
-                  keyboardType="numeric"
-                  returnKeyType="done"
-                  placeholder="150"
-                  placeholderTextColor="rgba(255,255,255,0.20)"
-                />
-                <Text style={styles.targetUnit}>grams</Text>
+            {/* Macro row: Protein, Carbs, Fat side by side */}
+            <View style={styles.macroInputRow}>
+              <View style={styles.macroInputCard}>
+                <Text style={[styles.macroInputLabel, { color: ORANGE }]}>Protein</Text>
+                <TextInput style={styles.macroInput} value={protein} onChangeText={setProtein} keyboardType="numeric" returnKeyType="done" placeholder="150" placeholderTextColor="rgba(255,255,255,0.20)" />
+                <Text style={styles.macroInputUnit}>g</Text>
+              </View>
+              <View style={styles.macroInputCard}>
+                <Text style={styles.macroInputLabel}>Carbs</Text>
+                <TextInput style={styles.macroInput} value={carbs} onChangeText={setCarbs} keyboardType="numeric" returnKeyType="done" placeholder="200" placeholderTextColor="rgba(255,255,255,0.20)" />
+                <Text style={styles.macroInputUnit}>g</Text>
+              </View>
+              <View style={styles.macroInputCard}>
+                <Text style={styles.macroInputLabel}>Fat</Text>
+                <TextInput style={styles.macroInput} value={fat} onChangeText={setFat} keyboardType="numeric" returnKeyType="done" placeholder="65" placeholderTextColor="rgba(255,255,255,0.20)" />
+                <Text style={styles.macroInputUnit}>g</Text>
               </View>
             </View>
 
@@ -177,14 +188,14 @@ export default function AutoMealPlanScreen() {
             <Text style={styles.presetLabel}>QUICK PRESETS</Text>
             <View style={styles.presetRow}>
               {[
-                { label: 'Fat Loss', cal: '1600', prot: '140' },
-                { label: 'Maintenance', cal: '2000', prot: '150' },
-                { label: 'Muscle Gain', cal: '2500', prot: '180' },
+                { label: 'Fat Loss', cal: '1600', prot: '140', carb: '120', f: '55' },
+                { label: 'Maintenance', cal: '2000', prot: '150', carb: '200', f: '65' },
+                { label: 'Muscle Gain', cal: '2500', prot: '180', carb: '280', f: '75' },
               ].map((p) => (
                 <TouchableOpacity
                   key={p.label}
                   style={[styles.presetBtn, calories === p.cal && protein === p.prot && styles.presetBtnActive]}
-                  onPress={() => { setCalories(p.cal); setProtein(p.prot); }}
+                  onPress={() => { setCalories(p.cal); setProtein(p.prot); setCarbs(p.carb); setFat(p.f); }}
                   activeOpacity={0.75}
                 >
                   <Text style={[styles.presetBtnText, calories === p.cal && protein === p.prot && styles.presetBtnTextActive]}>{p.label}</Text>
@@ -210,7 +221,7 @@ export default function AutoMealPlanScreen() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.stepTitle}>What meals do you want?</Text>
-            <Text style={styles.stepHint}>Same meals planned for all 7 days</Text>
+            <Text style={styles.stepHint}>Select your daily meal slots</Text>
 
             {SLOT_OPTIONS.map((opt, idx) => {
               const selected = selectedSlots.has(idx);
@@ -233,6 +244,37 @@ export default function AutoMealPlanScreen() {
               );
             })}
 
+            {/* Options */}
+            <View style={styles.optionSection}>
+              <TouchableOpacity
+                style={[styles.optionRow, samePlanEveryDay && styles.optionRowActive]}
+                onPress={() => setSamePlanEveryDay(!samePlanEveryDay)}
+                activeOpacity={0.75}
+              >
+                <View style={styles.optionTextBlock}>
+                  <Text style={styles.optionLabel}>Same plan every day</Text>
+                  <Text style={styles.optionDesc}>Repeat the same meals Mon–Sun for easy meal prep</Text>
+                </View>
+                <View style={[styles.optionToggle, samePlanEveryDay && styles.optionToggleOn]}>
+                  <View style={[styles.optionToggleDot, samePlanEveryDay && styles.optionToggleDotOn]} />
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.optionRow, pantryOnly && styles.optionRowActive]}
+                onPress={() => setPantryOnly(!pantryOnly)}
+                activeOpacity={0.75}
+              >
+                <View style={styles.optionTextBlock}>
+                  <Text style={styles.optionLabel}>Pantry recipes only</Text>
+                  <Text style={styles.optionDesc}>Only use recipes matching your pantry items</Text>
+                </View>
+                <View style={[styles.optionToggle, pantryOnly && styles.optionToggleOn]}>
+                  <View style={[styles.optionToggleDot, pantryOnly && styles.optionToggleDotOn]} />
+                </View>
+              </TouchableOpacity>
+            </View>
+
             {/* Summary */}
             <View style={styles.summaryCard}>
               <Text style={styles.summaryTitle}>Your Week</Text>
@@ -240,8 +282,10 @@ export default function AutoMealPlanScreen() {
                 {selectedSlots.size} meals/day × 7 days = {selectedSlots.size * 7} meals
               </Text>
               <Text style={styles.summaryText}>
-                ~{calories} cal/day · ~{protein}g protein/day
+                ~{calories} cal · ~{protein}g P · ~{carbs}g C · ~{fat}g F per day
               </Text>
+              {samePlanEveryDay && <Text style={styles.summaryText}>Same meals every day</Text>}
+              {pantryOnly && <Text style={[styles.summaryText, { color: ORANGE }]}>🛒 Pantry recipes only</Text>}
             </View>
           </ScrollView>
 
@@ -345,6 +389,76 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   targetUnit: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.40)', width: 50 },
+
+  // Macro input row (Protein, Carbs, Fat)
+  macroInputRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  macroInputCard: {
+    flex: 1,
+    backgroundColor: SURFACE,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 12,
+    alignItems: 'center',
+    gap: 6,
+  },
+  macroInputLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.5,
+  },
+  macroInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  macroInputUnit: { fontSize: 11, color: 'rgba(255,255,255,0.35)' },
+
+  // Options (same plan, pantry only)
+  optionSection: { marginTop: 16, gap: 8 },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: SURFACE,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  optionRowActive: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.08)' },
+  optionTextBlock: { flex: 1 },
+  optionLabel: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  optionDesc: { fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 2 },
+  optionToggle: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  optionToggleOn: { backgroundColor: ORANGE },
+  optionToggleDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.50)',
+  },
+  optionToggleDotOn: {
+    backgroundColor: '#FFFFFF',
+    alignSelf: 'flex-end',
+  },
 
   presetLabel: {
     fontSize: 11,
