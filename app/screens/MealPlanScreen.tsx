@@ -284,6 +284,7 @@ export default function MealPlanScreen() {
   const [currentDate, setCurrentDate] = useState(today);
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [servings, setServings] = useState(1);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -612,17 +613,34 @@ export default function MealPlanScreen() {
           return { ...entry, recipe: null, imageUri, builtinImage: null, calories, proteinG, carbsG, fatG, isQuickAdd: true };
         }
 
-        // Autoplan placeholders — target macros stored in aiNutrition
+        // Autoplan placeholders — target macros stored in aiNutrition on local recipe
         if (isAutoplan) {
           const recipe = await getRecipeById(entry.recipeId);
           let imageUri = await resolveImage(entry.recipeId, recipe);
           let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
           if (recipe) {
-            const stats = getCompletionStats(recipe, '2-3 servings');
-            calories = stats.calories;
-            proteinG = stats.proteinG;
-            carbsG = stats.carbsG;
-            fatG = stats.fatG;
+            // If recipe has been fully generated (status=ready), use getCompletionStats
+            if (recipe.status === 'ready' && (recipe.aiNutrition || (recipe as any).nutrition)) {
+              const stats = getCompletionStats(recipe, '2-3 servings');
+              calories = stats.calories;
+              proteinG = stats.proteinG;
+              carbsG = stats.carbsG;
+              fatG = stats.fatG;
+            } else if (recipe.aiNutrition) {
+              // Placeholder still building — aiNutrition has target macros (×2.5 batch)
+              calories = Math.round(recipe.aiNutrition.calories / 2.5);
+              proteinG = Math.round(recipe.aiNutrition.proteinG / 2.5);
+              carbsG = Math.round(recipe.aiNutrition.carbsG / 2.5);
+              fatG = Math.round(recipe.aiNutrition.fatG / 2.5);
+            }
+          }
+          // Parse from description as last fallback (e.g. "~500 cal, ~38g protein")
+          if (calories === 0) {
+            const desc = entry.recipeName + ' ' + (recipe?.description ?? '');
+            const calMatch = desc.match(/~?(\d+)\s*cal/i);
+            const proMatch = desc.match(/~?(\d+)g?\s*protein/i);
+            if (calMatch) calories = parseInt(calMatch[1], 10);
+            if (proMatch) proteinG = parseInt(proMatch[1], 10);
           }
           // Override with user correction if available
           try {
@@ -806,8 +824,8 @@ export default function MealPlanScreen() {
     ]);
   };
 
-  // Daily totals
-  const totals = enriched.reduce(
+  // Daily totals (multiplied by servings)
+  const rawTotals = enriched.reduce(
     (acc, e) => ({
       calories: acc.calories + e.calories,
       proteinG: acc.proteinG + e.proteinG,
@@ -816,6 +834,12 @@ export default function MealPlanScreen() {
     }),
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
   );
+  const totals = {
+    calories: rawTotals.calories * servings,
+    proteinG: rawTotals.proteinG * servings,
+    carbsG: rawTotals.carbsG * servings,
+    fatG: rawTotals.fatG * servings,
+  };
 
   const grouped: Record<MealSlot, EnrichedEntry[]> = {
     breakfast: [],
@@ -834,18 +858,7 @@ export default function MealPlanScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Meal Calendar</Text>
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.autoPlanBtn}
-            onPress={() => router.push('/screens/AutoMealPlanScreen')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Text style={styles.autoPlanBtnText}>Auto Plan</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setCurrentDate(today)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={[styles.todayBtn, isToday && styles.todayBtnActive]}>Today</Text>
-          </TouchableOpacity>
-        </View>
+        <View style={{ width: 30 }} />
       </View>
 
       {/* Day navigator */}
@@ -858,11 +871,6 @@ export default function MealPlanScreen() {
             <Text style={styles.dayLabel}>{formatDisplayDate(currentDate)}</Text>
             <Text style={styles.calendarHint}>▾</Text>
           </View>
-          {isToday && (
-            <View style={styles.todayPill}>
-              <Text style={styles.todayPillText}>TODAY</Text>
-            </View>
-          )}
         </TouchableOpacity>
         <TouchableOpacity onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
           <Text style={styles.navArrow}>›</Text>
@@ -970,9 +978,31 @@ export default function MealPlanScreen() {
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
         >
+          {/* Servings selector */}
+          <View style={styles.servingsRow}>
+            <Text style={styles.servingsLabel}>Servings</Text>
+            <View style={styles.servingsControls}>
+              <TouchableOpacity
+                style={styles.servingsBtn}
+                onPress={() => setServings((s) => Math.max(1, s - 1))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.servingsBtnText}>−</Text>
+              </TouchableOpacity>
+              <Text style={styles.servingsValue}>{servings}</Text>
+              <TouchableOpacity
+                style={styles.servingsBtn}
+                onPress={() => setServings((s) => Math.min(6, s + 1))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.servingsBtnText}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           {/* Daily macro summary — always visible */}
           <View style={styles.macroBar}>
-            <Text style={styles.macroBarTitle}>Daily Total · Per Serving</Text>
+            <Text style={styles.macroBarTitle}>Daily Total{servings > 1 ? ` · ${servings} servings` : ''}</Text>
               <View style={styles.macroRow}>
                 <View style={styles.macroItem}>
                   <Text style={styles.macroValue}>{totals.calories}</Text>
@@ -1448,7 +1478,37 @@ const styles = StyleSheet.create({
   },
   calTodayBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
 
-  scroll: { paddingHorizontal: 20, paddingTop: 20 },
+  scroll: { paddingHorizontal: 20, paddingTop: 16 },
+
+  // Servings selector
+  servingsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  servingsLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.55)',
+  },
+  servingsControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  servingsBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  servingsBtnText: { fontSize: 18, fontWeight: '700', color: ORANGE },
+  servingsValue: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', minWidth: 24, textAlign: 'center' },
 
   // Macro summary bar
   macroBar: {
