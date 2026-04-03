@@ -40,7 +40,7 @@ import {
   type MealSlot,
 } from '../../services/mealPlanService';
 import { getRecipeById, getCompletionStats, type SavedRecipe } from '../../src/store/recipes';
-import { getRecipeImageUrls } from '../../services/recipeService';
+import { getRecipeImageUrls, saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { analyzeNutrition } from '../../services/nutritionService';
@@ -287,6 +287,7 @@ export default function MealPlanScreen() {
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [correcting, setCorrecting] = useState(false);
   const [correctedMacros, setCorrectedMacros] = useState<{ calories: number; proteinG: number; carbsG: number; fatG: number } | null>(null);
   const [correctionPhoto, setCorrectionPhoto] = useState<string | null>(null);
@@ -678,6 +679,119 @@ export default function MealPlanScreen() {
     setCurrentDate(stringFromDate(d));
   };
 
+  // Background AI recipe generation for autoplan placeholders
+  const handleGenerateRecipe = async (entry: EnrichedEntry) => {
+    if (generatingIds.has(entry.id)) return;
+    setGeneratingIds((prev) => new Set(prev).add(entry.id));
+
+    try {
+      // Dynamically import the AI builder's callClaudeAPI + saveRecipeFromAI
+      const { callClaudeAPI, saveRecipeFromAI } = require('./AIRecipeBuilderScreen');
+
+      // Determine protein from entry name/description or default
+      const proteinId = entry.recipe?.proteinId || 'chicken';
+      const proteinName = entry.recipe?.proteinName || 'Chicken';
+      const proteinEmoji = entry.proteinEmoji || '🍗';
+      const mealSlot = entry.slot;
+
+      // Use the spiceBuilderPrompt via a simplified Claude call
+      const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (!ANTHROPIC_KEY) throw new Error('No API key');
+
+      const { buildSpiceBuilderPrompt } = require('../../src/prompts/spiceBuilderPrompt');
+      const systemPrompt = buildSpiceBuilderPrompt(proteinId, proteinName, {
+        mealType: mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack' : 'Lunch/Dinner',
+        dietary: [],
+        cuisine: '',
+      }, proteinEmoji);
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: `Generate a high-protein ${mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack' : 'meal'} recipe for ${proteinName}. Target: ~${entry.calories} cal, ~${entry.proteinG}g protein per serving.` }],
+        }),
+      });
+
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const data = await res.json();
+      const text = data.content?.[0]?.text || '';
+
+      // Extract JSON
+      const start = text.indexOf('{');
+      let depth = 0, end = -1;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+      }
+      if (end === -1) throw new Error('Could not parse recipe');
+      const recipeData = JSON.parse(text.slice(start, end));
+
+      // Build SavedRecipe
+      const newRecipe: SavedRecipe = {
+        id: entry.recipeId, // keep the same ID
+        name: String(recipeData.name || `${proteinName} Recipe`),
+        proteinId,
+        proteinName,
+        proteinEmoji,
+        description: String(recipeData.description || ''),
+        ingredients: recipeData.ingredients || { '2-3 servings': [], '4-6 servings': [] },
+        steps: (recipeData.steps || []).map((s: any) => ({
+          title: String(s.title || ''),
+          description: String(s.description || ''),
+          emoji: s.emoji || '',
+          timerMinutes: s.timerMinutes || undefined,
+          tip: s.tip || undefined,
+        })),
+        chefTip: String(recipeData.chefTip || ''),
+        createdAt: Date.now(),
+        mealType: mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack_dessert' : 'lunch_dinner',
+        status: 'ready',
+        source: 'ai',
+        aiNutrition: recipeData.aiNutrition || entry.recipe?.aiNutrition,
+      };
+
+      // Save recipe locally + Supabase (under correct protein group)
+      await saveAIRecipe(newRecipe);
+
+      // Generate images
+      const { generateAllRecipeImages, saveRecipeImages } = require('../../services/imageGenerationService');
+      const imageResults = await generateAllRecipeImages({
+        id: newRecipe.id,
+        name: newRecipe.name,
+        ingredients: newRecipe.ingredients,
+        steps: newRecipe.steps,
+      });
+      await saveRecipeImages(newRecipe.id, imageResults);
+
+      if (imageResults.dishImage) {
+        uploadRecipeHeroImage(newRecipe.id, imageResults.dishImage).catch(() => {});
+      }
+
+      // Classify
+      try { await classifyAndEnrichRecipe(newRecipe); } catch {}
+
+      // Mark ready
+      updateRecipeStatus(newRecipe.id, 'ready').catch(() => {});
+
+      // Reload entries to show updated card
+      loadEntries(currentDate);
+    } catch (err) {
+      console.error('[SpiceStrong] Background recipe generation failed:', err);
+      Alert.alert('Generation Failed', 'Could not generate recipe. Try again.');
+    } finally {
+      setGeneratingIds((prev) => { const next = new Set(prev); next.delete(entry.id); return next; });
+    }
+  };
+
   const handleRemove = (entry: MealPlanEntry) => {
     Alert.alert('Remove from Meal Plan', `Remove "${entry.recipeName}"?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -894,16 +1008,13 @@ export default function MealPlanScreen() {
                 </View>
 
                 {slotEntries.map((entry) => {
-                    const isAutoplanPlaceholder = entry.recipeId.startsWith('autoplan_');
+                    const isAutoplanPlaceholder = entry.recipeId.startsWith('autoplan_') && entry.recipe?.status === 'building';
+                    const isGenerating = generatingIds.has(entry.id);
                     const handleCardTap = () => {
+                      if (isGenerating) return;
                       if (isAutoplanPlaceholder) {
-                        // Navigate to AI builder to generate the full recipe
-                        router.push({
-                          pathname: '/screens/AIRecipeBuilderScreen',
-                          params: { proteinId: 'chicken', proteinName: entry.proteinName || 'Chicken', proteinEmoji: entry.proteinEmoji || '🍽' },
-                        });
+                        handleGenerateRecipe(entry);
                       } else if (!entry.isQuickAdd) {
-                        // Navigate to recipe overview
                         router.push({
                           pathname: '/screens/RecipeOverviewScreen',
                           params: { recipeId: entry.recipeId, quantityTier: '2-3 servings' },
@@ -912,82 +1023,53 @@ export default function MealPlanScreen() {
                     };
                     return (
                       <TouchableOpacity key={entry.id} style={styles.card} onPress={handleCardTap} activeOpacity={0.85}>
-                        {/* Hero image */}
+                        {/* Full hero with overlaid info */}
                         <View style={styles.cardHero}>
                           {entry.imageUri ? (
-                            <Image
-                              source={{ uri: entry.imageUri }}
-                              style={styles.cardHeroImg}
-                              contentFit="cover"
-                            />
+                            <Image source={{ uri: entry.imageUri }} style={styles.cardHeroImg} contentFit="cover" />
                           ) : entry.builtinImage ? (
-                            <Image
-                              source={entry.builtinImage}
-                              style={styles.cardHeroImg}
-                              contentFit="cover"
-                            />
+                            <Image source={entry.builtinImage} style={styles.cardHeroImg} contentFit="cover" />
                           ) : (
-                            <LinearGradient
-                              colors={['#3D1A0A', '#1A0500']}
-                              style={styles.cardHeroFallback}
-                            >
+                            <LinearGradient colors={['#3D1A0A', '#1A0500']} style={styles.cardHeroFallback}>
                               <Text style={styles.cardHeroEmoji}>{entry.proteinEmoji}</Text>
                             </LinearGradient>
                           )}
-                          <LinearGradient
-                            colors={['transparent', 'rgba(0,0,0,0.75)']}
-                            style={styles.cardHeroGradient}
-                          />
-                          {/* Remove button */}
-                          <TouchableOpacity
-                            style={styles.removeBtn}
-                            onPress={() => handleRemove(entry)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Text style={styles.removeBtnText}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
+                          {/* Top gradient for macro pills */}
+                          <LinearGradient colors={['rgba(0,0,0,0.65)', 'transparent']} style={styles.cardTopGradient} />
+                          {/* Bottom gradient for title */}
+                          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.80)']} style={styles.cardHeroGradient} />
 
-                        {/* Card body */}
-                        <View style={styles.cardBody}>
-                          <View style={styles.cardTitleRow}>
-                            <Text style={styles.cardTitle} numberOfLines={2}>{entry.recipeName}</Text>
-                          </View>
-                          <View style={styles.cardMeta}>
-                            <View style={styles.cardPill}>
-                              <Text style={styles.cardPillText}>{entry.proteinEmoji} {entry.proteinName}</Text>
+                          {/* Top row: macros + remove */}
+                          <View style={styles.cardTopRow}>
+                            <View style={styles.cardMacroPills}>
+                              {entry.calories > 0 && <Text style={styles.cardMacroPill}>🔥 {entry.calories}</Text>}
+                              {entry.proteinG > 0 && <Text style={[styles.cardMacroPill, styles.cardMacroPillProtein]}>💪 {entry.proteinG}g</Text>}
+                              {entry.carbsG > 0 && <Text style={styles.cardMacroPill}>🌾 {entry.carbsG}g</Text>}
+                              {entry.fatG > 0 && <Text style={styles.cardMacroPill}>🥑 {entry.fatG}g</Text>}
                             </View>
-                            {entry.calories > 0 && (
-                              <View style={styles.cardPill}>
-                                <Text style={styles.cardPillText}>🔥 {entry.calories} kcal</Text>
-                              </View>
-                            )}
-                            {entry.proteinG > 0 && (
-                              <View style={[styles.cardPill, styles.cardPillProtein]}>
-                                <Text style={[styles.cardPillText, styles.cardPillProteinText]}>💪 {entry.proteinG}g protein</Text>
-                              </View>
-                            )}
+                            <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(entry)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                              <Text style={styles.removeBtnText}>✕</Text>
+                            </TouchableOpacity>
                           </View>
-                          {entry.carbsG > 0 || entry.fatG > 0 ? (
-                            <View style={styles.cardMacroRow}>
-                              {entry.carbsG > 0 && (
-                                <Text style={styles.cardMacroText}>Carbs {entry.carbsG}g</Text>
+
+                          {/* Bottom: title + correct macros */}
+                          <View style={styles.cardBottomRow}>
+                            <Text style={styles.cardOverlayTitle} numberOfLines={2}>{entry.recipeName}</Text>
+                            <View style={styles.cardBottomActions}>
+                              <TouchableOpacity style={styles.correctBtnOverlay} onPress={(e) => { e.stopPropagation(); openCorrectMacros(entry); }} activeOpacity={0.75}>
+                                <Text style={styles.correctBtnOverlayText}>📸 Macros</Text>
+                              </TouchableOpacity>
+                              {isAutoplanPlaceholder && !isGenerating && (
+                                <Text style={styles.tapToGenerate}>Tap to generate</Text>
                               )}
-                              {entry.carbsG > 0 && entry.fatG > 0 && (
-                                <Text style={styles.cardMacroDot}>·</Text>
-                              )}
-                              {entry.fatG > 0 && (
-                                <Text style={styles.cardMacroText}>Fat {entry.fatG}g</Text>
+                              {isGenerating && (
+                                <View style={styles.generatingRow}>
+                                  <ActivityIndicator color="#FFFFFF" size="small" />
+                                  <Text style={styles.generatingText}>Generating...</Text>
+                                </View>
                               )}
                             </View>
-                          ) : null}
-                          <TouchableOpacity
-                            style={styles.correctBtn}
-                            onPress={() => openCorrectMacros(entry)}
-                            activeOpacity={0.75}
-                          >
-                            <Text style={styles.correctBtnText}>📸 Correct Macros</Text>
-                          </TouchableOpacity>
+                          </View>
                         </View>
                       </TouchableOpacity>
                     );
@@ -1117,7 +1199,7 @@ export default function MealPlanScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Correct Macros Modal */}
+      {/* Correct Macros Modal — Two options: Upload Picture OR Enter Manually */}
       <Modal visible={!!correctEntry} transparent animationType="fade" onRequestClose={() => { Keyboard.dismiss(); closeCorrectMacros(); }} statusBarTranslucent>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.cmBackdrop} onPress={() => { Keyboard.dismiss(); closeCorrectMacros(); }}>
@@ -1128,7 +1210,7 @@ export default function MealPlanScreen() {
 
             {/* Current macros */}
             <View style={styles.cmSection}>
-              <Text style={styles.cmSectionLabel}>CURRENT ESTIMATE</Text>
+              <Text style={styles.cmSectionLabel}>CURRENT</Text>
               <View style={styles.cmMacroRow}>
                 <Text style={styles.cmMacroVal}>{correctEntry?.calories ?? 0} kcal</Text>
                 <Text style={styles.cmMacroDot}>·</Text>
@@ -1140,99 +1222,56 @@ export default function MealPlanScreen() {
               </View>
             </View>
 
-            {/* Manual entry mode */}
-            {manualMode && (
-              <View style={styles.cmManualWrap}>
-                <Text style={styles.cmSectionLabel}>ENTER MACROS</Text>
-                <View style={styles.cmManualGrid}>
-                  <View style={styles.cmManualField}>
-                    <Text style={styles.cmManualLabel}>Calories</Text>
-                    <TextInput
-                      style={styles.cmManualInput}
-                      value={manualCal}
-                      onChangeText={setManualCal}
-                      keyboardType="numeric"
-                      returnKeyType="done"
-                      placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.20)"
-                    />
-                  </View>
-                  <View style={styles.cmManualField}>
-                    <Text style={[styles.cmManualLabel, { color: ORANGE }]}>Protein (g)</Text>
-                    <TextInput
-                      style={styles.cmManualInput}
-                      value={manualProtein}
-                      onChangeText={setManualProtein}
-                      keyboardType="numeric"
-                      returnKeyType="done"
-                      placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.20)"
-                    />
-                  </View>
-                  <View style={styles.cmManualField}>
-                    <Text style={styles.cmManualLabel}>Carbs (g)</Text>
-                    <TextInput
-                      style={styles.cmManualInput}
-                      value={manualCarbs}
-                      onChangeText={setManualCarbs}
-                      keyboardType="numeric"
-                      returnKeyType="done"
-                      placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.20)"
-                    />
-                  </View>
-                  <View style={styles.cmManualField}>
-                    <Text style={styles.cmManualLabel}>Fat (g)</Text>
-                    <TextInput
-                      style={styles.cmManualInput}
-                      value={manualFat}
-                      onChangeText={setManualFat}
-                      keyboardType="numeric"
-                      returnKeyType="done"
-                      placeholder="0"
-                      placeholderTextColor="rgba(255,255,255,0.20)"
-                    />
-                  </View>
-                </View>
-                <View style={styles.cmBtnRow}>
-                  <TouchableOpacity style={styles.cmApplyBtn} onPress={applyManualEntry} activeOpacity={0.8}>
-                    <Text style={styles.cmApplyBtnText}>Save Macros</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.cmRetryBtn} onPress={() => setManualMode(false)} activeOpacity={0.75}>
-                    <Text style={styles.cmRetryBtnText}>Back</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            {/* Photo upload */}
-            {!correctionPhoto && !correcting && !manualMode && (
-              <View style={styles.cmPhotoActions}>
-                <Text style={styles.cmPhotoHint}>Take a photo of your meal or its nutrition label to get accurate macros</Text>
-                <View style={styles.cmBtnRow}>
-                  <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickPhoto(true)} activeOpacity={0.75}>
-                    <Text style={styles.cmPhotoBtnText}>📷 Camera</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickPhoto(false)} activeOpacity={0.75}>
-                    <Text style={styles.cmPhotoBtnText}>🖼 Gallery</Text>
-                  </TouchableOpacity>
-                </View>
-                <TouchableOpacity
-                  onPress={() => {
-                    setManualMode(true);
-                    setManualCal(String(correctEntry?.calories ?? ''));
-                    setManualProtein(String(correctEntry?.proteinG ?? ''));
-                    setManualCarbs(String(correctEntry?.carbsG ?? ''));
-                    setManualFat(String(correctEntry?.fatG ?? ''));
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.cmManualLink}>or enter macros manually</Text>
+            {/* Option selection — only when no mode is active */}
+            {!manualMode && !correctionPhoto && !correcting && (
+              <View style={styles.cmOptions}>
+                <TouchableOpacity style={styles.cmOptionCard} onPress={() => pickPhoto(true)} activeOpacity={0.75}>
+                  <Text style={styles.cmOptionEmoji}>📷</Text>
+                  <Text style={styles.cmOptionLabel}>Upload Picture</Text>
+                  <Text style={styles.cmOptionDesc}>Snap your meal or nutrition label</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cmOptionCard} onPress={() => {
+                  setManualMode(true);
+                  setManualCal(String(correctEntry?.calories ?? ''));
+                  setManualProtein(String(correctEntry?.proteinG ?? ''));
+                  setManualCarbs(String(correctEntry?.carbsG ?? ''));
+                  setManualFat(String(correctEntry?.fatG ?? ''));
+                }} activeOpacity={0.75}>
+                  <Text style={styles.cmOptionEmoji}>✏️</Text>
+                  <Text style={styles.cmOptionLabel}>Enter Manually</Text>
+                  <Text style={styles.cmOptionDesc}>Type in calories & macros</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* Analyzing state */}
+            {/* Manual entry */}
+            {manualMode && (
+              <View style={styles.cmManualWrap}>
+                <View style={styles.cmManualGrid}>
+                  <View style={styles.cmManualField}>
+                    <Text style={styles.cmManualLabel}>Calories</Text>
+                    <TextInput style={styles.cmManualInput} value={manualCal} onChangeText={setManualCal} keyboardType="numeric" returnKeyType="done" placeholder="0" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  </View>
+                  <View style={styles.cmManualField}>
+                    <Text style={[styles.cmManualLabel, { color: ORANGE }]}>Protein (g)</Text>
+                    <TextInput style={styles.cmManualInput} value={manualProtein} onChangeText={setManualProtein} keyboardType="numeric" returnKeyType="done" placeholder="0" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  </View>
+                  <View style={styles.cmManualField}>
+                    <Text style={styles.cmManualLabel}>Carbs (g)</Text>
+                    <TextInput style={styles.cmManualInput} value={manualCarbs} onChangeText={setManualCarbs} keyboardType="numeric" returnKeyType="done" placeholder="0" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  </View>
+                  <View style={styles.cmManualField}>
+                    <Text style={styles.cmManualLabel}>Fat (g)</Text>
+                    <TextInput style={styles.cmManualInput} value={manualFat} onChangeText={setManualFat} keyboardType="numeric" returnKeyType="done" placeholder="0" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  </View>
+                </View>
+                <TouchableOpacity style={styles.cmApplyBtn} onPress={applyManualEntry} activeOpacity={0.8}>
+                  <Text style={styles.cmApplyBtnText}>Save Macros</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Analyzing */}
             {correcting && (
               <View style={styles.cmAnalyzing}>
                 <ActivityIndicator color={ORANGE} size="small" />
@@ -1240,13 +1279,12 @@ export default function MealPlanScreen() {
               </View>
             )}
 
-            {/* Photo preview + results */}
+            {/* Photo results */}
             {correctionPhoto && !correcting && !manualMode && (
               <View style={styles.cmResultWrap}>
                 <Image source={{ uri: correctionPhoto }} style={styles.cmPhotoPreview} contentFit="cover" />
                 {correctedMacros && (
                   <>
-                    <Text style={styles.cmSectionLabel}>AI-ESTIMATED MACROS</Text>
                     <View style={styles.cmMacroRow}>
                       <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.calories} kcal</Text>
                       <Text style={styles.cmMacroDot}>·</Text>
@@ -1258,7 +1296,7 @@ export default function MealPlanScreen() {
                     </View>
                     <View style={styles.cmBtnRow}>
                       <TouchableOpacity style={styles.cmApplyBtn} onPress={applyCorrection} activeOpacity={0.8}>
-                        <Text style={styles.cmApplyBtnText}>Apply Correction</Text>
+                        <Text style={styles.cmApplyBtnText}>Apply</Text>
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.cmRetryBtn} onPress={() => { setCorrectionPhoto(null); setCorrectedMacros(null); }} activeOpacity={0.75}>
                         <Text style={styles.cmRetryBtnText}>Retake</Text>
@@ -1490,7 +1528,8 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
     }),
   },
-  cardHero: { height: 160, position: 'relative' },
+  // Compact card — everything on hero image
+  cardHero: { height: 180, position: 'relative' },
   cardHeroImg: { width: '100%', height: '100%' },
   cardHeroFallback: {
     width: '100%',
@@ -1499,53 +1538,87 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardHeroEmoji: { fontSize: 56 },
+  cardTopGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+  },
   cardHeroGradient: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 100,
+  },
+
+  // Top row: macro pills + remove
+  cardTopRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    padding: 10,
+  },
+  cardMacroPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, flex: 1, marginRight: 8 },
+  cardMacroPill: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    overflow: 'hidden',
+  },
+  cardMacroPillProtein: {
+    backgroundColor: 'rgba(232,93,38,0.55)',
   },
   removeBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  removeBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  removeBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
 
-  cardBody: { padding: 14 },
-  cardTitleRow: { marginBottom: 10 },
-  cardTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', lineHeight: 22 },
-  cardMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  cardPill: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 20,
-    paddingVertical: 5,
+  // Bottom row: title + correct macros
+  cardBottomRow: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 12,
+  },
+  cardOverlayTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    lineHeight: 20,
+    marginBottom: 6,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  cardBottomActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  correctBtnOverlay: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingVertical: 4,
     paddingHorizontal: 10,
-  },
-  cardPillText: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.75)' },
-  cardPillProtein: {
-    backgroundColor: 'rgba(232,93,38,0.18)',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.35)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
-  cardPillProteinText: { color: ORANGE },
-  cardMacroRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cardMacroText: { fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: '500' },
-  cardMacroDot: { fontSize: 12, color: 'rgba(255,255,255,0.25)' },
-  correctBtn: {
-    marginTop: 10,
-    backgroundColor: 'rgba(232,93,38,0.15)',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.35)',
-  },
-  correctBtnText: { fontSize: 12, fontWeight: '700', color: ORANGE },
+  correctBtnOverlayText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
+  tapToGenerate: { fontSize: 11, fontWeight: '600', color: ORANGE, fontStyle: 'italic' },
+  generatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  generatingText: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.70)' },
 
   // Correct Macros modal
   cmBackdrop: {
@@ -1653,6 +1726,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: ORANGE,
   },
+
+  cmOptions: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  cmOptionCard: {
+    flex: 1,
+    backgroundColor: SURFACE,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingVertical: 18,
+    alignItems: 'center',
+    gap: 6,
+  },
+  cmOptionEmoji: { fontSize: 28 },
+  cmOptionLabel: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  cmOptionDesc: { fontSize: 11, color: 'rgba(255,255,255,0.40)', textAlign: 'center', paddingHorizontal: 8 },
 
   cmManualLink: {
     fontSize: 13,
