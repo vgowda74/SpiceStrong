@@ -284,7 +284,6 @@ export default function MealPlanScreen() {
   const [currentDate, setCurrentDate] = useState(today);
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [servings, setServings] = useState(1);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -659,11 +658,19 @@ export default function MealPlanScreen() {
         const builtinImage = recipe ? getRecipeCardImage(recipe) : null;
         let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
         if (recipe) {
-          const stats = getCompletionStats(recipe, '2-3 servings');
-          calories = stats.calories;
-          proteinG = stats.proteinG;
-          carbsG = stats.carbsG;
-          fatG = stats.fatG;
+          // Pipeline values are already per-serving (highest priority)
+          if (recipe.pipelineCalories || recipe.pipelineProteinG) {
+            calories = recipe.pipelineCalories ?? 0;
+            proteinG = recipe.pipelineProteinG ?? 0;
+            carbsG = recipe.pipelineCarbsG ?? 0;
+            fatG = recipe.pipelineFatG ?? 0;
+          } else {
+            const stats = getCompletionStats(recipe, '2-3 servings');
+            calories = stats.calories;
+            proteinG = stats.proteinG;
+            carbsG = stats.carbsG;
+            fatG = stats.fatG;
+          }
         }
         // Apply saved macro override + hero image if user corrected via photo
         try {
@@ -716,12 +723,9 @@ export default function MealPlanScreen() {
       const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
       if (!ANTHROPIC_KEY) throw new Error('No API key');
 
-      const { buildSpiceBuilderPrompt } = require('../../src/prompts/spiceBuilderPrompt');
-      const systemPrompt = buildSpiceBuilderPrompt(proteinId, proteinName, {
-        mealType: mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack' : 'Lunch/Dinner',
-        dietary: [],
-        cuisine: '',
-      }, proteinEmoji);
+      const { SPICEBUILDER_SYSTEM_PROMPT } = require('../../src/prompts/spiceBuilderPrompt');
+      const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : 'Lunch/Dinner';
+      const systemPrompt = SPICEBUILDER_SYSTEM_PROMPT;
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -735,7 +739,13 @@ export default function MealPlanScreen() {
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
           system: systemPrompt,
-          messages: [{ role: 'user', content: `Generate a high-protein ${mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack' : 'meal'} recipe for ${proteinName}. Target: ~${entry.calories} cal, ~${entry.proteinG}g protein per serving.` }],
+          messages: [{ role: 'user', content: `Generate a high-protein ${mealTypeLabel} recipe.
+- proteinId: "${proteinId}"
+- proteinName: "${proteinName}"
+- proteinEmoji: "${proteinEmoji}"
+- mealType: "${mealTypeLabel}"
+- Target: ~${entry.calories} cal, ~${entry.proteinG}g protein per serving
+- Return ONLY the JSON object with: name, proteinId, proteinName, proteinEmoji, description, ingredients (with "2-3 servings" tier), steps (array with title, description, emoji, timerMinutes, tip), chefTip, mealType, aiNutrition (calories, proteinG, carbsG, fatG, fiberG, sugarG, sodiumMg)` }],
         }),
       });
 
@@ -754,6 +764,31 @@ export default function MealPlanScreen() {
       const recipeData = JSON.parse(text.slice(start, end));
 
       // Build SavedRecipe
+      // Ensure both serving tiers exist — 4-6 is 2× the 2-3 tier
+      const rawIngredients = recipeData.ingredients || {};
+      // Handle various formats: { "2-3 servings": [...] } or just [...]
+      let tier23: any[] = [];
+      if (Array.isArray(rawIngredients)) {
+        tier23 = rawIngredients;
+      } else if (rawIngredients['2-3 servings'] && Array.isArray(rawIngredients['2-3 servings'])) {
+        tier23 = rawIngredients['2-3 servings'];
+      } else {
+        const firstKey = Object.keys(rawIngredients)[0];
+        tier23 = firstKey && Array.isArray(rawIngredients[firstKey]) ? rawIngredients[firstKey] : [];
+      }
+      const tier46 = (rawIngredients['4-6 servings'] && Array.isArray(rawIngredients['4-6 servings']))
+        ? rawIngredients['4-6 servings']
+        : tier23.map((i: any) => {
+        // Double the quantity for 4-6 tier
+        const qty = String(i.quantity || '');
+        const numMatch = qty.match(/^([\d.\/]+)/);
+        if (numMatch) {
+          const num = parseFloat(numMatch[1]) * 2;
+          return { name: i.name, quantity: qty.replace(numMatch[1], String(num)) };
+        }
+        return { name: i.name, quantity: `2x ${qty}` };
+      });
+
       const newRecipe: SavedRecipe = {
         id: entry.recipeId, // keep the same ID
         name: String(recipeData.name || `${proteinName} Recipe`),
@@ -761,7 +796,7 @@ export default function MealPlanScreen() {
         proteinName,
         proteinEmoji,
         description: String(recipeData.description || ''),
-        ingredients: recipeData.ingredients || { '2-3 servings': [], '4-6 servings': [] },
+        ingredients: { '2-3 servings': tier23, '4-6 servings': tier46 },
         steps: (recipeData.steps || []).map((s: any) => ({
           title: String(s.title || ''),
           description: String(s.description || ''),
@@ -824,8 +859,8 @@ export default function MealPlanScreen() {
     ]);
   };
 
-  // Daily totals (multiplied by servings)
-  const rawTotals = enriched.reduce(
+  // Daily totals (per serving — each entry already stores per-serving values)
+  const totals = enriched.reduce(
     (acc, e) => ({
       calories: acc.calories + e.calories,
       proteinG: acc.proteinG + e.proteinG,
@@ -834,12 +869,6 @@ export default function MealPlanScreen() {
     }),
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
   );
-  const totals = {
-    calories: rawTotals.calories * servings,
-    proteinG: rawTotals.proteinG * servings,
-    carbsG: rawTotals.carbsG * servings,
-    fatG: rawTotals.fatG * servings,
-  };
 
   const grouped: Record<MealSlot, EnrichedEntry[]> = {
     breakfast: [],
@@ -978,31 +1007,9 @@ export default function MealPlanScreen() {
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Servings selector */}
-          <View style={styles.servingsRow}>
-            <Text style={styles.servingsLabel}>Servings</Text>
-            <View style={styles.servingsControls}>
-              <TouchableOpacity
-                style={styles.servingsBtn}
-                onPress={() => setServings((s) => Math.max(1, s - 1))}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.servingsBtnText}>−</Text>
-              </TouchableOpacity>
-              <Text style={styles.servingsValue}>{servings}</Text>
-              <TouchableOpacity
-                style={styles.servingsBtn}
-                onPress={() => setServings((s) => Math.min(6, s + 1))}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.servingsBtnText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Daily macro summary — always visible */}
+          {/* Daily macro summary — per serving, always visible */}
           <View style={styles.macroBar}>
-            <Text style={styles.macroBarTitle}>Daily Total{servings > 1 ? ` · ${servings} servings` : ''}</Text>
+            <Text style={styles.macroBarTitle}>Daily Total · Per Serving</Text>
               <View style={styles.macroRow}>
                 <View style={styles.macroItem}>
                   <Text style={styles.macroValue}>{totals.calories}</Text>
@@ -1043,12 +1050,28 @@ export default function MealPlanScreen() {
                     const handleCardTap = () => {
                       if (isGenerating) return;
                       if (isAutoplanPlaceholder) {
+                        // Still building — generate the full recipe in background
                         handleGenerateRecipe(entry);
                       } else if (!entry.isQuickAdd) {
-                        router.push({
-                          pathname: '/screens/RecipeOverviewScreen',
-                          params: { recipeId: entry.recipeId, quantityTier: '2-3 servings' },
-                        });
+                        // Ready recipe — check if it's from meal plan (has servingCount)
+                        const sc = entry.servingCount;
+                        if (sc) {
+                          // Meal plan flow: go to ingredient checklist with exact serving count
+                          router.push({
+                            pathname: '/screens/IngredientChecklistScreen',
+                            params: {
+                              recipeId: entry.recipeId,
+                              quantityTier: sc <= 3 ? '2-3 servings' : '4-6 servings',
+                              mealPlanServings: String(sc),
+                            },
+                          });
+                        } else {
+                          // Regular flow: go to recipe overview
+                          router.push({
+                            pathname: '/screens/RecipeOverviewScreen',
+                            params: { recipeId: entry.recipeId, quantityTier: '2-3 servings' },
+                          });
+                        }
                       }
                     };
                     return (

@@ -172,10 +172,12 @@ function getIngredientCategory(name: string): { label: string; color: string } |
 
 export default function IngredientChecklistScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ recipeId: string; quantityTier?: string }>();
+  const params = useLocalSearchParams<{ recipeId: string; quantityTier?: string; mealPlanServings?: string }>();
   const recipeId = typeof params.recipeId === 'string' ? params.recipeId : Array.isArray(params.recipeId) ? params.recipeId[0] : undefined;
   const quantityTierParam = typeof params.quantityTier === 'string' ? params.quantityTier : Array.isArray(params.quantityTier) ? params.quantityTier[0] : undefined;
   const initialTier = (quantityTierParam && (QUANTITY_TIERS as readonly string[]).includes(quantityTierParam)) ? quantityTierParam as QuantityTier : '2-3 servings';
+  // Meal plan specific serving count — when set, locks the tier and scales ingredients
+  const mealPlanServings = params.mealPlanServings ? parseInt(String(params.mealPlanServings), 10) : null;
 
   // AI-generated ingredient images (loaded from AsyncStorage)
   const [aiImages, setAiImages] = useState<RecipeImageResults | null>(null);
@@ -327,7 +329,26 @@ export default function IngredientChecklistScreen() {
   const tierHasIngredients = (tier: QuantityTier) =>
     (ingredientsByTier[tier]?.filter((i) => i.name.trim()).length ?? 0) > 0;
   const availableTiers = QUANTITY_TIERS.filter(tierHasIngredients);
-  const effectiveTier = availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '2-3 servings';
+  const effectiveTier = mealPlanServings
+    ? (mealPlanServings <= 3 ? '2-3 servings' : '4-6 servings') as QuantityTier
+    : (availableTiers.includes(selectedTier) ? selectedTier : availableTiers[0] ?? '2-3 servings');
+
+  // Scale ingredient quantities for meal plan servings
+  const scaleQuantity = (qty: string, fromServings: number, toServings: number): string => {
+    if (fromServings === toServings) return qty;
+    const ratio = toServings / fromServings;
+    const numMatch = qty.match(/^([\d.\/]+)\s*(.*)/);
+    if (numMatch) {
+      const rawNum = numMatch[1].includes('/')
+        ? numMatch[1].split('/').reduce((a, b) => parseFloat(a as any) / parseFloat(b), 0 as any)
+        : parseFloat(numMatch[1]);
+      const scaled = Math.round(rawNum * ratio * 10) / 10;
+      return `${scaled} ${numMatch[2]}`.trim();
+    }
+    return qty;
+  };
+  const baseServings = effectiveTier === '2-3 servings' ? 2.5 : 5;
+  const targetServings = mealPlanServings ?? baseServings;
 
   // Check for grouped ingredient data (built-in recipes) — now tier-aware
   const recipeGroups = recipeId ? BUILTIN_INGREDIENT_GROUPS[recipeId] : undefined;
@@ -418,7 +439,7 @@ export default function IngredientChecklistScreen() {
             {item.name}
           </Text>
           <Text style={[styles.ingredientSubtitle, isChecked && styles.ingredientSubtitleChecked]} numberOfLines={1}>
-            {item.quantity}
+            {mealPlanServings ? scaleQuantity(item.quantity, baseServings, targetServings) : item.quantity}
           </Text>
           {category && (
             <View style={[styles.categoryTag, { backgroundColor: category.color + '20' }]}>
@@ -453,7 +474,7 @@ export default function IngredientChecklistScreen() {
       <View style={styles.nameSection}>
         <Text style={styles.recipeName}>{recipe.name}</Text>
         <Text style={styles.recipeSubtitle}>
-          {isSingleServing ? '1 Serving' : effectiveTier} • {totalCount} ingredients
+          {mealPlanServings ? `${mealPlanServings} serving${mealPlanServings > 1 ? 's' : ''} (Meal Plan)` : isSingleServing ? '1 Serving' : effectiveTier} • {totalCount} ingredients
         </Text>
       </View>
 

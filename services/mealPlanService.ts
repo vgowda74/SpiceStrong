@@ -37,6 +37,7 @@ export interface MealPlanEntry {
   proteinName: string;
   proteinEmoji: string;
   mealType?: string;
+  servingCount?: number; // exact serving count for autoplan (e.g., 2)
 }
 
 async function getDeviceId(): Promise<string> {
@@ -128,7 +129,7 @@ export async function getMealPlanForMonth(year: number, month: number): Promise<
 export async function addToMealPlan(
   date: string,
   slot: MealSlot,
-  recipe: { id: string; name: string; proteinName: string; proteinEmoji: string; mealType?: string }
+  recipe: { id: string; name: string; proteinName: string; proteinEmoji: string; mealType?: string; servingCount?: number }
 ): Promise<{ success: boolean; error?: string }> {
   // Check slot capacity
   const existing = await getMealPlanForDate(date);
@@ -157,6 +158,7 @@ export async function addToMealPlan(
     proteinName: recipe.proteinName,
     proteinEmoji: recipe.proteinEmoji,
     mealType: recipe.mealType,
+    servingCount: recipe.servingCount,
   };
 
   // Save locally first

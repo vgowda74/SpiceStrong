@@ -65,6 +65,7 @@ export default function AutoMealPlanScreen() {
   const [protein, setProtein] = useState('150');
   const [carbs, setCarbs] = useState('200');
   const [fat, setFat] = useState('65');
+  const [servingCount, setServingCount] = useState(2);
 
   // Step 2: Slots + options
   const [selectedSlots, setSelectedSlots] = useState<Set<number>>(new Set([0, 1, 2])); // breakfast, lunch, dinner default
@@ -115,6 +116,7 @@ export default function AutoMealPlanScreen() {
       startDate,
       samePlanEveryDay,
       pantryOnly,
+      servingCount,
     };
 
     const result = await generateAutoMealPlan(prefs, setGenProgress);
@@ -147,7 +149,24 @@ export default function AutoMealPlanScreen() {
             keyboardDismissMode="on-drag"
           >
             <Text style={styles.stepTitle}>Set your daily targets</Text>
-            <Text style={styles.stepHint}>We'll auto-split across your meals</Text>
+            <Text style={styles.stepHint}>Per person — we'll adjust ingredients accordingly</Text>
+
+            {/* Servings */}
+            <View style={styles.servingsCard}>
+              <Text style={styles.targetLabel}>How many people?</Text>
+              <View style={styles.servingsRow}>
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                  <TouchableOpacity
+                    key={n}
+                    style={[styles.servingsPill, servingCount === n && styles.servingsPillActive]}
+                    onPress={() => setServingCount(n)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.servingsPillText, servingCount === n && styles.servingsPillTextActive]}>{n}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
 
             <View style={styles.targetCard}>
               <Text style={styles.targetLabel}>Daily Calories</Text>
@@ -389,6 +408,29 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   targetUnit: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.40)', width: 50 },
+
+  // Servings selector
+  servingsCard: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+    marginBottom: 14,
+  },
+  servingsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  servingsPill: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  servingsPillActive: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.15)' },
+  servingsPillText: { fontSize: 18, fontWeight: '800', color: 'rgba(255,255,255,0.40)' },
+  servingsPillTextActive: { color: ORANGE },
 
   // Macro input row (Protein, Carbs, Fat)
   macroInputRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },

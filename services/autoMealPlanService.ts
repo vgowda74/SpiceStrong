@@ -31,6 +31,7 @@ export interface AutoPlanPreferences {
   startDate: string;           // YYYY-MM-DD
   samePlanEveryDay: boolean;   // replicate day 1 across all 7 days
   pantryOnly: boolean;         // only use recipes matching pantry items
+  servingCount: number;        // exact number of servings (1-6)
 }
 
 export interface AutoPlanResult {
@@ -239,6 +240,7 @@ export async function generateAutoMealPlan(
             proteinName: pick.proteinName,
             proteinEmoji: pick.proteinEmoji,
             mealType: pick.mealType,
+            servingCount: prefs.servingCount,
           });
           if (addResult.success) {
             result.totalFilled++;
@@ -278,6 +280,7 @@ export async function generateAutoMealPlan(
             proteinName: r.proteinName,
             proteinEmoji: r.proteinEmoji,
             mealType: r.mealType,
+            servingCount: prefs.servingCount,
           });
           if (addResult.success) {
             result.fromLibrary++;
@@ -312,6 +315,7 @@ export async function generateAutoMealPlan(
             proteinName: placeholder.proteinName,
             proteinEmoji: placeholder.proteinEmoji,
             mealType: placeholder.mealType,
+            servingCount: prefs.servingCount,
           });
           if (addResult.success) {
             result.aiGenerated++;
