@@ -75,11 +75,10 @@ const WARM_CREAM = '#FDF8F3';
 const TAB_INACTIVE = 'rgba(255,255,255,0.2)';
 const TAB_ACTIVE_BG = '#1A0A00';
 
-type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites' | 'pantry';
+type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites';
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'pantry', label: '🛒 Pantry' },
   { key: 'breakfast', label: '🌅 Breakfast' },
   { key: 'lunch_dinner', label: '🍽️ Lunch/Dinner' },
   { key: 'snack_dessert', label: '🥜 Snack/Dessert' },
@@ -114,6 +113,7 @@ export default function RecipeListScreen() {
   const [selectedTierByRecipeId, setSelectedTierByRecipeId] = useState<Record<string, QuantityTier>>({});
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [pantryNames, setPantryNames] = useState<string[]>([]);
+  const [pantryFilterOn, setPantryFilterOn] = useState(false);
   // ── Advanced filter state (set via RecipeFilterScreen) ──
   const [filterFitnessGoal, setFilterFitnessGoal] = useState<string | null>(null);
   const [filterProteinRange, setFilterProteinRange] = useState<string | null>(null);
@@ -273,9 +273,13 @@ export default function RecipeListScreen() {
         setPantryNames(pantryNamesArr);
 
         if (cancelled) return;
-        // Filter out deleted + apply dietary restrictions
+        // Filter out deleted, stuck building recipes (>10min old), + apply dietary restrictions
+        const tenMinAgo = Date.now() - 10 * 60 * 1000;
         const filtered_initial = applyDietaryFilter(
-          result.recipes.filter(r => !deletedIdsRef.current.has(r.id)),
+          result.recipes.filter(r =>
+            !deletedIdsRef.current.has(r.id) &&
+            !(r.status === 'building' && r.createdAt < tenMinAgo)
+          ),
           dietary
         );
         setRecipes(filtered_initial);
@@ -327,9 +331,12 @@ export default function RecipeListScreen() {
         // Background refresh from Supabase (stale-while-revalidate)
         result.refresh.then(async (fresh) => {
           if (cancelled || !fresh) return;
-          // Filter out deleted + apply dietary restrictions
+          // Filter out deleted, stuck building recipes, + apply dietary restrictions
           const filtered_fresh = applyDietaryFilter(
-            fresh.filter(r => !deletedIdsRef.current.has(r.id)),
+            fresh.filter(r =>
+              !deletedIdsRef.current.has(r.id) &&
+              !(r.status === 'building' && r.createdAt < tenMinAgo)
+            ),
             dietary
           );
           setRecipes(filtered_fresh);
@@ -632,19 +639,21 @@ export default function RecipeListScreen() {
         // Default to lunch_dinner if no mealType set
         return activeFilter === 'lunch_dinner';
       });
-    } else if (activeFilter === 'pantry') {
-      // Show only recipes whose ingredients match pantry items
-      filtered = recipes.filter((r) => {
+    } else {
+      // favourites
+      filtered = recipes.filter((r) => favourites.includes(r.id));
+    }
+
+    // ── Pantry filter (checkbox, applied on top of any tab) ──
+    if (pantryFilterOn && pantryNames.length > 0) {
+      filtered = filtered.filter((r) => {
         const recipeIngs = (r.ingredients?.['2-3 servings'] ?? []).map((i) => i.name.toLowerCase());
         if (recipeIngs.length === 0) return false;
         const matched = recipeIngs.filter((ing) =>
           pantryNames.some((pn) => ing.includes(pn) || pn.includes(ing))
         );
-        return matched.length >= recipeIngs.length * 0.5; // at least 50% ingredient match
+        return matched.length >= recipeIngs.length * 0.5;
       });
-    } else {
-      // favourites
-      filtered = recipes.filter((r) => favourites.includes(r.id));
     }
 
     // ── Apply advanced filters ──
@@ -748,7 +757,7 @@ export default function RecipeListScreen() {
     }
 
     return filtered;
-  }, [recipes, activeFilter, ratings, favourites, pantryNames,
+  }, [recipes, activeFilter, ratings, favourites, pantryNames, pantryFilterOn,
     filterDifficulty, filterSpice, filterTime, filterFitnessGoal,
     filterProteinRange, filterCarbsRange, filterFatRange, filterMeatType,
     filterCookingMethod, filterCuisine,
@@ -858,38 +867,57 @@ export default function RecipeListScreen() {
           </ScrollView>
         </View>
 
+        {/* Pantry filter checkbox */}
+        {pantryNames.length > 0 && (
+          <TouchableOpacity
+            style={[styles.pantryCheckRow, pantryFilterOn && styles.pantryCheckRowOn]}
+            onPress={() => setPantryFilterOn(!pantryFilterOn)}
+            activeOpacity={0.75}
+          >
+            {/* Vegetable emoji background */}
+            <Text style={styles.pantryBgText}>🥬🥕🍅🥦🌽🫑🧅🥑</Text>
+            <View style={styles.pantryCheckContent}>
+              <View style={[styles.pantryCheckBox, pantryFilterOn && styles.pantryCheckBoxOn]}>
+                {pantryFilterOn && <Text style={styles.pantryCheckMark}>✓</Text>}
+              </View>
+              <View style={styles.pantryCheckTextBlock}>
+                <Text style={[styles.pantryCheckLabel, pantryFilterOn && styles.pantryCheckLabelOn]}>
+                  Cook with my pantry only
+                </Text>
+                <Text style={styles.pantryItemCount}>{pantryNames.length} items in your pantry</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Filter modal removed — now using full-screen RecipeFilterScreen */}
 
-        <View style={styles.actionBtnRow}>
-          <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() =>
-              router.push({
-                pathname: '/screens/AIRecipeBuilderScreen',
-                params: { proteinId, proteinName, proteinEmoji },
-              })
-            }
-            activeOpacity={0.85}
+        <TouchableOpacity
+          style={styles.spiceBuilderCard}
+          onPress={() =>
+            router.push({
+              pathname: '/screens/AIRecipeBuilderScreen',
+              params: { proteinId, proteinName, proteinEmoji },
+            })
+          }
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={['#3D1A0A', '#E85D26', '#1A0500']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.spiceBuilderGradient}
           >
-            <Ionicons name="flash-outline" size={18} color="#E85D26" style={{ marginBottom: 4 }} />
-            <Text style={styles.actionCardTitle}>Build with SpiceBuilder</Text>
-            <Text style={styles.actionCardSub}>Generate a custom recipe</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionCard}
-            onPress={() =>
-              router.push({
-                pathname: '/screens/AddRecipeScreen',
-                params: { proteinId, proteinName, proteinEmoji },
-              })
-            }
-            activeOpacity={0.85}
-          >
-            <Ionicons name="create-outline" size={18} color="#E85D26" style={{ marginBottom: 4 }} />
-            <Text style={styles.actionCardTitle}>Add Your Recipe</Text>
-            <Text style={styles.actionCardSub}>Share your own creation</Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.spiceBuilderContent}>
+              <Text style={styles.spiceBuilderEmoji}>⚡</Text>
+              <View style={styles.spiceBuilderText}>
+                <Text style={styles.spiceBuilderTitle}>Build with SpiceBuilder</Text>
+                <Text style={styles.spiceBuilderSub}>AI generates a custom {proteinName} recipe for you</Text>
+              </View>
+              <Text style={styles.spiceBuilderArrow}>›</Text>
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
 
       <FlatList
         data={listData}
@@ -1157,6 +1185,34 @@ const styles = StyleSheet.create({
 
   tabsWrap: { backgroundColor: 'transparent', paddingVertical: 14 },
   tabsContent: { flexDirection: 'row', gap: 10 },
+  // SpiceBuilder hero card
+  spiceBuilderCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    marginTop: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  spiceBuilderGradient: {
+    borderRadius: 16,
+  },
+  spiceBuilderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    gap: 14,
+  },
+  spiceBuilderEmoji: { fontSize: 28 },
+  spiceBuilderText: { flex: 1 },
+  spiceBuilderTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
+  spiceBuilderSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 2 },
+  spiceBuilderArrow: { fontSize: 24, fontWeight: '700', color: 'rgba(255,255,255,0.60)' },
+
   actionBtnRow: {
     flexDirection: 'row',
     gap: 10,
@@ -1202,6 +1258,61 @@ const styles = StyleSheet.create({
   },
   tabPillText: { fontSize: 14, color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
   tabPillTextActive: { color: '#FFFFFF', fontWeight: '700' },
+  pantryCheckRow: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(34,120,60,0.25)',
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: 'rgba(34,100,50,0.35)',
+  },
+  pantryCheckRowOn: {
+    backgroundColor: 'rgba(34,130,60,0.50)',
+    borderColor: 'rgba(34,200,80,0.60)',
+  },
+  pantryBgText: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    fontSize: 38,
+    letterSpacing: 6,
+    lineHeight: 50,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+    paddingTop: 4,
+  },
+  pantryCheckContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    zIndex: 1,
+  },
+  pantryCheckTextBlock: { flex: 1 },
+  pantryCheckBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.50)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pantryCheckBoxOn: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+  },
+  pantryCheckMark: { color: '#22784C', fontSize: 13, fontWeight: '800' },
+  pantryCheckLabel: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  pantryCheckLabelOn: { color: '#FFFFFF' },
+  pantryItemCount: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.60)', marginTop: 1 },
 
   // Advanced filter icon button
   filterIconBtn: {

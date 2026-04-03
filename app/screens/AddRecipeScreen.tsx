@@ -19,11 +19,12 @@ import { saveAIRecipe, uploadRecipeHeroImage, uploadStepImage, updateRecipeStatu
 import { saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
+import { PROTEINS } from '../../src/theme';
 import VoiceInput from '../../components/VoiceInput';
 
-type WizardStep = 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
-const WIZARD_STEPS: WizardStep[] = ['basics', 'ingredients', 'steps', 'hero', 'review'];
-const STEP_LABELS = ['Basics', 'Ingredients', 'Steps', 'Photo', 'Review'];
+type WizardStep = 'image_import' | 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
+const WIZARD_STEPS: WizardStep[] = ['image_import', 'basics', 'ingredients', 'steps', 'hero', 'review'];
+const STEP_LABELS = ['Import', 'Basics', 'Ingredients', 'Steps', 'Photo', 'Review'];
 
 const MEAL_TYPES = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -46,12 +47,26 @@ export default function AddRecipeScreen() {
     proteinName: string;
     proteinEmoji: string;
     editRecipeId?: string;
+    fromMenu?: string;
   }>();
-  const { proteinId, proteinName, proteinEmoji } = params;
+  const { proteinEmoji } = params;
+  const fromMenu = params.fromMenu === 'true';
   const isEditing = !!params.editRecipeId;
 
-  // Wizard state
-  const [currentStep, setCurrentStep] = useState<WizardStep>('basics');
+  // Protein can be overridden when coming from menu (user picks or Claude detects)
+  const [proteinId, setProteinId] = useState(params.proteinId || '');
+  const [proteinName, setProteinName] = useState(params.proteinName || '');
+  const [selectedProteinEmoji, setSelectedProteinEmoji] = useState(params.proteinEmoji || '🍽');
+
+  // Image import state
+  const [importImageUri, setImportImageUri] = useState<string | null>(null);
+  const [importImageBase64, setImportImageBase64] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [fromImageExtraction, setFromImageExtraction] = useState(false);
+
+  // Wizard state — start at image_import for new recipes, basics for editing
+  const [currentStep, setCurrentStep] = useState<WizardStep>(isEditing ? 'basics' : 'image_import');
   const [submitting, setSubmitting] = useState(false);
 
   // Step 1: Basics
@@ -242,16 +257,21 @@ export default function AddRecipeScreen() {
       const timeMatch = cookTime.match(/(\d+)/);
       const timeMinutes = timeMatch ? parseInt(timeMatch[1], 10) : undefined;
 
+      // Use detected/selected protein (from image extraction or user pick)
+      const finalProteinId = proteinId || 'my_recipes';
+      const finalProteinName = proteinName || 'My Recipes';
+      const finalProteinEmoji = selectedProteinEmoji || '🍽';
+
       const recipe = {
         id: recipeId,
         name: recipeName.trim(),
-        proteinId: proteinId as string,
-        proteinName: proteinName as string,
-        proteinEmoji: proteinEmoji as string,
+        proteinId: finalProteinId,
+        proteinName: finalProteinName,
+        proteinEmoji: finalProteinEmoji,
         description: description.trim() || undefined,
         ingredients: ingredientsByTier,
         steps: steps.filter(s => s.description.trim()),
-        chefTip: `User recipe — ${proteinName}`,
+        chefTip: `User recipe — ${finalProteinName}`,
         createdAt: Date.now(),
         mealType: mealType as any,
         difficulty: difficulty as any,
@@ -355,6 +375,134 @@ export default function AddRecipeScreen() {
     return '📦';
   };
 
+  // ── Image import handlers ──
+  const handlePickImportImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.5,
+      base64: true,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      let b64 = result.assets[0].base64 || '';
+      // Strip data URI prefix if present
+      if (b64.includes(',')) b64 = b64.split(',')[1];
+      console.log(`[SpiceStrong] Import image: ${b64.length} chars, starts: ${b64.substring(0, 20)}`);
+      setImportImageUri(result.assets[0].uri);
+      setImportImageBase64(b64 || null);
+      setExtractionError(null);
+    }
+  };
+
+  const handleExtractRecipe = async () => {
+    if (!importImageBase64) return;
+    if (fromMenu && !proteinId) {
+      Alert.alert('Select a protein', 'Please select the protein type first.');
+      return;
+    }
+    setExtracting(true);
+    setExtractionError(null);
+    try {
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (!apiKey) throw new Error('No API key');
+
+      const b64 = importImageBase64;
+
+      // Detect media type
+      let mediaType = 'image/jpeg';
+      if (b64.startsWith('iVBOR')) mediaType = 'image/png';
+      else if (b64.startsWith('UklGR')) mediaType = 'image/webp';
+
+      console.log(`[SpiceStrong] Extracting recipe: base64=${b64.length} chars, mediaType=${mediaType}`);
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 2048,
+          system: `You are a recipe extraction engine. Extract the recipe from the image into JSON.
+If the image shows a finished dish (not recipe text), infer a reasonable recipe.
+Return ONLY this JSON:
+{
+  "name": "Recipe name",
+  "description": "1-2 sentence description",
+  "primaryProtein": "chicken|fish|lamb|goat|pork|beef|prawns|eggs|paneer|tofu|soy|beans|milk|whey",
+  "mealType": "breakfast|lunch_dinner|snack_dessert",
+  "difficulty": "Easy|Medium|Hard",
+  "cookTime": "30 min",
+  "cuisine": "Indian|Thai|Mediterranean|Chinese|Mexican|American|Other",
+  "ingredients": {
+    "2-3 servings": [{"name": "Ingredient", "quantity": "500g"}],
+    "4-6 servings": [{"name": "Ingredient", "quantity": "1kg"}]
+  },
+  "steps": [{"title": "Step", "description": "Details", "emoji": "🔥", "timerMinutes": 5}],
+  "chefTip": "One line tip"
+}
+Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 2-3 tier.`,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+              { type: 'text', text: 'Extract the recipe from this image. Return ONLY the JSON.' },
+            ],
+          }],
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.error(`[SpiceStrong] Extraction API error ${res.status}:`, errBody);
+        throw new Error(`API returned ${res.status}: ${errBody.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      let text = (data.content?.[0]?.text || '').trim();
+      text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace <= firstBrace) throw new Error('Could not parse recipe');
+      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+
+      // Pre-fill all form fields
+      setRecipeName(parsed.name || '');
+      setDescription(parsed.description || '');
+      setMealType(parsed.mealType || null);
+      setDifficulty(parsed.difficulty || null);
+      setCookTime(parsed.cookTime || '');
+      setCuisine(parsed.cuisine || null);
+      if (parsed.ingredients) setIngredientsByTier(parsed.ingredients);
+      if (parsed.steps?.length > 0) {
+        setSteps(parsed.steps.map((s: any) => ({
+          title: s.title || '', description: s.description || '',
+          emoji: s.emoji || '🔥', timerMinutes: s.timerMinutes || undefined,
+        })));
+      }
+
+      // Auto-detect protein if coming from menu
+      if (fromMenu && parsed.primaryProtein) {
+        const match = PROTEINS.find((p) => p.id === parsed.primaryProtein);
+        if (match) {
+          setProteinId(match.id);
+          setProteinName(match.name);
+          setSelectedProteinEmoji(match.emoji);
+        }
+      }
+
+      setFromImageExtraction(true);
+      setCurrentStep('basics');
+    } catch (err: any) {
+      console.error('[SpiceStrong] Recipe extraction failed:', err);
+      setExtractionError(err?.message || 'Could not extract recipe. Try a clearer photo.');
+    } finally {
+      setExtracting(false);
+    }
+  };
+
   // --- Render ---
   return (
     <ImageBackground
@@ -402,6 +550,75 @@ export default function AddRecipeScreen() {
         </View>
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+
+          {/* ========== STEP 0: IMAGE IMPORT ========== */}
+          {currentStep === 'image_import' && (
+            <View style={styles.importStep}>
+              {/* Protein picker when coming from menu */}
+              {fromMenu && (
+                <View style={styles.importSection}>
+                  <Text style={styles.sectionTitle}>Select Protein</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {PROTEINS.map((p) => (
+                        <TouchableOpacity
+                          key={p.id}
+                          style={[styles.proteinChip, proteinId === p.id && styles.proteinChipActive]}
+                          onPress={() => { setProteinId(p.id); setProteinName(p.name); setSelectedProteinEmoji(p.emoji); }}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={styles.proteinChipEmoji}>{p.emoji}</Text>
+                          <Text style={[styles.proteinChipText, proteinId === p.id && styles.proteinChipTextActive]}>{p.name}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
+              )}
+
+              {!importImageUri && !extracting && (
+                <View style={styles.importCenter}>
+                  <Ionicons name="image-outline" size={64} color="#E85D26" />
+                  <Text style={styles.importTitle}>Import from a photo</Text>
+                  <Text style={styles.importSubtitle}>Upload a screenshot or photo of a recipe and we'll extract it for you</Text>
+                  <TouchableOpacity style={styles.importBtn} onPress={handlePickImportImage} activeOpacity={0.8}>
+                    <Text style={styles.importBtnText}>Upload Photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setCurrentStep('basics')} activeOpacity={0.7}>
+                    <Text style={styles.importSkipText}>Skip — enter recipe manually</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {importImageUri && !extracting && (
+                <View style={styles.importPreview}>
+                  <Image source={{ uri: importImageUri }} style={styles.importPreviewImg} contentFit="cover" />
+                  {extractionError && <Text style={styles.importError}>{extractionError}</Text>}
+                  <TouchableOpacity style={styles.importBtn} onPress={handleExtractRecipe} activeOpacity={0.8}>
+                    <Text style={styles.importBtnText}>Extract Recipe from Photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handlePickImportImage} activeOpacity={0.7}>
+                    <Text style={styles.importSkipText}>Choose a different photo</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {extracting && (
+                <View style={styles.importCenter}>
+                  <ActivityIndicator color="#E85D26" size="large" />
+                  <Text style={styles.importTitle}>Extracting recipe...</Text>
+                  <Text style={styles.importSubtitle}>Reading ingredients, steps, and details from your photo</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Extraction banner */}
+          {fromImageExtraction && currentStep !== 'image_import' && currentStep !== 'review' && (
+            <View style={styles.extractionBanner}>
+              <Text style={styles.extractionBannerText}>✅ Extracted from photo — review and edit below</Text>
+            </View>
+          )}
 
           {/* ========== STEP 1: BASICS ========== */}
           {currentStep === 'basics' && (
@@ -766,6 +983,58 @@ export default function AddRecipeScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Image import step
+  importStep: { paddingVertical: 20 },
+  importSection: { marginBottom: 20 },
+  importCenter: { alignItems: 'center', paddingTop: 40, gap: 12 },
+  importTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginTop: 12 },
+  importSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
+  importBtn: {
+    marginTop: 16,
+    backgroundColor: '#E85D26',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  importBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  importSkipText: { color: 'rgba(255,255,255,0.40)', fontSize: 13, fontWeight: '600', marginTop: 16, textDecorationLine: 'underline' },
+  importPreview: { alignItems: 'center', gap: 12 },
+  importPreviewImg: { width: '90%', height: 200, borderRadius: 16 },
+  importError: { color: '#FF4444', fontSize: 13, textAlign: 'center', paddingHorizontal: 20 },
+
+  // Protein picker chips
+  proteinChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  proteinChipActive: { borderColor: '#E85D26', backgroundColor: 'rgba(232,93,38,0.15)' },
+  proteinChipEmoji: { fontSize: 18 },
+  proteinChipText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
+  proteinChipTextActive: { color: '#E85D26' },
+
+  // Extraction banner
+  extractionBanner: {
+    backgroundColor: 'rgba(34,197,94,0.12)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.30)',
+  },
+  extractionBannerText: { fontSize: 13, fontWeight: '600', color: '#22C55E', textAlign: 'center' },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',

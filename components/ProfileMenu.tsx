@@ -116,7 +116,15 @@ export function ProfileMenu() {
     closeMenu(() => router.push('/screens/AutoMealPlanScreen'));
   };
 
+  const handleAddRecipe = () => {
+    closeMenu(() => router.push({
+      pathname: '/screens/AddRecipeScreen',
+      params: { proteinId: '', proteinName: '', proteinEmoji: '', fromMenu: 'true' },
+    }));
+  };
+
   const MENU_ITEMS: MenuItem[] = [
+    { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
     { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
     { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
     { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
