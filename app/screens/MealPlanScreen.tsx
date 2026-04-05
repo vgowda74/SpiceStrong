@@ -53,7 +53,8 @@ interface MacroOverride {
   proteinG: number;
   carbsG: number;
   fatG: number;
-  photoUri: string;
+  photoUri: string;       // first photo (hero)
+  photoUris?: string[];   // all photos (for collage display)
 }
 
 function detectMediaType(base64: string): string {
@@ -288,9 +289,10 @@ export default function MealPlanScreen() {
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+  const MAX_MEAL_PHOTOS = 4;
   const [correcting, setCorrecting] = useState(false);
   const [correctedMacros, setCorrectedMacros] = useState<{ calories: number; proteinG: number; carbsG: number; fatG: number } | null>(null);
-  const [correctionPhoto, setCorrectionPhoto] = useState<string | null>(null);
+  const [correctionPhotos, setCorrectionPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [manualMode, setManualMode] = useState(false);
   const [manualCal, setManualCal] = useState('');
   const [manualProtein, setManualProtein] = useState('');
@@ -300,7 +302,7 @@ export default function MealPlanScreen() {
   const openCorrectMacros = (entry: EnrichedEntry) => {
     setCorrectEntry(entry);
     setCorrectedMacros(null);
-    setCorrectionPhoto(null);
+    setCorrectionPhotos([]);
     setCorrecting(false);
     setManualMode(false);
     setManualCal(''); setManualProtein(''); setManualCarbs(''); setManualFat('');
@@ -309,12 +311,16 @@ export default function MealPlanScreen() {
   const closeCorrectMacros = () => {
     setCorrectEntry(null);
     setCorrectedMacros(null);
-    setCorrectionPhoto(null);
+    setCorrectionPhotos([]);
     setCorrecting(false);
     setManualMode(false);
   };
 
-  const pickPhoto = async (useCamera: boolean) => {
+  const addMealPhoto = async (useCamera: boolean) => {
+    if (correctionPhotos.length >= MAX_MEAL_PHOTOS) {
+      Alert.alert('Maximum Photos', `You can add up to ${MAX_MEAL_PHOTOS} photos. Remove one to add another.`);
+      return;
+    }
     const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       quality: 0.5,
@@ -334,73 +340,103 @@ export default function MealPlanScreen() {
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    const tempUri = asset.uri;
-
-    // Grab base64 from picker BEFORE moving the file
     let base64 = asset.base64 ?? '';
-    if (!base64) {
-      try {
-        const raw = new File(tempUri).base64();
-        base64 = typeof raw === 'string' ? raw : '';
-      } catch (e) {
-        console.warn('[SpiceStrong] Could not read base64:', e);
-      }
-    }
+    if (base64.includes(',')) base64 = base64.split(',')[1];
 
-    // Strip data URI prefix if present (e.g. "data:image/jpeg;base64,...")
-    if (base64.includes(',')) {
-      base64 = base64.split(',')[1];
-    }
-
-    if (!base64 || typeof base64 !== 'string' || base64.length < 100) {
-      Alert.alert('Photo Error', 'Could not read the image. Try a different photo.');
+    if (!base64 || base64.length < 100) {
+      Alert.alert('Photo Error', 'Could not read the image. Try again.');
       return;
     }
 
-    console.log(`[SpiceStrong] Photo base64 length: ${base64.length} (${Math.round(base64.length / 1024)}KB), starts with: ${base64.substring(0, 10)}`);
+    // Use picker URI directly with unique cache key to avoid stale images
+    const uniqueUri = `${asset.uri}?t=${Date.now()}`;
+    setCorrectionPhotos((prev) => [...prev, { uri: uniqueUri, base64 }]);
+  };
 
-    // Copy to permanent location so the image survives app restarts
-    let permanentUri = tempUri;
-    try {
-      const dir = new Directory(Paths.document, 'meal_photos');
-      if (!dir.exists) dir.create();
-      const filename = `meal_${correctEntry?.id ?? Date.now()}.jpg`;
-      const dest = new File(dir, filename);
-      if (dest.exists) dest.delete();
-      const src = new File(tempUri);
-      src.move(dest);
-      permanentUri = dest.uri;
-    } catch (e) {
-      console.warn('[SpiceStrong] Could not save photo permanently:', e);
-    }
+  const removeMealPhoto = (idx: number) => {
+    setCorrectionPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
 
-    setCorrectionPhoto(permanentUri);
+  const analyzeAllPhotos = async () => {
+    if (correctionPhotos.length === 0) return;
     setCorrecting(true);
-
     try {
-      const macros = await analyzeFoodPhoto(base64, correctEntry?.recipeName ?? 'meal');
-      console.log('[SpiceStrong] Macro analysis result:', macros);
-      setCorrectedMacros(macros);
+      // Send all photos in one Claude call
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (!apiKey) throw new Error('No API key');
+
+      // Filter out any photos with empty/invalid base64
+      const validPhotos = correctionPhotos.filter((p) => p.base64 && p.base64.length > 100);
+      if (validPhotos.length === 0) {
+        throw new Error('No valid photos to analyze');
+      }
+      console.log(`[SpiceStrong] Analyzing ${validPhotos.length} photos, sizes: ${validPhotos.map((p) => p.base64.length).join(', ')}`);
+
+      const imageBlocks: any[] = validPhotos.map((p) => {
+        let mediaType = 'image/jpeg';
+        if (p.base64.startsWith('iVBOR')) mediaType = 'image/png';
+        else if (p.base64.startsWith('UklGR')) mediaType = 'image/webp';
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mediaType,
+            data: p.base64,
+          },
+        };
+      });
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          system: `You are a nutrition analysis AI. The user is showing you photos of different items that make up ONE complete meal. Analyze ALL photos together and estimate the TOTAL combined macros for the entire meal.
+
+If any image is a nutrition facts label, read the exact values from it.
+For food photos, estimate based on visible portion sizes.
+
+Return ONLY this JSON:
+{"calories": number, "proteinG": number, "carbsG": number, "fatG": number}`,
+          messages: [{
+            role: 'user',
+            content: [
+              ...imageBlocks,
+              { type: 'text', text: `These ${correctionPhotos.length} photos show different items from the same meal "${correctEntry?.recipeName ?? 'meal'}". Calculate the TOTAL combined calories and macros for everything shown across all photos.` },
+            ],
+          }],
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => '');
+        throw new Error(`API ${res.status}: ${err.slice(0, 100)}`);
+      }
+      const data = await res.json();
+      const text = data.content?.[0]?.text || '';
+      const start = text.indexOf('{');
+      let depth = 0, end = -1;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+      }
+      if (end === -1) throw new Error('Could not parse nutrition');
+      const parsed = JSON.parse(text.slice(start, end));
+      setCorrectedMacros({
+        calories: Math.round(Number(parsed.calories) || 0),
+        proteinG: Math.round(Number(parsed.proteinG) || 0),
+        carbsG: Math.round(Number(parsed.carbsG) || 0),
+        fatG: Math.round(Number(parsed.fatG) || 0),
+      });
     } catch (err: any) {
-      console.error('[SpiceStrong] Macro correction failed:', err?.message ?? err, err);
-      setCorrecting(false);
-      Alert.alert(
-        'Could not scan this photo',
-        'The image may be unclear or the service is temporarily unavailable. You can try a different photo or enter the macros manually.',
-        [
-          { text: 'Try Again', onPress: () => setCorrectionPhoto(null) },
-          { text: 'Enter Manually', onPress: () => {
-            setCorrectionPhoto(null);
-            setManualMode(true);
-            // Pre-fill with current values
-            setManualCal(String(correctEntry?.calories ?? ''));
-            setManualProtein(String(correctEntry?.proteinG ?? ''));
-            setManualCarbs(String(correctEntry?.carbsG ?? ''));
-            setManualFat(String(correctEntry?.fatG ?? ''));
-          }},
-        ],
-      );
-      return;
+      console.error('[SpiceStrong] Multi-photo analysis failed:', err);
+      Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again or enter manually.`);
     } finally {
       setCorrecting(false);
     }
@@ -427,14 +463,26 @@ export default function MealPlanScreen() {
   };
 
   const applyCorrection = async () => {
-    if (!correctEntry || !correctedMacros || !correctionPhoto) return;
-    const override: MacroOverride = { ...correctedMacros, photoUri: correctionPhoto };
+    if (!correctEntry || !correctedMacros || correctionPhotos.length === 0) return;
+
+    // Save first photo permanently for hero image
+    let heroUri = correctionPhotos[0].uri.split('?')[0]; // strip cache buster
+    try {
+      const dir = new Directory(Paths.document, 'meal_photos');
+      if (!dir.exists) dir.create();
+      const filename = `meal_${correctEntry.id}_${Date.now()}.jpg`;
+      const dest = new File(dir, filename);
+      if (dest.exists) dest.delete();
+      new File(heroUri).move(dest);
+      heroUri = dest.uri;
+    } catch {}
+
+    const override: MacroOverride = { ...correctedMacros, photoUri: heroUri };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
-    // Update enriched list in-place — macros + hero image
     setEnriched((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
-          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: correctionPhoto }
+          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: heroUri }
           : e
       )
     );
@@ -1107,8 +1155,8 @@ export default function MealPlanScreen() {
                           <View style={styles.cardBottomRow}>
                             <Text style={styles.cardOverlayTitle} numberOfLines={2}>{entry.recipeName}</Text>
                             <View style={styles.cardBottomActions}>
-                              <TouchableOpacity style={styles.correctBtnOverlay} onPress={(e) => { e.stopPropagation(); openCorrectMacros(entry); }} activeOpacity={0.75}>
-                                <Text style={styles.correctBtnOverlayText}>📸 Macros</Text>
+                              <TouchableOpacity style={styles.updateBtnOverlay} onPress={(e) => { e.stopPropagation(); openCorrectMacros(entry); }} activeOpacity={0.75}>
+                                <Text style={styles.updateBtnOverlayText}>📸 Update</Text>
                               </TouchableOpacity>
                               {isAutoplanPlaceholder && !isGenerating && (
                                 <Text style={styles.tapToGenerate}>Tap to generate</Text>
@@ -1250,13 +1298,14 @@ export default function MealPlanScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Correct Macros Modal — Two options: Upload Picture OR Enter Manually */}
+      {/* Update Meal Modal — Multi-photo + Manual entry */}
       <Modal visible={!!correctEntry} transparent animationType="fade" onRequestClose={() => { Keyboard.dismiss(); closeCorrectMacros(); }} statusBarTranslucent>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.cmBackdrop} onPress={() => { Keyboard.dismiss(); closeCorrectMacros(); }}>
+          <ScrollView>
           <Pressable style={styles.cmSheet} onPress={() => Keyboard.dismiss()}>
             <View style={styles.cmHandle} />
-            <Text style={styles.cmTitle}>Correct Macros</Text>
+            <Text style={styles.cmTitle}>Update Meal</Text>
             <Text style={styles.cmRecipeName}>{correctEntry?.recipeName}</Text>
 
             {/* Current macros */}
@@ -1273,30 +1322,8 @@ export default function MealPlanScreen() {
               </View>
             </View>
 
-            {/* Option selection — only when no mode is active */}
-            {!manualMode && !correctionPhoto && !correcting && (
-              <View style={styles.cmOptions}>
-                <TouchableOpacity style={styles.cmOptionCard} onPress={() => pickPhoto(true)} activeOpacity={0.75}>
-                  <Text style={styles.cmOptionEmoji}>📷</Text>
-                  <Text style={styles.cmOptionLabel}>Upload Picture</Text>
-                  <Text style={styles.cmOptionDesc}>Snap your meal or nutrition label</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.cmOptionCard} onPress={() => {
-                  setManualMode(true);
-                  setManualCal(String(correctEntry?.calories ?? ''));
-                  setManualProtein(String(correctEntry?.proteinG ?? ''));
-                  setManualCarbs(String(correctEntry?.carbsG ?? ''));
-                  setManualFat(String(correctEntry?.fatG ?? ''));
-                }} activeOpacity={0.75}>
-                  <Text style={styles.cmOptionEmoji}>✏️</Text>
-                  <Text style={styles.cmOptionLabel}>Enter Manually</Text>
-                  <Text style={styles.cmOptionDesc}>Type in calories & macros</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Manual entry */}
-            {manualMode && (
+            {/* Manual entry mode */}
+            {manualMode && !correcting && (
               <View style={styles.cmManualWrap}>
                 <View style={styles.cmManualGrid}>
                   <View style={styles.cmManualField}>
@@ -1319,23 +1346,66 @@ export default function MealPlanScreen() {
                 <TouchableOpacity style={styles.cmApplyBtn} onPress={applyManualEntry} activeOpacity={0.8}>
                   <Text style={styles.cmApplyBtnText}>Save Macros</Text>
                 </TouchableOpacity>
+                <TouchableOpacity onPress={() => setManualMode(false)} activeOpacity={0.7}>
+                  <Text style={styles.cmManualLink}>Back to photo upload</Text>
+                </TouchableOpacity>
               </View>
             )}
 
-            {/* Analyzing */}
-            {correcting && (
-              <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Analyzing your meal...</Text>
-              </View>
-            )}
+            {/* Photo mode — 2×2 grid with empty frames */}
+            {!manualMode && !correcting && (
+              <>
+                <Text style={styles.cmPhotoHintText}>Snap each item in your meal</Text>
+                <View style={styles.cmFrameGrid}>
+                  {[0, 1, 2, 3].map((idx) => {
+                    const photo = correctionPhotos[idx];
+                    return (
+                      <View key={idx} style={styles.cmFrame}>
+                        {photo ? (
+                          <>
+                            <Image source={{ uri: photo.uri }} style={styles.cmFrameImg} contentFit="cover" cachePolicy="none" />
+                            <TouchableOpacity style={styles.cmFrameRemove} onPress={() => removeMealPhoto(idx)}>
+                              <Text style={styles.cmFrameRemoveText}>✕</Text>
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <TouchableOpacity
+                            style={styles.cmFrameEmpty}
+                            onPress={() => {
+                              if (!correctedMacros) {
+                                Alert.alert('Add Photo', 'How would you like to add?', [
+                                  { text: '📷 Camera', onPress: () => addMealPhoto(true) },
+                                  { text: '🖼 Gallery', onPress: () => addMealPhoto(false) },
+                                  { text: 'Cancel', style: 'cancel' },
+                                ]);
+                              }
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.cmFrameEmptyIcon}>+</Text>
+                            <Text style={styles.cmFrameEmptyLabel}>Photo {idx + 1}</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
 
-            {/* Photo results */}
-            {correctionPhoto && !correcting && !manualMode && (
-              <View style={styles.cmResultWrap}>
-                <Image source={{ uri: correctionPhoto }} style={styles.cmPhotoPreview} contentFit="cover" />
+                {correctionPhotos.length > 0 && (
+                  <Text style={styles.cmPhotoCount}>{correctionPhotos.length}/4 photos added</Text>
+                )}
+
+                {/* Analyze button */}
+                {correctionPhotos.length > 0 && !correctedMacros && (
+                  <TouchableOpacity style={styles.cmAnalyzeBtn} onPress={analyzeAllPhotos} activeOpacity={0.8}>
+                    <Text style={styles.cmAnalyzeBtnText}>Analyze Meal ({correctionPhotos.length} photo{correctionPhotos.length > 1 ? 's' : ''})</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Results */}
                 {correctedMacros && (
-                  <>
+                  <View style={styles.cmResultWrap}>
+                    <Text style={styles.cmSectionLabel}>AI-ESTIMATED TOTAL</Text>
                     <View style={styles.cmMacroRow}>
                       <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.calories} kcal</Text>
                       <Text style={styles.cmMacroDot}>·</Text>
@@ -1349,15 +1419,37 @@ export default function MealPlanScreen() {
                       <TouchableOpacity style={styles.cmApplyBtn} onPress={applyCorrection} activeOpacity={0.8}>
                         <Text style={styles.cmApplyBtnText}>Apply</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.cmRetryBtn} onPress={() => { setCorrectionPhoto(null); setCorrectedMacros(null); }} activeOpacity={0.75}>
-                        <Text style={styles.cmRetryBtnText}>Retake</Text>
+                      <TouchableOpacity style={styles.cmRetryBtn} onPress={() => { setCorrectionPhotos([]); setCorrectedMacros(null); }} activeOpacity={0.75}>
+                        <Text style={styles.cmRetryBtnText}>Retake All</Text>
                       </TouchableOpacity>
                     </View>
-                  </>
+                  </View>
                 )}
+
+                {/* Manual entry link */}
+                {!correctedMacros && (
+                  <TouchableOpacity style={styles.cmManualBtn} onPress={() => {
+                    setManualMode(true);
+                    setManualCal(String(correctEntry?.calories ?? ''));
+                    setManualProtein(String(correctEntry?.proteinG ?? ''));
+                    setManualCarbs(String(correctEntry?.carbsG ?? ''));
+                    setManualFat(String(correctEntry?.fatG ?? ''));
+                  }} activeOpacity={0.8}>
+                    <Text style={styles.cmManualBtnText}>✏️ Enter Manually</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+
+            {/* Analyzing */}
+            {correcting && (
+              <View style={styles.cmAnalyzing}>
+                <ActivityIndicator color={ORANGE} size="small" />
+                <Text style={styles.cmAnalyzingText}>Analyzing {correctionPhotos.length} photo{correctionPhotos.length > 1 ? 's' : ''}...</Text>
               </View>
             )}
           </Pressable>
+          </ScrollView>
         </Pressable>
         </KeyboardAvoidingView>
       </Modal>
@@ -1688,15 +1780,15 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   cardBottomActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  correctBtnOverlay: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+  updateBtnOverlay: {
+    backgroundColor: 'rgba(232,93,38,0.25)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(232,93,38,0.50)',
   },
-  correctBtnOverlayText: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
+  updateBtnOverlayText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   tapToGenerate: { fontSize: 11, fontWeight: '600', color: ORANGE, fontStyle: 'italic' },
   generatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   generatingText: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.70)' },
@@ -1808,6 +1900,64 @@ const styles = StyleSheet.create({
     color: ORANGE,
   },
 
+  // 2×2 frame grid
+  cmPhotoHintText: { fontSize: 13, color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: 12 },
+  cmFrameGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 12,
+  },
+  cmFrame: {
+    width: '47%',
+    aspectRatio: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: BORDER,
+    position: 'relative',
+  },
+  cmFrameImg: { width: '100%', height: '100%' },
+  cmFrameRemove: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cmFrameRemoveText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  cmFrameEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(232,93,38,0.25)',
+    borderStyle: 'dashed',
+    borderRadius: 13,
+    margin: 1,
+    gap: 4,
+  },
+  cmFrameEmptyIcon: { fontSize: 28, fontWeight: '300', color: ORANGE },
+  cmFrameEmptyLabel: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.35)' },
+  cmPhotoCount: { fontSize: 12, color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: 10, fontWeight: '600' },
+  cmAnalyzeBtn: {
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginBottom: 8,
+    ...Platform.select({
+      ios: { shadowColor: ORANGE, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 4 },
+    }),
+  },
+  cmAnalyzeBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+
   cmOptions: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   cmOptionCard: {
     flex: 1,
@@ -1823,10 +1973,20 @@ const styles = StyleSheet.create({
   cmOptionLabel: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   cmOptionDesc: { fontSize: 11, color: 'rgba(255,255,255,0.40)', textAlign: 'center', paddingHorizontal: 8 },
 
+  cmManualBtn: {
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  cmManualBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   cmManualLink: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.40)',
+    fontSize: 15,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.50)',
     textDecorationLine: 'underline',
     marginTop: 4,
   },
