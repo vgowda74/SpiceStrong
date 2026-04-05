@@ -89,43 +89,54 @@ export function calculateMacroTargets(profile: FitnessProfile): MacroTargets {
   const tdee = Math.round(bmr * ACTIVITY_MULTIPLIERS[profile.activityLevel]);
 
   // Calorie adjustment based on goal
+  // Use ~20% deficit for fat loss (scales with body size) instead of flat 500
   let calories: number;
   switch (profile.goal) {
     case 'fat_loss':
-      calories = Math.round(tdee - 500); // 500 cal deficit
+      calories = Math.round(tdee * 0.80); // 20% deficit — scales with body size
       break;
     case 'muscle_gain':
-      calories = Math.round(tdee + 300); // 300 cal surplus
+      calories = Math.round(tdee * 1.12); // 12% surplus
       break;
     case 'recomposition':
-      calories = Math.round(tdee - 200); // slight deficit
+      calories = Math.round(tdee * 0.90); // 10% deficit
       break;
     case 'maintenance':
     default:
       calories = tdee;
   }
 
-  // Macro splits based on goal (protein-focused for SpiceStrong)
-  let proteinPct: number, carbsPct: number, fatPct: number;
+  // ── Weight-based protein calculation ──
+  // Protein is set by body weight (g/kg), not a flat % of calories.
+  // This prevents overshooting for lighter people and undershooting for heavier.
+  const weightKg = profile.weightKg;
+  let proteinPerKg: number;
   switch (profile.goal) {
     case 'fat_loss':
-      proteinPct = 0.40; carbsPct = 0.30; fatPct = 0.30;
+      proteinPerKg = 2.0;  // preserve muscle during deficit
       break;
     case 'muscle_gain':
-      proteinPct = 0.35; carbsPct = 0.40; fatPct = 0.25;
+      proteinPerKg = 2.2;  // support muscle synthesis
       break;
     case 'recomposition':
-      proteinPct = 0.40; carbsPct = 0.35; fatPct = 0.25;
+      proteinPerKg = 2.0;  // high protein, moderate deficit
       break;
     case 'maintenance':
     default:
-      proteinPct = 0.30; carbsPct = 0.40; fatPct = 0.30;
+      proteinPerKg = 1.6;  // active adult maintenance
   }
+  const proteinG = Math.round(weightKg * proteinPerKg);
+  const proteinCal = proteinG * 4;
 
-  // Protein: 4 cal/g, Carbs: 4 cal/g, Fat: 9 cal/g
-  const proteinG = Math.round((calories * proteinPct) / 4);
-  const carbsG = Math.round((calories * carbsPct) / 4);
-  const fatG = Math.round((calories * fatPct) / 9);
+  // ── Fat: minimum healthy amount based on body weight ──
+  // ~0.8-1.0 g/kg for hormonal health, especially important for 40+ adults
+  const fatPerKg = profile.goal === 'fat_loss' ? 0.8 : 1.0;
+  const fatG = Math.round(weightKg * fatPerKg);
+  const fatCal = fatG * 9;
+
+  // ── Carbs: fill remaining calories ──
+  const carbCal = Math.max(0, calories - proteinCal - fatCal);
+  const carbsG = Math.round(carbCal / 4);
 
   return { calories, proteinG, carbsG, fatG, tdee, bmr };
 }

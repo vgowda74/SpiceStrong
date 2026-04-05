@@ -319,8 +319,7 @@ export default function MealPlanScreen() {
       mediaTypes: ['images'],
       quality: 0.5,
       base64: true,
-      allowsEditing: true,
-      aspect: [4, 3] as [number, number],
+      allowsEditing: false,
     };
     let result: ImagePicker.ImagePickerResult;
     if (useCamera) {
@@ -496,8 +495,7 @@ export default function MealPlanScreen() {
       mediaTypes: ['images'],
       quality: 0.5,
       base64: true,
-      allowsEditing: true,
-      aspect: [4, 3] as [number, number],
+      allowsEditing: false,
     };
     let result: ImagePicker.ImagePickerResult;
     if (useCamera) {
@@ -1009,7 +1007,7 @@ export default function MealPlanScreen() {
         >
           {/* Daily macro summary — per serving, always visible */}
           <View style={styles.macroBar}>
-            <Text style={styles.macroBarTitle}>Daily Total · Per Serving</Text>
+            <Text style={styles.macroBarTitle}>Your Daily Total</Text>
               <View style={styles.macroRow}>
                 <View style={styles.macroItem}>
                   <Text style={styles.macroValue}>{totals.calories}</Text>

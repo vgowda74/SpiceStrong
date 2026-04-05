@@ -51,12 +51,6 @@ const BODY_BG = '#FAF7F2';
 const SEARCH_BG = '#3D1A0A';
 const ORANGE = '#E85D26';
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning, Chef';
-  if (hour < 17) return 'Good afternoon, Chef';
-  return 'Good evening, Chef';
-}
 
 function filterMatches(filter: Filter, category: 'NON-VEG' | 'VEG'): boolean {
   if (filter === 'All') return true;
@@ -120,8 +114,6 @@ export default function ProteinSelectionScreen() {
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
   const [search, setSearch] = useState('');
 
-  const greeting = useMemo(() => getGreeting(), []);
-
   const filtered = useMemo(() => {
     return PROTEINS.filter((p) => {
       const matchesFilter = filterMatches(activeFilter, p.category);
@@ -164,9 +156,7 @@ export default function ProteinSelectionScreen() {
         {/* HEADER */}
         <View style={styles.header}>
           <ProfileMenu />
-          <Text style={styles.greeting}>{greeting}</Text>
-          <Text style={styles.headingLine1}>What's your</Text>
-          <Text style={styles.headingLine2}>protein today?</Text>
+          <Text style={styles.headingLine1}>What's your <Text style={styles.headingLine2}>protein today?</Text></Text>
           <TextInput
             style={styles.search}
             placeholder="Search proteins..."
@@ -286,28 +276,20 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: 'rgba(0,0,0,0.3)',
-    paddingTop: 60,
+    paddingTop: 90,
     paddingHorizontal: 20,
-    paddingBottom: 24,
-  },
-  greeting: {
-    fontSize: 14,
-    letterSpacing: 0.3,
-    color: 'rgba(255,255,255,0.55)',
-    marginBottom: 8,
+    paddingBottom: 20,
   },
   headingLine1: {
-    fontSize: 32,
+    fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+    marginBottom: 16,
+    marginTop: 8,
   },
   headingLine2: {
-    fontSize: 32,
-    fontWeight: '700',
     color: ORANGE,
-    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
-    marginBottom: 20,
   },
   search: {
     backgroundColor: SEARCH_BG,

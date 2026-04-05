@@ -776,7 +776,6 @@ export default function RecipeListScreen() {
       <View style={styles.container}>
       <View style={styles.screenContent}>
         <View style={[styles.header, styles.headerOrange]}>
-          <ProfileMenu />
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>

@@ -6,6 +6,8 @@
 
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -16,6 +18,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -68,6 +72,14 @@ export default function FitnessProfileScreen() {
   const [targetWeightKg, setTargetWeightKg] = useState('');
   const [bodyFat, setBodyFat] = useState('');
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>('moderately_active');
+
+  // Body scan state
+  const [scanFrontUri, setScanFrontUri] = useState<string | null>(null);
+  const [scanSideUri, setScanSideUri] = useState<string | null>(null);
+  const [scanFrontBase64, setScanFrontBase64] = useState<string>('');
+  const [scanSideBase64, setScanSideBase64] = useState<string>('');
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<{ bodyFat: number; bodyType: string; muscleMass: string } | null>(null);
 
   // Results
   const [macros, setMacros] = useState<MacroTargets | null>(null);
@@ -139,6 +151,108 @@ export default function FitnessProfileScreen() {
     const targets = calculateMacroTargets(profile);
     setMacros(targets);
     await saveFitnessProfile(profile);
+  };
+
+  // ── Body scan handlers ──
+  const pickScanPhoto = async (side: 'front' | 'side') => {
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.5,
+      base64: true,
+    });
+    if (!result.canceled && result.assets?.[0]) {
+      let b64 = result.assets[0].base64 || '';
+      if (b64.includes(',')) b64 = b64.split(',')[1];
+      if (side === 'front') {
+        setScanFrontUri(result.assets[0].uri);
+        setScanFrontBase64(b64);
+      } else {
+        setScanSideUri(result.assets[0].uri);
+        setScanSideBase64(b64);
+      }
+    }
+  };
+
+  const runBodyScan = async () => {
+    if (!scanFrontBase64) {
+      Alert.alert('Photo needed', 'Please take at least a front photo.');
+      return;
+    }
+    setScanning(true);
+    try {
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (!apiKey) throw new Error('No API key');
+
+      // Build content with 1 or 2 images
+      const content: any[] = [];
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: scanFrontBase64 },
+      });
+      if (scanSideBase64) {
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/jpeg', data: scanSideBase64 },
+        });
+      }
+      content.push({
+        type: 'text',
+        text: `Analyze this person's body composition from the photo(s). The person is ${gender}, age ${age}, ${useImperial ? weightLbs + ' lbs' : weightKg + ' kg'}, ${useImperial ? heightFt + "'" + heightIn + '"' : heightCm + ' cm'}.
+
+Return ONLY this JSON:
+{
+  "bodyFatPercent": number (your best estimate),
+  "bodyType": "ectomorph" | "mesomorph" | "endomorph" | "ecto-mesomorph" | "endo-mesomorph",
+  "muscleMass": "low" | "moderate" | "high",
+  "assessment": "one sentence summary of overall body composition"
+}
+
+Be realistic and conservative. This is an approximate estimate, not a medical diagnosis.`,
+      });
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 300,
+          messages: [{ role: 'user', content }],
+        }),
+      });
+
+      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      const data = await res.json();
+      const text = data.content?.[0]?.text || '';
+
+      // Parse JSON
+      const start = text.indexOf('{');
+      let depth = 0, end = -1;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+      }
+      if (end === -1) throw new Error('Could not parse scan result');
+      const parsed = JSON.parse(text.slice(start, end));
+
+      const bf = Math.round(Number(parsed.bodyFatPercent) || 0);
+      setScanResult({
+        bodyFat: bf,
+        bodyType: parsed.bodyType || 'mesomorph',
+        muscleMass: parsed.muscleMass || 'moderate',
+      });
+      setBodyFat(String(bf));
+    } catch (err: any) {
+      console.error('[SpiceStrong] Body scan failed:', err);
+      Alert.alert('Scan Failed', 'Could not analyze the photo. You can enter body fat manually or skip.');
+    } finally {
+      setScanning(false);
+    }
   };
 
   const stepIndex = STEPS.indexOf(step);
@@ -310,12 +424,99 @@ export default function FitnessProfileScreen() {
           {/* STEP 7: Body Fat */}
           {step === 'body_fat' && (
             <>
-              <Text style={styles.stepTitle}>Do you know your body fat percentage?</Text>
-              <Text style={styles.stepHint}>Optional — helps fine-tune your protein needs</Text>
+              <Text style={styles.stepTitle}>Body Fat Percentage</Text>
+              <Text style={styles.stepHint}>Enter manually, use AI body scan, or skip</Text>
+
+              {/* Manual input */}
               <TextInput style={styles.bigInput} value={bodyFat} onChangeText={setBodyFat} keyboardType="numeric" returnKeyType="done" placeholder="20" placeholderTextColor="rgba(255,255,255,0.20)" maxLength={4} />
               <Text style={styles.inputUnit}>% body fat</Text>
+
+              {/* AI Body Scan section */}
+              <View style={styles.scanSection}>
+                <View style={styles.scanDivider}>
+                  <View style={styles.scanDividerLine} />
+                  <Text style={styles.scanDividerText}>or try AI Body Scan</Text>
+                  <View style={styles.scanDividerLine} />
+                </View>
+
+                <Text style={styles.scanHint}>Take a front photo (and optionally a side photo) for an AI estimate</Text>
+
+                {/* Photo row */}
+                <View style={styles.scanPhotoRow}>
+                  <TouchableOpacity style={styles.scanPhotoCard} onPress={() => pickScanPhoto('front')} activeOpacity={0.75}>
+                    {scanFrontUri ? (
+                      <Image source={{ uri: scanFrontUri }} style={styles.scanPhotoImg} contentFit="cover" />
+                    ) : (
+                      <>
+                        <Text style={styles.scanPhotoIcon}>📷</Text>
+                        <Text style={styles.scanPhotoLabel}>Front</Text>
+                        <Text style={styles.scanPhotoRequired}>Required</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.scanPhotoCard} onPress={() => pickScanPhoto('side')} activeOpacity={0.75}>
+                    {scanSideUri ? (
+                      <Image source={{ uri: scanSideUri }} style={styles.scanPhotoImg} contentFit="cover" />
+                    ) : (
+                      <>
+                        <Text style={styles.scanPhotoIcon}>📷</Text>
+                        <Text style={styles.scanPhotoLabel}>Side</Text>
+                        <Text style={styles.scanPhotoOptional}>Optional</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* Scan tips */}
+                <View style={styles.scanTips}>
+                  <Text style={styles.scanTipText}>💡 Wear tight-fitting clothes • Good lighting • Plain background</Text>
+                </View>
+
+                {/* Scan button */}
+                {scanFrontUri && !scanning && !scanResult && (
+                  <TouchableOpacity style={styles.scanBtn} onPress={runBodyScan} activeOpacity={0.8}>
+                    <Text style={styles.scanBtnText}>Analyze My Body Composition</Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Scanning */}
+                {scanning && (
+                  <View style={styles.scanLoadingRow}>
+                    <ActivityIndicator color={ORANGE} size="small" />
+                    <Text style={styles.scanLoadingText}>Analyzing your body composition...</Text>
+                  </View>
+                )}
+
+                {/* Scan results */}
+                {scanResult && (
+                  <View style={styles.scanResultCard}>
+                    <Text style={styles.scanResultTitle}>AI Estimate</Text>
+                    <View style={styles.scanResultRow}>
+                      <View style={styles.scanResultItem}>
+                        <Text style={styles.scanResultValue}>{scanResult.bodyFat}%</Text>
+                        <Text style={styles.scanResultLabel}>Body Fat</Text>
+                      </View>
+                      <View style={styles.scanResultDivider} />
+                      <View style={styles.scanResultItem}>
+                        <Text style={styles.scanResultValue}>{scanResult.bodyType}</Text>
+                        <Text style={styles.scanResultLabel}>Body Type</Text>
+                      </View>
+                      <View style={styles.scanResultDivider} />
+                      <View style={styles.scanResultItem}>
+                        <Text style={styles.scanResultValue}>{scanResult.muscleMass}</Text>
+                        <Text style={styles.scanResultLabel}>Muscle</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.scanDisclaimer}>This is an AI approximation, not a medical assessment. For precise results, consider a DEXA scan.</Text>
+                    <TouchableOpacity onPress={() => { setScanResult(null); setScanFrontUri(null); setScanSideUri(null); setScanFrontBase64(''); setScanSideBase64(''); }} activeOpacity={0.7}>
+                      <Text style={styles.scanRetakeText}>Retake photos</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
               <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
-                <Text style={styles.skipText}>I don't know — skip</Text>
+                <Text style={styles.skipText}>Skip this step</Text>
               </TouchableOpacity>
             </>
           )}
@@ -485,6 +686,71 @@ const styles = StyleSheet.create({
   unitBtnTextActive: { color: '#FFFFFF' },
 
   skipText: { color: 'rgba(255,255,255,0.40)', fontSize: 14, fontWeight: '600', textAlign: 'center', marginTop: 20, textDecorationLine: 'underline' },
+
+  // Body scan styles
+  scanSection: { marginTop: 24 },
+  scanDivider: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
+  scanDividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.10)' },
+  scanDividerText: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.40)' },
+  scanHint: { fontSize: 13, color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+  scanPhotoRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  scanPhotoCard: {
+    flex: 1,
+    height: 140,
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    gap: 4,
+  },
+  scanPhotoImg: { width: '100%', height: '100%', borderRadius: 14 },
+  scanPhotoIcon: { fontSize: 28 },
+  scanPhotoLabel: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  scanPhotoRequired: { fontSize: 10, fontWeight: '700', color: ORANGE },
+  scanPhotoOptional: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.35)' },
+  scanTips: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+  },
+  scanTipText: { fontSize: 11, color: 'rgba(255,255,255,0.45)', textAlign: 'center' },
+  scanBtn: {
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 8,
+    ...Platform.select({
+      ios: { shadowColor: ORANGE, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 4 },
+    }),
+  },
+  scanBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  scanLoadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 16 },
+  scanLoadingText: { fontSize: 14, color: 'rgba(255,255,255,0.55)' },
+  scanResultCard: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 18,
+    marginBottom: 8,
+    gap: 12,
+  },
+  scanResultTitle: { fontSize: 14, fontWeight: '800', color: ORANGE, textAlign: 'center', letterSpacing: 1 },
+  scanResultRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
+  scanResultItem: { alignItems: 'center', flex: 1 },
+  scanResultValue: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  scanResultLabel: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 3 },
+  scanResultDivider: { width: 1, height: 30, backgroundColor: BORDER },
+  scanDisclaimer: { fontSize: 10, color: 'rgba(255,255,255,0.30)', textAlign: 'center', lineHeight: 16 },
+  scanRetakeText: { fontSize: 12, fontWeight: '600', color: ORANGE, textAlign: 'center', textDecorationLine: 'underline' },
 
   // Results
   resultsCard: {

@@ -82,8 +82,7 @@ export default function ScanFridgeScreen() {
       mediaTypes: ['images'],
       quality: 0.5,
       base64: true,
-      allowsEditing: true,
-      aspect: [4, 3] as [number, number],
+      allowsEditing: false,
     };
     let result: ImagePicker.ImagePickerResult;
     if (useCamera) {

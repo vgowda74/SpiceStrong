@@ -1,17 +1,17 @@
 /**
  * ProfileMenu.tsx
- * Top-right profile icon that opens a slide-down menu with:
- *   - Meal Plan
- *   - Grocery List (share sheet)
- *   - Dietary Restrictions
+ * Full-screen left slide-out drawer menu (like Oura app).
+ * Profile icon in top-right opens the drawer from the left.
  */
 
 import React, { useCallback, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -19,49 +19,62 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getPantryItems } from '../services/pantryService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 const ORANGE = '#E85D26';
-const SURFACE = '#1C1C1E';
-const BORDER = 'rgba(255,255,255,0.10)';
+const BG = '#0F0F0F';
+const SURFACE = '#1A1A1A';
+const BORDER = 'rgba(255,255,255,0.08)';
 const GLOBAL_CART_KEY = 'globalShoppingList';
+const DRAWER_WIDTH = Dimensions.get('window').width * 0.78;
+const PLAYFAIR = Platform.select({
+  ios: 'PlayfairDisplay_700Bold',
+  android: 'PlayfairDisplay_700Bold',
+  default: 'serif',
+});
 
 interface MenuItem {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   onPress: () => void;
-  color?: string;
+  badge?: boolean;
+}
+
+interface MenuSection {
+  title?: string;
+  items: MenuItem[];
 }
 
 export function ProfileMenu() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
+  const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(-12)).current;
 
   const openMenu = () => {
     setOpen(true);
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 180, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 65, friction: 11 }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
     ]).start();
   };
 
   const closeMenu = useCallback((onClosed?: () => void) => {
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 0, duration: 140, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: -12, duration: 140, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: -DRAWER_WIDTH, duration: 200, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => {
       setOpen(false);
       onClosed?.();
     });
-  }, [fadeAnim, slideAnim]);
+  }, [slideAnim, fadeAnim]);
 
-  const handleMealPlan = () => {
-    closeMenu(() => router.push('/screens/MealPlanScreen'));
-  };
+  // ── Handlers ──
+  const handleMealPlan = () => closeMenu(() => router.push('/screens/MealPlanScreen'));
 
   const handleGroceryList = () => {
     closeMenu(async () => {
@@ -73,15 +86,12 @@ export function ProfileMenu() {
           await Share.share({ message: 'Your SpiceStrong grocery list is empty. Add ingredients from any recipe!' });
           return;
         }
-        // Get pantry items to subtract
         const pantry = await getPantryItems();
         const pantryNames = new Set(pantry.map((p) => p.name.toLowerCase()));
-
         const grouped: Record<string, string[]> = {};
         keys.forEach((key) => {
           const recipeName = cartItems[key];
           const [name, qty] = key.split('|||');
-          // Skip if already in pantry
           if (pantryNames.has(name.toLowerCase())) return;
           if (Array.from(pantryNames).some((pn) => name.toLowerCase().includes(pn) || pn.includes(name.toLowerCase()))) return;
           if (!grouped[recipeName]) grouped[recipeName] = [];
@@ -100,59 +110,57 @@ export function ProfileMenu() {
     });
   };
 
-  const handleDietary = () => {
-    closeMenu(() => router.push('/screens/DietaryRestrictionsScreen'));
-  };
+  const handleDietary = () => closeMenu(() => router.push('/screens/DietaryRestrictionsScreen'));
+  const handleScanGrocery = () => closeMenu(() => router.push('/screens/ScanFridgeScreen'));
+  const handleMyPantry = () => closeMenu(() => router.push('/screens/MyPantryScreen'));
+  const handleAutoMealPlan = () => closeMenu(() => router.push('/screens/AutoMealPlanScreen'));
+  const handleAddRecipe = () => closeMenu(() => router.push({
+    pathname: '/screens/AddRecipeScreen',
+    params: { proteinId: '', proteinName: '', proteinEmoji: '', fromMenu: 'true' },
+  }));
+  const handleFitnessProfile = () => closeMenu(() => router.push('/screens/FitnessProfileScreen'));
 
-  const handleScanGrocery = () => {
-    closeMenu(() => router.push('/screens/ScanFridgeScreen'));
-  };
-
-  const handleMyPantry = () => {
-    closeMenu(() => router.push('/screens/MyPantryScreen'));
-  };
-
-  const handleAutoMealPlan = () => {
-    closeMenu(() => router.push('/screens/AutoMealPlanScreen'));
-  };
-
-  const handleAddRecipe = () => {
-    closeMenu(() => router.push({
-      pathname: '/screens/AddRecipeScreen',
-      params: { proteinId: '', proteinName: '', proteinEmoji: '', fromMenu: 'true' },
-    }));
-  };
-
-  const handleFitnessProfile = () => {
-    closeMenu(() => router.push('/screens/FitnessProfileScreen'));
-  };
-
-  const MENU_ITEMS: MenuItem[] = [
-    { icon: 'body-outline', label: 'Fitness Profile', onPress: handleFitnessProfile },
-    { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
-    { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
-    { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
-    { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
-    { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
-    { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
-    { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },
+  // ── Menu sections ──
+  const SECTIONS: MenuSection[] = [
+    {
+      items: [
+        { icon: 'body-outline', label: 'Fitness Profile', onPress: handleFitnessProfile },
+        { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },
+      ],
+    },
+    {
+      title: 'Plan & Cook',
+      items: [
+        { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
+        { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
+        { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
+      ],
+    },
+    {
+      title: 'Kitchen',
+      items: [
+        { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
+        { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
+        { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
+      ],
+    },
   ];
 
   return (
     <>
-      {/* Profile icon button */}
+      {/* Hamburger menu button (top-left) */}
       <TouchableOpacity
         style={styles.iconBtn}
         onPress={openMenu}
         activeOpacity={0.75}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <View style={styles.avatar}>
-          <Ionicons name="person" size={18} color="#FFFFFF" />
+        <View style={styles.hamburger}>
+          <Ionicons name="menu" size={28} color="#FFFFFF" />
         </View>
       </TouchableOpacity>
 
-      {/* Dropdown menu */}
+      {/* Drawer modal */}
       <Modal
         visible={open}
         transparent
@@ -160,31 +168,49 @@ export function ProfileMenu() {
         onRequestClose={() => closeMenu()}
         statusBarTranslucent
       >
+        {/* Backdrop */}
         <Pressable style={styles.backdrop} onPress={() => closeMenu()}>
-          <Animated.View
-            style={[
-              styles.menu,
-              { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-            ]}
-          >
-            {MENU_ITEMS.map((item, idx) => (
-              <React.Fragment key={item.label}>
-                <TouchableOpacity
-                  style={styles.menuItem}
-                  onPress={item.onPress}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name={item.icon} size={20} color={item.color ?? ORANGE} />
-                  <Text style={[styles.menuLabel, item.color ? { color: item.color } : {}]}>
-                    {item.label}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.30)" />
-                </TouchableOpacity>
-                {idx < MENU_ITEMS.length - 1 && <View style={styles.menuDivider} />}
-              </React.Fragment>
-            ))}
-          </Animated.View>
+          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)', opacity: fadeAnim }]} />
         </Pressable>
+
+        {/* Drawer */}
+        <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }], paddingTop: insets.top }]}>
+          {/* Header */}
+          <View style={styles.drawerHeader}>
+            <Text style={styles.drawerLogo}>SpiceStrong</Text>
+            <TouchableOpacity onPress={() => closeMenu()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="close" size={24} color="rgba(255,255,255,0.50)" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.drawerScroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+            {SECTIONS.map((section, sIdx) => (
+              <View key={sIdx} style={styles.section}>
+                {section.title && (
+                  <Text style={styles.sectionTitle}>{section.title}</Text>
+                )}
+                {section.items.map((item) => (
+                  <TouchableOpacity
+                    key={item.label}
+                    style={styles.menuItem}
+                    onPress={item.onPress}
+                    activeOpacity={0.65}
+                  >
+                    <Ionicons name={item.icon} size={22} color="rgba(255,255,255,0.55)" />
+                    <Text style={styles.menuLabel}>{item.label}</Text>
+                    {item.badge && <View style={styles.badge} />}
+                  </TouchableOpacity>
+                ))}
+                {sIdx < SECTIONS.length - 1 && <View style={styles.sectionDivider} />}
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* Footer */}
+          <View style={[styles.drawerFooter, { paddingBottom: insets.bottom + 12 }]}>
+            <Text style={styles.footerText}>SpiceStrong v1.0</Text>
+          </View>
+        </Animated.View>
       </Modal>
     </>
   );
@@ -194,55 +220,96 @@ const styles = StyleSheet.create({
   iconBtn: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 54 : 36,
-    right: 20,
+    left: 20,
     zIndex: 100,
   },
-  avatar: {
+  hamburger: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(232,93,38,0.85)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.25)',
   },
   backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.25)',
-    alignItems: 'flex-end',
+    ...StyleSheet.absoluteFillObject,
   },
-  menu: {
-    marginTop: Platform.OS === 'ios' ? 100 : 80,
-    marginRight: 16,
-    backgroundColor: SURFACE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    minWidth: 220,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 12,
+  drawer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: DRAWER_WIDTH,
+    backgroundColor: BG,
+    borderRightWidth: 1,
+    borderRightColor: BORDER,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 20, shadowOffset: { width: 10, height: 0 } },
+      android: { elevation: 20 },
+    }),
+  },
+  drawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  drawerLogo: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: ORANGE,
+    fontFamily: PLAYFAIR,
+  },
+  drawerScroll: {
+    flex: 1,
+  },
+  section: {
+    paddingTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.30)',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    gap: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 24,
+    gap: 16,
   },
   menuLabel: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
   },
-  menuDivider: {
+  badge: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#3B82F6',
+  },
+  sectionDivider: {
     height: 1,
     backgroundColor: BORDER,
-    marginHorizontal: 16,
+    marginHorizontal: 24,
+    marginTop: 8,
+  },
+  drawerFooter: {
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+  },
+  footerText: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.20)',
   },
 });

@@ -376,16 +376,25 @@ export default function AddRecipeScreen() {
   };
 
   // ── Image import handlers ──
-  const handlePickImportImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
+  const handlePickImportImage = async (useCamera: boolean) => {
+    const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: false,
       quality: 0.5,
       base64: true,
-    });
+    };
+    let result: ImagePicker.ImagePickerResult;
+    if (useCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required.'); return; }
+      result = await ImagePicker.launchCameraAsync(opts);
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Photo library access required.'); return; }
+      result = await ImagePicker.launchImageLibraryAsync(opts);
+    }
     if (!result.canceled && result.assets?.[0]) {
       let b64 = result.assets[0].base64 || '';
-      // Strip data URI prefix if present
       if (b64.includes(',')) b64 = b64.split(',')[1];
       console.log(`[SpiceStrong] Import image: ${b64.length} chars, starts: ${b64.substring(0, 20)}`);
       setImportImageUri(result.assets[0].uri);
@@ -580,10 +589,15 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
                 <View style={styles.importCenter}>
                   <Ionicons name="image-outline" size={64} color="#E85D26" />
                   <Text style={styles.importTitle}>Import from a photo</Text>
-                  <Text style={styles.importSubtitle}>Upload a screenshot or photo of a recipe and we'll extract it for you</Text>
-                  <TouchableOpacity style={styles.importBtn} onPress={handlePickImportImage} activeOpacity={0.8}>
-                    <Text style={styles.importBtnText}>Upload Photo</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.importSubtitle}>Take a photo or upload a screenshot of any recipe</Text>
+                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+                    <TouchableOpacity style={[styles.importBtn, { flex: 1 }]} onPress={() => handlePickImportImage(true)} activeOpacity={0.8}>
+                      <Text style={styles.importBtnText}>📷 Camera</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: 'rgba(232,93,38,0.20)' }]} onPress={() => handlePickImportImage(false)} activeOpacity={0.8}>
+                      <Text style={[styles.importBtnText, { color: '#E85D26' }]}>🖼 Gallery</Text>
+                    </TouchableOpacity>
+                  </View>
                   <TouchableOpacity onPress={() => setCurrentStep('basics')} activeOpacity={0.7}>
                     <Text style={styles.importSkipText}>Skip — enter recipe manually</Text>
                   </TouchableOpacity>
@@ -597,7 +611,7 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
                   <TouchableOpacity style={styles.importBtn} onPress={handleExtractRecipe} activeOpacity={0.8}>
                     <Text style={styles.importBtnText}>Extract Recipe from Photo</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handlePickImportImage} activeOpacity={0.7}>
+                  <TouchableOpacity onPress={() => { setImportImageUri(null); setImportImageBase64(null); }} activeOpacity={0.7}>
                     <Text style={styles.importSkipText}>Choose a different photo</Text>
                   </TouchableOpacity>
                 </View>
