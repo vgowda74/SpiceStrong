@@ -67,7 +67,7 @@ export async function analyzeNutrition(
   const url = `${EDAMAM_API_URL}?app_id=${EDAMAM_APP_ID}&app_key=${EDAMAM_APP_KEY}`;
 
   try {
-    console.log(`[SpiceStrong] Calling Edamam API with ${cleaned.length} ingredients...`);
+    console.log(`[SpiceStrong] Calling Edamam API with ${cleaned.length} ingredients:`, cleaned);
 
     const response = await fetch(url, {
       method: 'POST',

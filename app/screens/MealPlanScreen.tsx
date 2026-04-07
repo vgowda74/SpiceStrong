@@ -43,6 +43,7 @@ import { getRecipeById, getCompletionStats, type SavedRecipe } from '../../src/s
 import { getRecipeImageUrls, saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
+import { analyzeMultipleImagesWithEdamam, isEdamamVisionAvailable } from '../../services/edamamVisionService';
 import { analyzeNutrition } from '../../services/nutritionService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
@@ -361,32 +362,23 @@ export default function MealPlanScreen() {
     if (correctionPhotos.length === 0) return;
     setCorrecting(true);
     try {
-      // Send all photos in one Claude call
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
-      // Filter out any photos with empty/invalid base64
       const validPhotos = correctionPhotos.filter((p) => p.base64 && p.base64.length > 100);
-      if (validPhotos.length === 0) {
-        throw new Error('No valid photos to analyze');
-      }
-      console.log(`[SpiceStrong] Analyzing ${validPhotos.length} photos, sizes: ${validPhotos.map((p) => p.base64.length).join(', ')}`);
+      if (validPhotos.length === 0) throw new Error('No valid photos to analyze');
+      console.log(`[SpiceStrong] Hybrid analysis: ${validPhotos.length} photos`);
 
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (!apiKey) throw new Error('No API key configured');
+
+      // ── Step 1: Claude Vision identifies food items with quantities ──
+      console.log('[SpiceStrong] Step 1: Claude identifying food items...');
       const imageBlocks: any[] = validPhotos.map((p) => {
         let mediaType = 'image/jpeg';
         if (p.base64.startsWith('iVBOR')) mediaType = 'image/png';
         else if (p.base64.startsWith('UklGR')) mediaType = 'image/webp';
-        return {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: mediaType,
-            data: p.base64,
-          },
-        };
+        return { type: 'image', source: { type: 'base64', media_type: mediaType, data: p.base64 } };
       });
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -397,45 +389,133 @@ export default function MealPlanScreen() {
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 500,
-          system: `You are a nutrition analysis AI. The user is showing you photos of different items that make up ONE complete meal. Analyze ALL photos together and estimate the TOTAL combined macros for the entire meal.
+          system: `You are a food and nutrition label analysis expert for a nutrition tracking app.
 
-If any image is a nutrition facts label, read the exact values from it.
-For food photos, estimate based on visible portion sizes.
+For each photo, determine if it is:
+A) A NUTRITION FACTS LABEL — read exact per-serving values directly
+B) A FOOD PHOTO — identify food items with quantities
 
 Return ONLY this JSON:
-{"calories": number, "proteinG": number, "carbsG": number, "fatG": number}`,
-          messages: [{
-            role: 'user',
-            content: [
-              ...imageBlocks,
-              { type: 'text', text: `These ${correctionPhotos.length} photos show different items from the same meal "${correctEntry?.recipeName ?? 'meal'}". Calculate the TOTAL combined calories and macros for everything shown across all photos.` },
-            ],
-          }],
+{
+  "labels": [{"calories": 200, "proteinG": 15, "carbsG": 10, "fatG": 8}],
+  "ingredients": ["1 large fried egg", "150g paneer", "0.5 avocado"]
+}
+
+RULES:
+- "labels" array: one entry per nutrition label photo with exact values read from the label. Empty array if no labels.
+- "ingredients" array: one entry per food item from food photos. Empty array if only labels.
+- For food items: start with quantity + unit (150g, 1 large, 0.5 cup), use simple food names
+- Separate cooking fat: if food is fried, add oil separately (e.g. "1 tbsp olive oil")
+- Be precise with portion sizes — estimate from plate size and depth
+- If a label shows "per serving" and "per container", use the PER SERVING values`,
+          messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: `Identify all food items in these ${validPhotos.length} photo(s) of a meal.` }] }],
         }),
       });
 
-      if (!res.ok) {
-        const err = await res.text().catch(() => '');
-        throw new Error(`API ${res.status}: ${err.slice(0, 100)}`);
+      if (!claudeRes.ok) throw new Error(`Claude API ${claudeRes.status}`);
+      const claudeData = await claudeRes.json();
+      const claudeText = claudeData.content?.[0]?.text || '';
+
+      // Parse ingredients list
+      const jsonStart = claudeText.indexOf('{');
+      let depth = 0, jsonEnd = -1;
+      for (let i = jsonStart; i < claudeText.length; i++) {
+        if (claudeText[i] === '{') depth++;
+        if (claudeText[i] === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
       }
-      const data = await res.json();
-      const text = data.content?.[0]?.text || '';
-      const start = text.indexOf('{');
-      let depth = 0, end = -1;
-      for (let i = start; i < text.length; i++) {
-        if (text[i] === '{') depth++;
-        if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+
+      let labels: { calories: number; proteinG: number; carbsG: number; fatG: number }[] = [];
+      let ingredients: string[] = [];
+      if (jsonEnd > jsonStart) {
+        const parsed = JSON.parse(claudeText.slice(jsonStart, jsonEnd));
+        labels = (parsed.labels || []).filter((l: any) => l && l.calories > 0);
+        ingredients = parsed.ingredients || [];
       }
-      if (end === -1) throw new Error('Could not parse nutrition');
-      const parsed = JSON.parse(text.slice(start, end));
-      setCorrectedMacros({
-        calories: Math.round(Number(parsed.calories) || 0),
-        proteinG: Math.round(Number(parsed.proteinG) || 0),
-        carbsG: Math.round(Number(parsed.carbsG) || 0),
-        fatG: Math.round(Number(parsed.fatG) || 0),
-      });
+
+      if (labels.length === 0 && ingredients.length === 0) throw new Error('Could not identify food items or labels');
+
+      // ── Sum nutrition from labels (exact values) ──
+      let labelMacros = { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
+      if (labels.length > 0) {
+        for (const l of labels) {
+          labelMacros.calories += Math.round(Number(l.calories) || 0);
+          labelMacros.proteinG += Math.round(Number(l.proteinG) || 0);
+          labelMacros.carbsG += Math.round(Number(l.carbsG) || 0);
+          labelMacros.fatG += Math.round(Number(l.fatG) || 0);
+        }
+        console.log(`[SpiceStrong] Labels found: ${labels.length} — ${labelMacros.calories} cal, ${labelMacros.proteinG}g P`);
+      }
+
+      if (ingredients.length > 0) {
+        console.log(`[SpiceStrong] Food items identified: ${ingredients.join(', ')}`);
+      }
+
+      // ── Step 2: Get nutrition for food items via Edamam ──
+      let foodMacros = { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
+
+      if (ingredients.length > 0) {
+        const edamamNutrition = await analyzeNutrition(
+          ingredients.map((s) => ({ name: s, quantity: '' })),
+          1,
+        );
+
+        if (edamamNutrition && edamamNutrition.calories > 0) {
+          console.log(`[SpiceStrong] Edamam nutrition: ${edamamNutrition.calories} cal, ${edamamNutrition.proteinG}g P`);
+          foodMacros = {
+            calories: Math.round(edamamNutrition.calories),
+            proteinG: Math.round(edamamNutrition.proteinG),
+            carbsG: Math.round(edamamNutrition.carbsG),
+            fatG: Math.round(edamamNutrition.fatG),
+          };
+        } else {
+          // Edamam failed — Claude estimates from ingredient list
+          console.warn('[SpiceStrong] Edamam failed, using Claude text estimation');
+          const fallbackRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 200,
+              messages: [{ role: 'user', content: `Estimate total nutrition for: ${ingredients.join(', ')}. Return ONLY: {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}` }],
+            }),
+          });
+          if (!fallbackRes.ok) throw new Error('Fallback estimation failed');
+          const fbData = await fallbackRes.json();
+          const fbText = fbData.content?.[0]?.text || '';
+          const fbStart = fbText.indexOf('{');
+          let fbDepth = 0, fbEnd = -1;
+          for (let i = fbStart; i < fbText.length; i++) {
+            if (fbText[i] === '{') fbDepth++;
+            if (fbText[i] === '}') { fbDepth--; if (fbDepth === 0) { fbEnd = i + 1; break; } }
+          }
+          if (fbEnd === -1) throw new Error('Could not parse fallback');
+          const fbParsed = JSON.parse(fbText.slice(fbStart, fbEnd));
+          foodMacros = {
+            calories: Math.round(Number(fbParsed.calories) || 0),
+            proteinG: Math.round(Number(fbParsed.proteinG) || 0),
+            carbsG: Math.round(Number(fbParsed.carbsG) || 0),
+            fatG: Math.round(Number(fbParsed.fatG) || 0),
+          };
+        }
+      }
+
+      // ── Combine label macros + food macros ──
+      const macros = {
+        calories: labelMacros.calories + foodMacros.calories,
+        proteinG: labelMacros.proteinG + foodMacros.proteinG,
+        carbsG: labelMacros.carbsG + foodMacros.carbsG,
+        fatG: labelMacros.fatG + foodMacros.fatG,
+      };
+      console.log(`[SpiceStrong] Final total: ${macros.calories} cal, ${macros.proteinG}g P, ${macros.carbsG}g C, ${macros.fatG}g F`);
+
+      setCorrectedMacros(macros);
     } catch (err: any) {
-      console.error('[SpiceStrong] Multi-photo analysis failed:', err);
+      console.error('[SpiceStrong] Hybrid analysis failed:', err);
       Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again or enter manually.`);
     } finally {
       setCorrecting(false);
