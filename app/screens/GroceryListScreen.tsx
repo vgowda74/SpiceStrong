@@ -200,6 +200,9 @@ export default function GroceryListScreen() {
                 <View style={styles.checkbox}>
                   <View style={styles.checkboxInner} />
                 </View>
+                <View style={styles.itemIcon}>
+                  <Text style={styles.itemIconText}>🛒</Text>
+                </View>
                 <View style={styles.itemContent}>
                   <Text style={styles.itemName}>{item.name}</Text>
                   {item.fromRecipe && <Text style={styles.itemRecipe}>{item.fromRecipe}</Text>}
@@ -229,6 +232,9 @@ export default function GroceryListScreen() {
               >
                 <View style={[styles.checkbox, styles.checkboxDone]}>
                   <Text style={styles.checkboxCheck}>✓</Text>
+                </View>
+                <View style={[styles.itemIcon, { opacity: 0.4 }]}>
+                  <Text style={styles.itemIconText}>✅</Text>
                 </View>
                 <View style={styles.itemContent}>
                   <Text style={[styles.itemName, styles.itemNameDone]}>{item.name}</Text>
@@ -359,18 +365,17 @@ const styles = StyleSheet.create({
   },
   clearBtn: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.35)' },
 
-  // Item cards
+  // Item cards — ingredient checklist style
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: SURFACE,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginBottom: 6,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: BORDER,
-    gap: 12,
   },
   itemCardDone: {
     backgroundColor: 'rgba(34,197,94,0.04)',
@@ -384,6 +389,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
   checkboxInner: {},
   checkboxDone: {
@@ -391,11 +397,21 @@ const styles = StyleSheet.create({
     borderColor: GREEN,
   },
   checkboxCheck: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  itemIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  itemIconText: { fontSize: 20 },
   itemContent: { flex: 1 },
-  itemName: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
-  itemNameDone: { color: 'rgba(255,255,255,0.40)', textDecorationLine: 'line-through' },
+  itemName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
+  itemNameDone: { color: 'rgba(255,255,255,0.35)', textDecorationLine: 'line-through' },
   itemRecipe: { fontSize: 11, color: 'rgba(255,255,255,0.30)', marginTop: 2 },
-  itemQty: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.50)' },
+  itemQty: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.50)', marginLeft: 8 },
   itemQtyDone: { color: 'rgba(255,255,255,0.25)' },
 
   // Bottom action bar

@@ -273,7 +273,7 @@ export default function IngredientChecklistScreen() {
     const navParams: Record<string, string> = { recipeId: recipe.id };
     if (effectiveTier) navParams.quantityTier = effectiveTier;
     router.replace({
-      pathname: '/screens/CookingStartScreen',
+      pathname: '/screens/CookingModeScreen',
       params: navParams,
     });
   };

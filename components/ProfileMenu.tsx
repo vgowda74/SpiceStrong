@@ -108,7 +108,6 @@ export function ProfileMenu() {
     {
       title: 'Kitchen',
       items: [
-        { icon: 'scan-outline', label: 'Scan My Grocery', onPress: handleScanGrocery },
         { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
         { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
       ],

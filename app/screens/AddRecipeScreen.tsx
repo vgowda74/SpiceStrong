@@ -20,6 +20,7 @@ import { saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../
 import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import { PROTEINS } from '../../src/theme';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import VoiceInput from '../../components/VoiceInput';
 
 type WizardStep = 'image_import' | 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
@@ -407,8 +408,8 @@ export default function AddRecipeScreen() {
     const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.3,
-      base64: true,
+      quality: 0.8,
+      base64: false, // Don't get base64 from picker — we'll resize first
     };
     let result: ImagePicker.ImagePickerResult;
     if (useCamera) {
@@ -421,16 +422,27 @@ export default function AddRecipeScreen() {
       result = await ImagePicker.launchImageLibraryAsync(opts);
     }
     if (!result.canceled && result.assets?.[0]) {
-      let b64 = result.assets[0].base64 || '';
-      if (b64.includes(',')) b64 = b64.split(',')[1];
-      console.log(`[SpiceStrong] Import image: ${b64.length} chars`);
-      if (b64.length > 5_000_000) {
-        Alert.alert('Image Too Large', 'Please use a smaller image or take a new photo with lower resolution.');
-        return;
+      const uri = result.assets[0].uri;
+
+      // Save full-quality URI for hero image
+      setImportImageUri(uri);
+      setHeroImageUri(uri);
+
+      // Resize to 1024px wide + 50% JPEG compression (guaranteed under 5MB)
+      try {
+        const manipulated = await manipulateAsync(
+          uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+        );
+        const b64 = manipulated.base64 || '';
+        console.log(`[SpiceStrong] Import: hero saved, compressed base64=${Math.round(b64.length / 1024)}KB`);
+        setImportImageBase64(b64 || null);
+        setExtractionError(null);
+      } catch (e) {
+        console.error('[SpiceStrong] Image compression failed:', e);
+        setExtractionError('Could not process image. Try a different photo.');
       }
-      setImportImageUri(result.assets[0].uri);
-      setImportImageBase64(b64 || null);
-      setExtractionError(null);
     }
   };
 

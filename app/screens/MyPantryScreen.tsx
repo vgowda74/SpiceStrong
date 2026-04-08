@@ -227,18 +227,14 @@ export default function MyPantryScreen() {
         </View>
       </View>
 
-      {/* Selection action bar */}
-      {isSelecting && (
+      {/* Action bar — always visible when items selected */}
+      {selectedItems.size > 0 && (
         <View style={styles.selectionBar}>
-          <Text style={styles.selectionCount}>{selectedItems.size} selected</Text>
           <TouchableOpacity style={styles.selectionAction} onPress={handleMoveSelectedToGrocery} activeOpacity={0.75}>
-            <Text style={styles.selectionActionText}>🛒 Grocery</Text>
+            <Text style={styles.selectionActionText}>🛒 Move to Grocery</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.selectionAction, styles.selectionActionDanger]} onPress={handleDeleteSelected} activeOpacity={0.75}>
             <Text style={styles.selectionActionDangerText}>🗑 Delete</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setSelectedItems(new Set())} activeOpacity={0.7}>
-            <Text style={styles.selectionCancel}>Cancel</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -285,15 +281,15 @@ export default function MyPantryScreen() {
                 <TouchableOpacity
                   key={item.name}
                   style={[styles.itemCard, isSelected && styles.itemCardSelected]}
-                  onPress={() => isSelecting ? toggleSelect(item.name) : handleTapItem(item)}
-                  onLongPress={() => toggleSelect(item.name)}
+                  onPress={() => toggleSelect(item.name)}
                   activeOpacity={0.7}
                 >
-                  {isSelecting && (
-                    <View style={[styles.selectBox, isSelected && styles.selectBoxOn]}>
-                      {isSelected && <Text style={styles.selectCheck}>✓</Text>}
-                    </View>
-                  )}
+                  <View style={[styles.selectBox, isSelected && styles.selectBoxOn]}>
+                    {isSelected && <Text style={styles.selectCheck}>✓</Text>}
+                  </View>
+                  <View style={styles.itemIcon}>
+                    <Text style={styles.itemIconText}>{config.emoji}</Text>
+                  </View>
                   <View style={styles.itemLeft}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     {item.state && item.state !== 'raw' && (
@@ -427,7 +423,7 @@ const styles = StyleSheet.create({
   selectBoxOn: { backgroundColor: ORANGE, borderColor: ORANGE },
   selectCheck: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 
-  // Item cards
+  // Item cards — ingredient checklist style
   itemCardSelected: {
     borderColor: ORANGE,
     backgroundColor: 'rgba(232,93,38,0.08)',
@@ -435,25 +431,36 @@ const styles = StyleSheet.create({
   itemCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     backgroundColor: SURFACE,
-    borderRadius: 12,
-    paddingVertical: 13,
-    paddingHorizontal: 16,
-    marginBottom: 6,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 8,
     borderWidth: 1,
     borderColor: BORDER,
   },
-  itemLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  itemName: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  itemIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  itemIconText: { fontSize: 20 },
+  itemLeft: { flex: 1 },
+  itemName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
   itemStateBadge: {
     backgroundColor: 'rgba(232,93,38,0.15)',
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    alignSelf: 'flex-start',
+    marginTop: 2,
   },
   itemStateText: { fontSize: 10, fontWeight: '700', color: ORANGE, textTransform: 'uppercase' },
-  itemQty: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.45)' },
+  itemQty: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.50)', marginLeft: 8 },
 
   // Edit quantity
   editQtyRow: { flexDirection: 'row', alignItems: 'center' },
