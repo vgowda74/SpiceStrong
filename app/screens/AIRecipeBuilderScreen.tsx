@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,7 @@ import { PROTEINS } from '../../src/theme';
 
 import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt';
 import { getDietaryRestrictions } from '../../services/dietaryService';
+import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -241,6 +243,10 @@ async function callClaudeAPI(
     spiceLevel?: string;
     dietary: string[];
     cuisine: string;
+    targetCal?: string;
+    targetProtein?: string;
+    targetCarbs?: string;
+    targetFat?: string;
   },
   proteinEmoji: string = '🍗',
   referenceImageBase64?: string | null,
@@ -262,6 +268,12 @@ async function callClaudeAPI(
     if (params.dietary.length > 0) parts.push(`Dietary requirements: ${params.dietary.join(', ')}.`);
     parts.push(`Cuisine style: ${params.cuisine || 'Indian'}.`);
   }
+
+  // Add macro targets
+  if (params.targetCal) parts.push(`Target per serving: ~${params.targetCal} calories.`);
+  if (params.targetProtein) parts.push(`Target protein: ~${params.targetProtein}g per serving.`);
+  if (params.targetCarbs) parts.push(`Target carbs: ~${params.targetCarbs}g per serving.`);
+  if (params.targetFat) parts.push(`Target fat: ~${params.targetFat}g per serving.`);
 
   const constraintsText = parts.join(' ');
 
@@ -557,6 +569,27 @@ export default function AIRecipeBuilderScreen() {
   const [selectedDietary, setSelectedDietary] = useState<string[]>([]);
   const [selectedCuisine, setSelectedCuisine] = useState<string>('indian');
   const [loading, setLoading] = useState(false);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+  // Macro target inputs — pre-filled from fitness profile per-meal split
+  const [targetCal, setTargetCal] = useState('450');
+  const [targetProtein, setTargetProtein] = useState('35');
+  const [targetCarbs, setTargetCarbs] = useState('30');
+  const [targetFat, setTargetFat] = useState('15');
+
+  // Load fitness profile targets on mount
+  useEffect(() => {
+    (async () => {
+      const targets = await getSavedMacroTargets();
+      if (targets) {
+        // Per-meal split (~30% of daily for lunch/dinner)
+        const mealSplit = 0.30;
+        setTargetCal(String(Math.round(targets.calories * mealSplit)));
+        setTargetProtein(String(Math.round(targets.proteinG * mealSplit)));
+        setTargetCarbs(String(Math.round(targets.carbsG * mealSplit)));
+        setTargetFat(String(Math.round(targets.fatG * mealSplit)));
+      }
+    })();
+  }, []);
   const [generating, setGenerating] = useState(false);
   const [genStep, setGenStep] = useState('');
   const [genRecipeId, setGenRecipeId] = useState<string | null>(null);
@@ -826,6 +859,7 @@ export default function AIRecipeBuilderScreen() {
               spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
               dietary: mergedDietary,
               cuisine: '',
+              targetCal, targetProtein, targetCarbs, targetFat,
             }
           : {
               meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
@@ -835,6 +869,7 @@ export default function AIRecipeBuilderScreen() {
               spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
               dietary: mergedDietary,
               cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
+              targetCal, targetProtein, targetCarbs, targetFat,
             },
         proteinEmojiVal,
         referenceImageBase64,
@@ -857,29 +892,26 @@ export default function AIRecipeBuilderScreen() {
       }
 
       // Step 3: Generate images (hero + steps)
-      setGenStep('Creating food photography...');
-      let imageResults: RecipeImageResults;
+      setGenStep('Creating hero image...');
+      let heroImage: string | null = null;
       if (referenceImageUri) {
-        // Use uploaded reference image as hero — only generate step images
-        const stepImages = await generateAllRecipeImages({
-          id: saved.id,
-          name: String(result.name ?? ''),
-          ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
-          steps: (result.steps as { title?: string; description?: string }[]) ?? [],
-        });
-        imageResults = { dishImage: referenceImageUri, ingredientImages: {}, stepImages: stepImages.stepImages };
+        heroImage = referenceImageUri;
       } else {
-        imageResults = await generateAllRecipeImages({
+        // Generate ONLY hero image (fast — ~3 seconds with flux/dev)
+        const { generateAllRecipeImages: genImages } = require('../../services/imageGenerationService');
+        const imgResult = await genImages({
           id: saved.id,
           name: String(result.name ?? ''),
           ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
-          steps: (result.steps as { title?: string; description?: string }[]) ?? [],
+          steps: [], // empty = hero only, no step images
         });
+        heroImage = imgResult.dishImage;
       }
+      const imageResults: RecipeImageResults = { dishImage: heroImage, ingredientImages: {}, stepImages: {} };
       await saveRecipeImages(saved.id, imageResults);
 
-      if (imageResults.dishImage) {
-        uploadRecipeHeroImage(saved.id, imageResults.dishImage).catch(() => {});
+      if (heroImage) {
+        uploadRecipeHeroImage(saved.id, heroImage).catch(() => {});
       }
 
       // Step 4: Finalize
@@ -887,6 +919,22 @@ export default function AIRecipeBuilderScreen() {
       saved.status = 'ready';
       await saveAIRecipe(saved);
       updateRecipeStatus(saved.id, 'ready').catch(() => {});
+
+      // Step 5: Generate step images in BACKGROUND (non-blocking)
+      (async () => {
+        try {
+          const { generateAllRecipeImages: genStepImages, saveRecipeImages: saveStepImgs } = require('../../services/imageGenerationService');
+          const stepImgResult = await genStepImages({
+            id: saved.id,
+            name: String(result.name ?? ''),
+            ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
+            steps: (result.steps as { title?: string; description?: string }[]) ?? [],
+          });
+          await saveStepImgs(saved.id, { dishImage: heroImage, ingredientImages: {}, stepImages: stepImgResult.stepImages });
+        } catch (e) {
+          console.warn('[SpiceStrong] Background step image generation failed:', e);
+        }
+      })();
 
       setGenRecipeId(saved.id);
       setGenStep('Your recipe is ready!');
@@ -986,190 +1034,111 @@ export default function AIRecipeBuilderScreen() {
             </View>
           )}
 
-          {/* Show filters only before generation */}
+          {/* Meal Type */}
           {!generatedRecipe && (
             <>
-              {isDrinkProtein ? (
-                <>
-                  {/* Drink Type */}
-                  <Text style={styles.sectionLabel}>🥤 Type</Text>
-                  <ChipRow
-                    options={DRINK_TYPE_OPTIONS}
-                    selected={selectedDrinkType}
-                    onSelect={setSelectedDrinkType}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
+              <Text style={styles.sectionLabel}>🍽️ {isDrinkProtein ? 'When' : 'Meal Type'}</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                <ChipRow
+                  options={isDrinkProtein ? DRINK_MEAL_OPTIONS : MEAL_TYPE_OPTIONS}
+                  selected={selectedMealType}
+                  onSelect={setSelectedMealType}
+                  disabled={loading}
+                />
+              </ScrollView>
 
-                  {/* Flavor */}
-                  {(!filtersConfirmed || selectedDrinkFlavor) && (
-                    <>
-                      <Text style={styles.sectionLabel}>🎨 Flavor</Text>
-                      <ChipRow
-                        options={DRINK_FLAVOR_OPTIONS}
-                        selected={selectedDrinkFlavor}
-                        onSelect={setSelectedDrinkFlavor}
-                        disabled={loading}
-                        compact={filtersConfirmed}
-                      />
-                    </>
-                  )}
+              {/* Target per serving — macro inputs */}
+              <Text style={styles.sectionLabel}>🎯 TARGET PER SERVING</Text>
+              <View style={styles.macroInputRow}>
+                <View style={styles.macroInputBox}>
+                  <TextInput style={styles.macroInputField} value={targetCal} onChangeText={setTargetCal} keyboardType="numeric" returnKeyType="done" placeholder="450" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <Text style={styles.macroInputUnit}>cal</Text>
+                </View>
+                <View style={styles.macroInputBox}>
+                  <TextInput style={[styles.macroInputField, { color: '#E85D26' }]} value={targetProtein} onChangeText={setTargetProtein} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <Text style={[styles.macroInputUnit, { color: '#E85D26' }]}>g P</Text>
+                </View>
+                <View style={styles.macroInputBox}>
+                  <TextInput style={styles.macroInputField} value={targetCarbs} onChangeText={setTargetCarbs} keyboardType="numeric" returnKeyType="done" placeholder="30" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <Text style={styles.macroInputUnit}>g C</Text>
+                </View>
+                <View style={styles.macroInputBox}>
+                  <TextInput style={styles.macroInputField} value={targetFat} onChangeText={setTargetFat} keyboardType="numeric" returnKeyType="done" placeholder="15" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <Text style={styles.macroInputUnit}>g F</Text>
+                </View>
+              </View>
 
-                  {/* Protein Goal */}
-                  <Text style={styles.sectionLabel}>🎯 Protein Goal</Text>
-                  <ChipRow
-                    options={PROTEIN_GOAL_OPTIONS}
-                    selected={selectedProteinGoal}
-                    onSelect={setSelectedProteinGoal}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
+              {/* More Options — collapsible */}
+              <TouchableOpacity style={styles.moreOptionsToggle} onPress={() => setShowMoreOptions(!showMoreOptions)} activeOpacity={0.75}>
+                <Text style={styles.moreOptionsText}>{showMoreOptions ? '▲' : '▼'} More Options</Text>
+              </TouchableOpacity>
 
-                  {/* Meal Type — drink-specific */}
-                  <Text style={styles.sectionLabel}>🍽️ When</Text>
-                  <ChipRow
-                    options={DRINK_MEAL_OPTIONS}
-                    selected={selectedMealType}
-                    onSelect={setSelectedMealType}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
-
-                  {/* Dietary Preference */}
-                  {(!filtersConfirmed || selectedDietary.length > 0) && (
-                    <>
-                      <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
-                      <ChipRow
-                        options={visibleDietary}
-                        selected={selectedDietary}
-                        onSelect={toggleDietary}
-                        multi
-                        disabled={loading}
-                        compact={filtersConfirmed}
-                      />
-                    </>
-                  )}
-                </>
-              ) : (
+              {showMoreOptions && (
                 <>
                   {/* Meat Type — only for non-veg */}
-                  {showMeatType && (!filtersConfirmed || selectedMeatType) && (
+                  {showMeatType && (
                     <>
                       <Text style={styles.sectionLabel}>🥩 Meat Type</Text>
-                      <ChipRow
-                        options={meatTypeOptions}
-                        selected={selectedMeatType}
-                        onSelect={setSelectedMeatType}
-                        disabled={loading}
-                        compact={filtersConfirmed}
-                      />
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                        <ChipRow options={meatTypeOptions} selected={selectedMeatType} onSelect={setSelectedMeatType} disabled={loading} />
+                      </ScrollView>
                     </>
                   )}
 
-                  {/* Protein Goal */}
-                  <Text style={styles.sectionLabel}>🎯 Protein Goal</Text>
-                  <ChipRow
-                    options={PROTEIN_GOAL_OPTIONS}
-                    selected={selectedProteinGoal}
-                    onSelect={setSelectedProteinGoal}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
-
-                  {/* Meal Type */}
-                  <Text style={styles.sectionLabel}>🍽️ Meal Type</Text>
-                  <ChipRow
-                    options={MEAL_TYPE_OPTIONS}
-                    selected={selectedMealType}
-                    onSelect={setSelectedMealType}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
+                  {/* Drink Type */}
+                  {isDrinkProtein && (
+                    <>
+                      <Text style={styles.sectionLabel}>🥤 Type</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                        <ChipRow options={DRINK_TYPE_OPTIONS} selected={selectedDrinkType} onSelect={setSelectedDrinkType} disabled={loading} />
+                      </ScrollView>
+                    </>
+                  )}
 
                   {/* Cooking Time */}
-                  {(!filtersConfirmed || selectedCookingTime) && (
+                  {!isDrinkProtein && (
                     <>
                       <Text style={styles.sectionLabel}>⏱️ Cooking Time</Text>
-                      <ChipRow
-                        options={COOKING_TIME_OPTIONS}
-                        selected={selectedCookingTime}
-                        onSelect={setSelectedCookingTime}
-                        disabled={loading}
-                        compact={filtersConfirmed}
-                      />
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                        <ChipRow options={COOKING_TIME_OPTIONS} selected={selectedCookingTime} onSelect={setSelectedCookingTime} disabled={loading} />
+                      </ScrollView>
                     </>
                   )}
 
-                  {/* Spice Level */}
-                  <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
-                  <ChipRow
-                    options={visibleSpiceLevels}
-                    selected={selectedSpiceLevel}
-                    onSelect={setSelectedSpiceLevel}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
-
-                  {/* Dietary Preference */}
-                  {(!filtersConfirmed || selectedDietary.length > 0) && (
+                  {/* Spice Level — not for dairy/protein powder */}
+                  {!isDrinkProtein && (
                     <>
-                      <Text style={styles.sectionLabel}>🥗 Dietary Preference</Text>
-                      <ChipRow
-                        options={visibleDietary}
-                        selected={selectedDietary}
-                        onSelect={toggleDietary}
-                        multi
-                        disabled={loading}
-                        compact={filtersConfirmed}
-                      />
+                      <Text style={styles.sectionLabel}>🌶️ Spice Level</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                        <ChipRow options={visibleSpiceLevels} selected={selectedSpiceLevel} onSelect={setSelectedSpiceLevel} disabled={loading} />
+                      </ScrollView>
                     </>
                   )}
 
                   {/* Cuisine Style */}
-                  <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
-                  <ChipRow
-                    options={visibleCuisines}
-                    selected={selectedCuisine}
-                    onSelect={setSelectedCuisine}
-                    disabled={loading}
-                    compact={filtersConfirmed}
-                  />
+                  {!isDrinkProtein && (
+                    <>
+                      <Text style={styles.sectionLabel}>🌍 Cuisine Style</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }}>
+                        <ChipRow options={visibleCuisines} selected={selectedCuisine} onSelect={setSelectedCuisine} disabled={loading} />
+                      </ScrollView>
+                    </>
+                  )}
                 </>
               )}
             </>
           )}
 
-
-          {/* Confirm / Generate / Edit buttons */}
-          {!generatedRecipe && !filtersConfirmed && (
+          {/* Generate button */}
+          {!generatedRecipe && (
             <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={() => setFiltersConfirmed(true)}
+              style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
+              onPress={handleGenerate}
+              disabled={loading}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnText}>✓ Confirm Selections</Text>
+              <Text style={styles.primaryBtnText}>🍳 Generate Recipe</Text>
             </TouchableOpacity>
-          )}
-          {!generatedRecipe && filtersConfirmed && (
-            <>
-              <TouchableOpacity
-                style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
-                onPress={handleGenerate}
-                disabled={loading}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.primaryBtnText}>🍳 Generate Recipe with SpiceBuilder</Text>
-              </TouchableOpacity>
-              {!loading && (
-                <TouchableOpacity
-                  style={styles.editFiltersBtn}
-                  onPress={() => setFiltersConfirmed(false)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.editFiltersBtnText}>✏️ Edit Selections</Text>
-                </TouchableOpacity>
-              )}
-            </>
           )}
 
           {loading && (
@@ -1389,6 +1358,48 @@ const styles = StyleSheet.create({
   proteinPickerEmoji: { fontSize: 18 },
   proteinPickerText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
   proteinPickerTextActive: { color: '#E85D26', fontWeight: '700' },
+
+  // Macro input boxes
+  macroInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  macroInputBox: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 2,
+  },
+  macroInputField: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+    width: '100%',
+    paddingHorizontal: 4,
+  },
+  macroInputUnit: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.40)',
+  },
+
+  // More options toggle
+  moreOptionsToggle: {
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  moreOptionsText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+  },
 
   proteinBanner: {
     flexDirection: 'row',
