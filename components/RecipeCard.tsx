@@ -197,10 +197,7 @@ export function RecipeCard({
               style={styles.heroTextOverlay}
               pointerEvents="none"
             >
-              <Text style={styles.heroTitle} numberOfLines={1}>{recipeTitle}</Text>
-              {description ? (
-                <Text style={styles.heroDescription} numberOfLines={2}>{description}</Text>
-              ) : null}
+              <Text style={styles.heroTitle} numberOfLines={2}>{recipeTitle}</Text>
             </LinearGradient>
           </LinearGradient>
         </View>

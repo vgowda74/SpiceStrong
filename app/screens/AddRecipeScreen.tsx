@@ -407,7 +407,7 @@ export default function AddRecipeScreen() {
     const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.5,
+      quality: 0.3,
       base64: true,
     };
     let result: ImagePicker.ImagePickerResult;
@@ -423,7 +423,11 @@ export default function AddRecipeScreen() {
     if (!result.canceled && result.assets?.[0]) {
       let b64 = result.assets[0].base64 || '';
       if (b64.includes(',')) b64 = b64.split(',')[1];
-      console.log(`[SpiceStrong] Import image: ${b64.length} chars, starts: ${b64.substring(0, 20)}`);
+      console.log(`[SpiceStrong] Import image: ${b64.length} chars`);
+      if (b64.length > 5_000_000) {
+        Alert.alert('Image Too Large', 'Please use a smaller image or take a new photo with lower resolution.');
+        return;
+      }
       setImportImageUri(result.assets[0].uri);
       setImportImageBase64(b64 || null);
       setExtractionError(null);
@@ -432,10 +436,6 @@ export default function AddRecipeScreen() {
 
   const handleExtractRecipe = async () => {
     if (!importImageBase64) return;
-    if (fromMenu && !proteinId) {
-      Alert.alert('Select a protein', 'Please select the protein type first.');
-      return;
-    }
     setExtracting(true);
     setExtractionError(null);
     try {
@@ -443,13 +443,9 @@ export default function AddRecipeScreen() {
       if (!apiKey) throw new Error('No API key');
 
       const b64 = importImageBase64;
-
-      // Detect media type
       let mediaType = 'image/jpeg';
       if (b64.startsWith('iVBOR')) mediaType = 'image/png';
       else if (b64.startsWith('UklGR')) mediaType = 'image/webp';
-
-      console.log(`[SpiceStrong] Extracting recipe: base64=${b64.length} chars, mediaType=${mediaType}`);
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -462,8 +458,13 @@ export default function AddRecipeScreen() {
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 2048,
-          system: `You are a recipe extraction engine. Extract the recipe from the image into JSON.
-If the image shows a finished dish (not recipe text), infer a reasonable recipe.
+          system: `You are a recipe extraction engine for a high-protein cooking app.
+
+STEP 1: Determine if the image contains food.
+- If the image is NOT food (person, landscape, object, text without recipe, etc.), return: {"error": "not_food"}
+- If the image IS food or a recipe (screenshot, book, handwritten, or a dish), proceed to Step 2.
+
+STEP 2: Extract the recipe and identify the PRIMARY protein.
 Return ONLY this JSON:
 {
   "name": "Recipe name",
@@ -480,12 +481,17 @@ Return ONLY this JSON:
   "steps": [{"title": "Step", "description": "Details", "emoji": "🔥", "timerMinutes": 5}],
   "chefTip": "One line tip"
 }
-Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 2-3 tier.`,
+
+CRITICAL RULES:
+- primaryProtein MUST be one of: chicken, fish, lamb, goat, pork, beef, prawns, eggs, paneer, tofu, soy, beans, milk, whey
+- If the dish has multiple proteins, pick the DOMINANT one
+- If no clear protein is visible, use "eggs" as default
+- Max 15 ingredients, 4-8 steps, precise quantities, 4-6 tier = 2x of 2-3 tier`,
           messages: [{
             role: 'user',
             content: [
               { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-              { type: 'text', text: 'Extract the recipe from this image. Return ONLY the JSON.' },
+              { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
             ],
           }],
         }),
@@ -493,7 +499,6 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
 
       if (!res.ok) {
         const errBody = await res.text().catch(() => '');
-        console.error(`[SpiceStrong] Extraction API error ${res.status}:`, errBody);
         throw new Error(`API returned ${res.status}: ${errBody.slice(0, 200)}`);
       }
       const data = await res.json();
@@ -501,8 +506,36 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
       text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       const firstBrace = text.indexOf('{');
       const lastBrace = text.lastIndexOf('}');
-      if (firstBrace === -1 || lastBrace <= firstBrace) throw new Error('Could not parse recipe');
+      if (firstBrace === -1 || lastBrace <= firstBrace) throw new Error('Could not parse response');
       const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+
+      // Check if image was rejected as not food
+      if (parsed.error === 'not_food') {
+        setExtractionError('This doesn\'t look like food or a recipe. Please upload a photo of a dish or a recipe screenshot.');
+        setExtracting(false);
+        return;
+      }
+
+      // Must have a recipe name
+      if (!parsed.name) {
+        setExtractionError('Could not identify a recipe from this image. Try a clearer photo.');
+        setExtracting(false);
+        return;
+      }
+
+      // Auto-detect protein from image
+      const detectedProtein = parsed.primaryProtein;
+      const match = PROTEINS.find((p) => p.id === detectedProtein);
+      if (match) {
+        setProteinId(match.id);
+        setProteinName(match.name);
+        setSelectedProteinEmoji(match.emoji);
+      } else {
+        // Fallback to eggs if protein not recognized
+        setProteinId('eggs');
+        setProteinName('Eggs');
+        setSelectedProteinEmoji('🥚');
+      }
 
       // Pre-fill all form fields
       setRecipeName(parsed.name || '');
@@ -517,16 +550,6 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
           title: s.title || '', description: s.description || '',
           emoji: s.emoji || '🔥', timerMinutes: s.timerMinutes || undefined,
         })));
-      }
-
-      // Auto-detect protein if coming from menu
-      if (fromMenu && parsed.primaryProtein) {
-        const match = PROTEINS.find((p) => p.id === parsed.primaryProtein);
-        if (match) {
-          setProteinId(match.id);
-          setProteinName(match.name);
-          setSelectedProteinEmoji(match.emoji);
-        }
       }
 
       setFromImageExtraction(true);

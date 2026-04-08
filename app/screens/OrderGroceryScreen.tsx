@@ -1,0 +1,97 @@
+/**
+ * OrderGroceryScreen.tsx — SpiceStrong
+ * Coming soon: order groceries from Amazon Fresh, Instacart, Walmart.
+ */
+
+import React from 'react';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+
+const BG = '#0F0F0F';
+const SURFACE = '#1A1A1A';
+const BORDER = 'rgba(255,255,255,0.08)';
+const ORANGE = '#E85D26';
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+
+const SERVICES = [
+  { name: 'Amazon Fresh', emoji: '📦', color: '#FF9900' },
+  { name: 'Instacart', emoji: '🥕', color: '#43B02A' },
+  { name: 'Walmart', emoji: '🏪', color: '#0071DC' },
+];
+
+export default function OrderGroceryScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Text style={styles.back}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Order Groceries</Text>
+        <View style={{ width: 30 }} />
+      </View>
+
+      <View style={styles.content}>
+        <Text style={styles.emoji}>🛍</Text>
+        <Text style={styles.title}>Order Directly</Text>
+        <Text style={styles.subtitle}>We're integrating with popular grocery delivery services so you can order ingredients directly from your list.</Text>
+
+        {SERVICES.map((s) => (
+          <View key={s.name} style={styles.serviceCard}>
+            <Text style={styles.serviceEmoji}>{s.emoji}</Text>
+            <Text style={styles.serviceName}>{s.name}</Text>
+            <View style={[styles.comingSoonBadge, { backgroundColor: s.color + '20' }]}>
+              <Text style={[styles.comingSoonText, { color: s.color }]}>Coming Soon</Text>
+            </View>
+          </View>
+        ))}
+
+        <Text style={styles.note}>We'll notify you when ordering is available in your area.</Text>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
+  content: { flex: 1, alignItems: 'center', paddingTop: 50, paddingHorizontal: 30 },
+  emoji: { fontSize: 64, marginBottom: 16 },
+  title: { fontSize: 24, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR, marginBottom: 10 },
+  subtitle: { fontSize: 14, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 22, marginBottom: 30 },
+  serviceCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    backgroundColor: SURFACE,
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 14,
+  },
+  serviceEmoji: { fontSize: 28 },
+  serviceName: { flex: 1, fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
+  comingSoonBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  comingSoonText: { fontSize: 11, fontWeight: '800' },
+  note: { fontSize: 12, color: 'rgba(255,255,255,0.30)', textAlign: 'center', marginTop: 20 },
+});

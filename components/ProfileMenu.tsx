@@ -12,7 +12,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -20,15 +19,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getPantryItems } from '../services/pantryService';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
 const SURFACE = '#1A1A1A';
 const BORDER = 'rgba(255,255,255,0.08)';
-const GLOBAL_CART_KEY = 'globalShoppingList';
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.78;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
@@ -76,39 +72,7 @@ export function ProfileMenu() {
   // ── Handlers ──
   const handleMealPlan = () => closeMenu(() => router.push('/screens/MealPlanScreen'));
 
-  const handleGroceryList = () => {
-    closeMenu(async () => {
-      try {
-        const stored = await AsyncStorage.getItem(GLOBAL_CART_KEY);
-        const cartItems: Record<string, string> = stored ? JSON.parse(stored) : {};
-        const keys = Object.keys(cartItems);
-        if (keys.length === 0) {
-          await Share.share({ message: 'Your SpiceStrong grocery list is empty. Add ingredients from any recipe!' });
-          return;
-        }
-        const pantry = await getPantryItems();
-        const pantryNames = new Set(pantry.map((p) => p.name.toLowerCase()));
-        const grouped: Record<string, string[]> = {};
-        keys.forEach((key) => {
-          const recipeName = cartItems[key];
-          const [name, qty] = key.split('|||');
-          if (pantryNames.has(name.toLowerCase())) return;
-          if (Array.from(pantryNames).some((pn) => name.toLowerCase().includes(pn) || pn.includes(name.toLowerCase()))) return;
-          if (!grouped[recipeName]) grouped[recipeName] = [];
-          grouped[recipeName].push(`  • ${qty} ${name}`);
-        });
-        const sections = Object.entries(grouped)
-          .filter(([, items]) => items.length > 0)
-          .map(([recipeName, items]) => `📌 ${recipeName}\n${items.join('\n')}`)
-          .join('\n\n');
-        if (!sections) {
-          await Share.share({ message: '✅ You already have everything in your pantry! No shopping needed.' });
-          return;
-        }
-        await Share.share({ message: `🛒 Shopping List (pantry items excluded)\n\n${sections}\n\nCooked with SpiceStrong 💪` });
-      } catch {}
-    });
-  };
+  const handleGroceryList = () => closeMenu(() => router.push('/screens/GroceryListScreen'));
 
   const handleDietary = () => closeMenu(() => router.push('/screens/DietaryRestrictionsScreen'));
   const handleScanGrocery = () => closeMenu(() => router.push('/screens/ScanFridgeScreen'));
