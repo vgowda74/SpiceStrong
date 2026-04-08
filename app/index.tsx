@@ -18,12 +18,13 @@ const PLAYFAIR = Platform.select({
 });
 
 const FEATURES = [
-  { emoji: '🍗', label: 'High Protein Recipes', soon: false },
-  { emoji: '🛒', label: 'Grocery Shopping', soon: false },
-  { emoji: '📅', label: 'Meal Plan', soon: true },
-  { emoji: '🤖', label: 'AI Recipe Builder', soon: false },
-  { emoji: '✍️', label: 'Add & Publish Your Own Recipes', soon: false },
-  { emoji: '📊', label: 'Nutrition Details', soon: false },
+  { emoji: '🍗', label: 'High-Protein Meals with Full Nutrition Breakdown', soon: false },
+  { emoji: '🤖', label: 'Create Recipes for Your Exact Macro Needs', soon: false },
+  { emoji: '📸', label: 'Turn Any Food Photo or Screenshot into a Recipe', soon: false },
+  { emoji: '📅', label: 'Meal Plans Tailored to Your Fitness Goals', soon: false },
+  { emoji: '🛒', label: 'Smart Grocery & Pantry Management', soon: false },
+  { emoji: '📊', label: 'Track Calories by Snapping Your Meal or Label', soon: false },
+  { emoji: '💪', label: 'Fitness Profile with AI Body Composition Scan', soon: false },
 ];
 
 export default function Index() {

@@ -21,6 +21,7 @@ import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReview
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import { PROTEINS } from '../../src/theme';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { analyzeNutrition } from '../../services/nutritionService';
 import VoiceInput from '../../components/VoiceInput';
 
 type WizardStep = 'image_import' | 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
@@ -92,6 +93,8 @@ export default function AddRecipeScreen() {
 
   // Step 4: Hero Image
   const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
+  // Nutrition from Edamam
+  const [extractedNutrition, setExtractedNutrition] = useState<{ calories: number; proteinG: number; carbsG: number; fatG: number; fiberG: number; sugarG: number; sodiumMg: number } | null>(null);
 
   // ── Load existing recipe when editing ──
   useEffect(() => {
@@ -293,6 +296,7 @@ export default function AddRecipeScreen() {
         timeMinutes,
         status: 'ready' as const,
         source: 'user' as const,
+        aiNutrition: extractedNutrition || undefined,
       };
 
       if (publish) {
@@ -562,6 +566,20 @@ CRITICAL RULES:
           title: s.title || '', description: s.description || '',
           emoji: s.emoji || '🔥', timerMinutes: s.timerMinutes || undefined,
         })));
+      }
+
+      // Get nutrition from Edamam using extracted ingredients
+      try {
+        const tier23 = parsed.ingredients?.['2-3 servings'] || [];
+        if (tier23.length > 0) {
+          const nutrition = await analyzeNutrition(tier23, 2.5);
+          if (nutrition) {
+            setExtractedNutrition(nutrition);
+            console.log(`[SpiceStrong] Nutrition: ${nutrition.calories} cal, ${nutrition.proteinG}g P`);
+          }
+        }
+      } catch (nutritionErr) {
+        console.warn('[SpiceStrong] Nutrition analysis failed (non-blocking):', nutritionErr);
       }
 
       setFromImageExtraction(true);
