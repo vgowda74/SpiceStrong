@@ -48,9 +48,12 @@ export default function AddRecipeScreen() {
     proteinEmoji: string;
     editRecipeId?: string;
     fromMenu?: string;
+    copyAsNew?: string;
+    copyId?: string;
   }>();
   const { proteinEmoji } = params;
   const fromMenu = params.fromMenu === 'true';
+  const isCopyAsNew = params.copyAsNew === 'true';
   const isEditing = !!params.editRecipeId;
 
   // Protein can be overridden when coming from menu (user picks or Claude detects)
@@ -241,23 +244,33 @@ export default function AddRecipeScreen() {
   };
 
   const goBack = () => {
+    // When editing, 'basics' is the first step — go back to previous screen
+    if (isEditing && currentStep === 'basics') {
+      router.back();
+      return;
+    }
     if (currentStepIndex === 0) {
       router.back();
       return;
     }
-    const prev = WIZARD_STEPS[currentStepIndex - 1];
+    let prevIdx = currentStepIndex - 1;
+    // Skip image_import when editing
+    if (isEditing && WIZARD_STEPS[prevIdx] === 'image_import') {
+      router.back();
+      return;
+    }
+    const prev = WIZARD_STEPS[prevIdx];
     if (prev) setCurrentStep(prev);
   };
 
   // --- Submit ---
-  const handleSubmit = async () => {
+  const handleSubmit = async (publish: boolean = false) => {
     setSubmitting(true);
     try {
-      const recipeId = isEditing ? params.editRecipeId! : `user-${Date.now()}`;
+      const recipeId = isCopyAsNew ? (params.copyId || `copy-${Date.now()}`) : isEditing ? params.editRecipeId! : `user-${Date.now()}`;
       const timeMatch = cookTime.match(/(\d+)/);
       const timeMinutes = timeMatch ? parseInt(timeMatch[1], 10) : undefined;
 
-      // Use detected/selected protein (from image extraction or user pick)
       const finalProteinId = proteinId || 'my_recipes';
       const finalProteinName = proteinName || 'My Recipes';
       const finalProteinEmoji = selectedProteinEmoji || '🍽';
@@ -277,34 +290,48 @@ export default function AddRecipeScreen() {
         difficulty: difficulty as any,
         cuisine: cuisine || undefined,
         timeMinutes,
-        status: 'building' as const,
+        status: 'ready' as const,
         source: 'user' as const,
       };
 
-      // ── VALIDATION GATE — recipe must pass quality review before saving ──
-      const reviewResult = await reviewRecipe(recipe as any);
+      if (publish) {
+        // ── PUBLISH FLOW: validate then publish ──
+        const reviewResult = await reviewRecipe(recipe as any);
 
-      if (!reviewResult.approved) {
-        const issueList = reviewResult.issues.slice(0, 5).join('\n• ');
+        if (!reviewResult.approved) {
+          const issueList = reviewResult.issues.slice(0, 3).join('\n• ');
+          const suggestions = reviewResult.suggestions.slice(0, 2);
+          Alert.alert(
+            'Almost There! 💪',
+            `"${recipeName}" scored ${reviewResult.score}/100 but needs a few tweaks before publishing.\n\n${issueList ? 'What to improve:\n• ' + issueList : ''}${suggestions.length > 0 ? '\n\nTips:\n• ' + suggestions.join('\n• ') : ''}\n\nYou can save it locally and try publishing again after making changes.`,
+            [
+              { text: 'Save Locally', onPress: async () => {
+                await saveRecipe(recipe);
+                Alert.alert('Saved! 💾', `"${recipeName}" saved to your recipes. Edit and try publishing again when ready.`, [{ text: 'OK', onPress: () => router.back() }]);
+              }},
+              { text: 'Go Back & Fix', style: 'cancel' },
+            ],
+          );
+          setSubmitting(false);
+          return;
+        }
+
+        // Passed validation — save and publish
+        await saveRecipe(recipe);
         Alert.alert(
-          '❌ Recipe Doesn\'t Meet Criteria',
-          `We can't add this recipe because it doesn't meet our quality standards (score: ${reviewResult.score}/100).\n\nIssues:\n• ${issueList}${reviewResult.suggestions.length > 0 ? '\n\nTips:\n• ' + reviewResult.suggestions.slice(0, 2).join('\n• ') : ''}`,
-          [{ text: 'Fix & Retry', style: 'default' }],
+          'Published! 🎉',
+          `"${recipeName}" passed quality review (score: ${reviewResult.score}/100) and is now being shared with the community!`,
+          [{ text: 'OK', onPress: () => router.back() }],
         );
-        setSubmitting(false);
-        return;
+      } else {
+        // ── SAVE FLOW: save locally without validation ──
+        await saveRecipe(recipe);
+        Alert.alert(
+          'Saved! 💾',
+          `"${recipeName}" has been saved to your recipes. You can publish it later from the recipe list.`,
+          [{ text: 'OK', onPress: () => router.back() }],
+        );
       }
-
-      // Save locally — recipe passed validation
-      await saveRecipe(recipe);
-
-      Alert.alert(
-        isEditing ? 'Recipe Updated! ✅' : 'Recipe Approved! 🎉',
-        isEditing
-          ? `"${recipeName}" has been updated successfully.`
-          : `"${recipeName}" passed quality review (score: ${reviewResult.score}/100) and is being processed.`,
-        [{ text: 'OK', onPress: () => router.back() }],
-      );
 
       // Background: save images locally + upload to Supabase + review pipeline
       (async () => {
@@ -564,26 +591,6 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
           {currentStep === 'image_import' && (
             <View style={styles.importStep}>
               {/* Protein picker when coming from menu */}
-              {fromMenu && (
-                <View style={styles.importSection}>
-                  <Text style={styles.sectionTitle}>Select Protein</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      {PROTEINS.map((p) => (
-                        <TouchableOpacity
-                          key={p.id}
-                          style={[styles.proteinChip, proteinId === p.id && styles.proteinChipActive]}
-                          onPress={() => { setProteinId(p.id); setProteinName(p.name); setSelectedProteinEmoji(p.emoji); }}
-                          activeOpacity={0.75}
-                        >
-                          <Text style={styles.proteinChipEmoji}>{p.emoji}</Text>
-                          <Text style={[styles.proteinChipText, proteinId === p.id && styles.proteinChipTextActive]}>{p.name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </ScrollView>
-                </View>
-              )}
 
               {!importImageUri && !extracting && (
                 <View style={styles.importCenter}>
@@ -637,6 +644,24 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
           {/* ========== STEP 1: BASICS ========== */}
           {currentStep === 'basics' && (
             <>
+              {/* Protein selector — shown when editing or from menu */}
+              <Text style={styles.sectionTitle}>Protein Type *</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16, maxHeight: 44 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {PROTEINS.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.proteinChip, proteinId === p.id && styles.proteinChipActive]}
+                      onPress={() => { setProteinId(p.id); setProteinName(p.name); setSelectedProteinEmoji(p.emoji); }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.proteinChipEmoji}>{p.emoji}</Text>
+                      <Text style={[styles.proteinChipText, proteinId === p.id && styles.proteinChipTextActive]}>{p.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+
               <Text style={styles.sectionTitle}>Recipe Name *</Text>
               <TextInput
                 style={styles.input}
@@ -969,21 +994,32 @@ Rules: Max 15 ingredients, 4-8 steps, precise quantities only, 4-6 tier = 2x of 
         {/* Bottom Navigation */}
         <View style={styles.bottomBar}>
           {currentStep === 'review' ? (
-            <TouchableOpacity
-              style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}
-              onPress={handleSubmit}
-              disabled={submitting}
-              activeOpacity={0.85}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle" size={20} color="#FFF" />
-                  <Text style={styles.submitBtnText}>Submit Recipe</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.reviewBtnRow}>
+              <TouchableOpacity
+                style={[styles.saveDraftBtn, submitting && styles.submitBtnDisabled]}
+                onPress={() => handleSubmit(false)}
+                disabled={submitting}
+                activeOpacity={0.85}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#E85D26" />
+                ) : (
+                  <Text style={styles.saveDraftBtnText}>💾 Save</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.publishBtn, submitting && styles.submitBtnDisabled]}
+                onPress={() => handleSubmit(true)}
+                disabled={submitting}
+                activeOpacity={0.85}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.publishBtnText}>🚀 Publish</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           ) : (
             <TouchableOpacity style={styles.nextBtn} onPress={goNext} activeOpacity={0.85}>
               <Text style={styles.nextBtnText}>Continue</Text>
@@ -1344,4 +1380,25 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { opacity: 0.6 },
   submitBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  reviewBtnRow: { flexDirection: 'row', gap: 10 },
+  saveDraftBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+  },
+  saveDraftBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  publishBtn: {
+    flex: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E85D26',
+    borderRadius: 14,
+    padding: 16,
+  },
+  publishBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
 });

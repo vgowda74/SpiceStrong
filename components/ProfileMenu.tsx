@@ -118,6 +118,10 @@ export function ProfileMenu() {
     pathname: '/screens/AddRecipeScreen',
     params: { proteinId: '', proteinName: '', proteinEmoji: '', fromMenu: 'true' },
   }));
+  const handleSpiceBuilder = () => closeMenu(() => router.push({
+    pathname: '/screens/AIRecipeBuilderScreen',
+    params: {},
+  }));
   const handleFitnessProfile = () => closeMenu(() => router.push('/screens/FitnessProfileScreen'));
 
   // ── Menu sections ──
@@ -133,6 +137,7 @@ export function ProfileMenu() {
       items: [
         { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
         { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
+        { icon: 'flash-outline', label: 'SpiceBuilder Recipe', onPress: handleSpiceBuilder },
         { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
       ],
     },
@@ -218,9 +223,6 @@ export function ProfileMenu() {
 
 const styles = StyleSheet.create({
   iconBtn: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 54 : 36,
-    left: 20,
     zIndex: 100,
   },
   hamburger: {

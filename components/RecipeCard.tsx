@@ -49,6 +49,7 @@ export interface RecipeCardProps {
   imageSource?: ImageSourcePropType;
   isFavorite: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   onFavoriteToggle: (e: GestureResponderEvent) => void;
   onRatingPress?: () => void;
   accentColors: readonly [string, string];
@@ -69,6 +70,7 @@ export function RecipeCard({
   emoji,
   isFavorite,
   onPress,
+  onLongPress,
   onFavoriteToggle,
   onRatingPress,
   accentColors,
@@ -86,6 +88,7 @@ export function RecipeCard({
     <Pressable
       style={({ pressed }) => [styles.cardShell, pressed && !isBuilding && styles.cardPressed, isBuilding && styles.cardBuilding]}
       onPress={isBuilding ? undefined : onPress}
+      onLongPress={isBuilding ? undefined : onLongPress}
       disabled={isBuilding}
     >
       <View style={styles.cardInner}>
@@ -130,19 +133,20 @@ export function RecipeCard({
               </>
             )}
 
-            {/* ——— Macro pills top-left (stacked) ——— */}
+            {/* ——— Calories + Macros top-left ——— */}
             <View style={styles.statsOverlay}>
-              <View style={styles.statPill}>
-                <Text style={styles.statPillText}>💪 {protein || '—'}</Text>
-              </View>
-              {nutrition != null && nutrition.fatG > 0 && (
-                <View style={styles.statPill}>
-                  <Text style={styles.statPillText}>🧈 {Math.round(nutrition.fatG)}g fat</Text>
+              {nutrition != null && nutrition.calories > 0 && (
+                <View style={styles.caloriePill}>
+                  <Text style={styles.calorieText}>🔥 {Math.round(nutrition.calories)} cal</Text>
                 </View>
               )}
-              {nutrition != null && nutrition.carbsG > 0 && (
-                <View style={styles.statPill}>
-                  <Text style={styles.statPillText}>🍚 {Math.round(nutrition.carbsG)}g carbs</Text>
+              {nutrition != null && (nutrition.proteinG > 0 || nutrition.fatG > 0 || nutrition.carbsG > 0) && (
+                <View style={styles.macroBar}>
+                  {nutrition.proteinG > 0 && <Text style={styles.macroBarProtein}>{Math.round(nutrition.proteinG)}g P</Text>}
+                  {nutrition.proteinG > 0 && (nutrition.fatG > 0 || nutrition.carbsG > 0) && <Text style={styles.macroBarDot}>·</Text>}
+                  {nutrition.fatG > 0 && <Text style={styles.macroBarText}>{Math.round(nutrition.fatG)}g F</Text>}
+                  {nutrition.fatG > 0 && nutrition.carbsG > 0 && <Text style={styles.macroBarDot}>·</Text>}
+                  {nutrition.carbsG > 0 && <Text style={styles.macroBarText}>{Math.round(nutrition.carbsG)}g C</Text>}
                 </View>
               )}
             </View>
@@ -181,31 +185,11 @@ export function RecipeCard({
                   <Text style={styles.statPillText}>🍳 {cookCount} cooked</Text>
                 </View>
               )}
-              {onMealPlan && (
-                <TouchableOpacity
-                  style={[styles.mealPlanBtn, { marginTop: 4 }]}
-                  onPress={(e) => { e.stopPropagation(); onMealPlan(e); }}
-                  activeOpacity={0.75}
-                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                >
-                  <Text style={styles.mealPlanBtnText}>+ Meal Plan</Text>
-                </TouchableOpacity>
-              )}
               {actionRow && (
                 <View style={{ marginTop: 4 }}>{actionRow}</View>
               )}
             </View>
 
-            <TouchableOpacity
-              style={styles.favouriteBtn}
-              onPress={onFavoriteToggle}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.favouriteStar, isFavorite && styles.favouriteStarFilled]}>
-                {isFavorite ? '★' : '☆'}
-              </Text>
-            </TouchableOpacity>
 
             {/* ——— Name + Description overlay on image ——— */}
             <LinearGradient
@@ -317,10 +301,45 @@ const styles = StyleSheet.create({
   statsOverlay: {
     position: 'absolute',
     top: 10,
-    left: 50,
-    flexDirection: 'column',
-    gap: 4,
+    left: 10,
     zIndex: 3,
+    gap: 4,
+  },
+  caloriePill: {
+    backgroundColor: 'rgba(232,93,38,0.80)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  calorieText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  macroBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(22,163,74,0.70)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    gap: 4,
+    alignSelf: 'flex-start',
+  },
+  macroBarProtein: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  macroBarText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.85)',
+  },
+  macroBarDot: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.40)',
   },
   ratingOverlay: {
     position: 'absolute',

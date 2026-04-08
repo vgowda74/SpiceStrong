@@ -17,6 +17,9 @@ import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, sav
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
 import * as Notifications from 'expo-notifications';
+import * as ImagePicker from 'expo-image-picker';
+import { Image } from 'expo-image';
+import { PROTEINS } from '../../src/theme';
 
 import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt';
 import { getDietaryRestrictions } from '../../services/dietaryService';
@@ -240,6 +243,7 @@ async function callClaudeAPI(
     cuisine: string;
   },
   proteinEmoji: string = '🍗',
+  referenceImageBase64?: string | null,
 ) {
   const parts: string[] = [];
   const isDrink = ['milk', 'whey'].includes(proteinId);
@@ -344,7 +348,24 @@ Return this exact JSON structure (no markdown, no preamble):
 }
 ${constraintsText}`;
 
-  const userMessage = `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;
+  const userMessageText = referenceImageBase64
+    ? `I have a photo of a dish. Create a high-protein recipe inspired by this dish using ${proteinName} as the primary protein. ${constraintsText}
+
+IMPORTANT RULES FOR IMAGE-BASED RECIPES:
+- If the image is NOT food (e.g. a person, landscape, object), IGNORE the image entirely and generate a standard recipe based on the filters.
+- If the image shows food with a DIFFERENT protein than "${proteinName}", adapt the recipe to use ${proteinName} instead while keeping the same cooking style and flavors.
+- If the image conflicts with dietary filters (e.g. image shows dairy but user selected dairy-free), prioritize the user's dietary filters.
+- The recipe MUST use ${proteinName} as the primary protein regardless of what the image shows.
+- Focus on recreating the cooking style, cuisine, and flavor profile from the image — not the exact ingredients.`
+    : `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;
+
+  // Build message content — with optional reference image
+  const messageContent: any = referenceImageBase64
+    ? [
+        { type: 'image', source: { type: 'base64', media_type: referenceImageBase64.startsWith('iVBOR') ? 'image/png' : 'image/jpeg', data: referenceImageBase64 } },
+        { type: 'text', text: userMessageText },
+      ]
+    : userMessageText;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -358,7 +379,7 @@ ${constraintsText}`;
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      messages: [{ role: 'user', content: messageContent }],
     }),
   });
 
@@ -512,11 +533,21 @@ function ChipRow({
 
 export default function AIRecipeBuilderScreen() {
   const router = useRouter();
-  const { proteinId: paramProteinId, proteinName: paramProteinName, proteinEmoji } = useLocalSearchParams<{
+  const { proteinId: routeProteinId, proteinName: routeProteinName, proteinEmoji: routeProteinEmoji } = useLocalSearchParams<{
     proteinId?: string;
     proteinName?: string;
     proteinEmoji?: string;
   }>();
+
+  // Protein selection — use route param if provided, otherwise user picks
+  const [selectedProtein, setSelectedProtein] = useState(routeProteinId || 'chicken');
+  const [selectedProteinName, setSelectedProteinName] = useState(routeProteinName || 'Chicken');
+  const [selectedProteinEmoji, setSelectedProteinEmoji] = useState(routeProteinEmoji || '🍗');
+
+  // Use selected protein throughout (replaces paramProteinId/paramProteinName/proteinEmoji)
+  const paramProteinId = selectedProtein;
+  const paramProteinName = selectedProteinName;
+  const proteinEmoji = selectedProteinEmoji;
 
   const [selectedMeatType, setSelectedMeatType] = useState<string>('');
   const [selectedProteinGoal, setSelectedProteinGoal] = useState<string>('20-plus');
@@ -529,6 +560,9 @@ export default function AIRecipeBuilderScreen() {
   const [generating, setGenerating] = useState(false);
   const [genStep, setGenStep] = useState('');
   const [genRecipeId, setGenRecipeId] = useState<string | null>(null);
+  // Image upload for reference photo
+  const [referenceImageUri, setReferenceImageUri] = useState<string | null>(null);
+  const [referenceImageBase64, setReferenceImageBase64] = useState<string | null>(null);
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
   const [filtersConfirmed, setFiltersConfirmed] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
@@ -655,6 +689,37 @@ export default function AIRecipeBuilderScreen() {
     return tags;
   }, [isDrinkProtein, showMeatType, selectedMeatType, selectedDrinkType, selectedDrinkFlavor, selectedProteinGoal, selectedMealType, selectedCookingTime, selectedSpiceLevel, selectedDietary, selectedCuisine, meatTypeOptions]);
 
+  const pickReferenceImage = async (useCamera: boolean) => {
+    // Max 5MB base64 for Claude = ~3.75MB raw image. Use low quality.
+    const opts: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.3,
+      base64: true,
+    };
+    let result: ImagePicker.ImagePickerResult;
+    if (useCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required.'); return; }
+      result = await ImagePicker.launchCameraAsync(opts);
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Gallery access required.'); return; }
+      result = await ImagePicker.launchImageLibraryAsync(opts);
+    }
+    if (!result.canceled && result.assets?.[0]) {
+      let b64 = result.assets[0].base64 || '';
+      if (b64.includes(',')) b64 = b64.split(',')[1];
+      // Check size — Claude max is 5MB base64
+      if (b64.length > 5_000_000) {
+        Alert.alert('Image Too Large', 'Please use a smaller image or take a new photo.');
+        return;
+      }
+      setReferenceImageUri(result.assets[0].uri);
+      setReferenceImageBase64(b64 || null);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!ANTHROPIC_KEY) {
       Alert.alert('', 'AI is not configured. Set EXPO_PUBLIC_ANTHROPIC_KEY.');
@@ -772,6 +837,7 @@ export default function AIRecipeBuilderScreen() {
               cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
             },
         proteinEmojiVal,
+        referenceImageBase64,
       );
 
       // Step 2: Save recipe
@@ -792,12 +858,24 @@ export default function AIRecipeBuilderScreen() {
 
       // Step 3: Generate images (hero + steps)
       setGenStep('Creating food photography...');
-      const imageResults = await generateAllRecipeImages({
-        id: saved.id,
-        name: String(result.name ?? ''),
-        ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
-        steps: (result.steps as { title?: string; description?: string }[]) ?? [],
-      });
+      let imageResults: RecipeImageResults;
+      if (referenceImageUri) {
+        // Use uploaded reference image as hero — only generate step images
+        const stepImages = await generateAllRecipeImages({
+          id: saved.id,
+          name: String(result.name ?? ''),
+          ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
+          steps: (result.steps as { title?: string; description?: string }[]) ?? [],
+        });
+        imageResults = { dishImage: referenceImageUri, ingredientImages: {}, stepImages: stepImages.stepImages };
+      } else {
+        imageResults = await generateAllRecipeImages({
+          id: saved.id,
+          name: String(result.name ?? ''),
+          ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
+          steps: (result.steps as { title?: string; description?: string }[]) ?? [],
+        });
+      }
       await saveRecipeImages(saved.id, imageResults);
 
       if (imageResults.dishImage) {
@@ -881,11 +959,30 @@ export default function AIRecipeBuilderScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Protein info */}
-          {paramProteinName && (
-            <View style={styles.proteinBanner}>
-              <Text style={styles.proteinBannerEmoji}>{proteinEmoji ?? '🍽️'}</Text>
-              <Text style={styles.proteinBannerText}>{paramProteinName} Recipe</Text>
+          {/* Protein selector */}
+          {!generatedRecipe && (
+            <View style={styles.proteinPickerSection}>
+              <Text style={styles.proteinPickerLabel}>SELECT PROTEIN</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.proteinPickerRow}>
+                  {PROTEINS.map((p) => (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={[styles.proteinPickerChip, selectedProtein === p.id && styles.proteinPickerChipActive]}
+                      onPress={() => {
+                        setSelectedProtein(p.id);
+                        setSelectedProteinName(p.name);
+                        setSelectedProteinEmoji(p.emoji);
+                        setSelectedMeatType('');
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.proteinPickerEmoji}>{p.emoji}</Text>
+                      <Text style={[styles.proteinPickerText, selectedProtein === p.id && styles.proteinPickerTextActive]}>{p.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
             </View>
           )}
 
@@ -1041,6 +1138,7 @@ export default function AIRecipeBuilderScreen() {
               )}
             </>
           )}
+
 
           {/* Confirm / Generate / Edit buttons */}
           {!generatedRecipe && !filtersConfirmed && (
@@ -1211,6 +1309,44 @@ const styles = StyleSheet.create({
     }),
   },
   genViewBtnText: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+
+  // Reference image upload
+  refImageSection: {
+    marginBottom: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  refImageLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.45)',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  refImageBtnRow: { flexDirection: 'row', gap: 10 },
+  refImageBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(232,93,38,0.15)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.30)',
+  },
+  refImageBtnText: { fontSize: 14, fontWeight: '700', color: '#E85D26' },
+  refImagePreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  refImageThumb: { width: 80, height: 80, borderRadius: 12 },
+  refImageActions: { flex: 1, gap: 4 },
+  refImageHint: { fontSize: 13, fontWeight: '600', color: '#22C55E' },
+  refImageRemove: { fontSize: 13, fontWeight: '600', color: '#E85D26', textDecorationLine: 'underline' },
+  refImageOptional: { fontSize: 11, color: 'rgba(255,255,255,0.30)', marginTop: 8 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1225,6 +1361,35 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 44 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
+  // Protein picker
+  proteinPickerSection: { marginBottom: 16 },
+  proteinPickerLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.45)',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  proteinPickerRow: { flexDirection: 'row', gap: 8 },
+  proteinPickerChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 20,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  proteinPickerChipActive: {
+    borderColor: '#E85D26',
+    backgroundColor: 'rgba(232,93,38,0.15)',
+  },
+  proteinPickerEmoji: { fontSize: 18 },
+  proteinPickerText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
+  proteinPickerTextActive: { color: '#E85D26', fontWeight: '700' },
+
   proteinBanner: {
     flexDirection: 'row',
     alignItems: 'center',

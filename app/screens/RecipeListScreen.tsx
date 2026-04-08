@@ -1,5 +1,6 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -250,8 +251,6 @@ export default function RecipeListScreen() {
   const [communityRatings, setCommunityRatings] = useState<Record<string, RecipeRatings>>({});
   const [communityLoading, setCommunityLoading] = useState<Record<string, boolean>>({});
 
-  // Publish state — tracks which recipe IDs are currently being submitted
-  const [publishingIds, setPublishingIds] = useState<Set<string>>(new Set());
 
   // Modal state
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
@@ -409,41 +408,6 @@ export default function RecipeListScreen() {
 
   const totalCount = recipes.length;
 
-  const handlePublish = (recipe: SavedRecipe) => {
-    const isRetry = recipe.reviewResult && !recipe.reviewResult.approved;
-    Alert.alert(
-      isRetry ? 'Resubmit Recipe' : 'Publish Recipe',
-      isRetry
-        ? `Resubmit "${recipe.name}" for review? Previous issues will be re-evaluated.`
-        : `Submit "${recipe.name}" for community review?\n\nOur validator will check ingredients, steps, nutrition, and food safety. You'll get a notification when it's done.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: isRetry ? 'Resubmit' : 'Submit for Review',
-          onPress: async () => {
-            // Immediately mark as pending_review locally
-            const updated: SavedRecipe = { ...recipe, status: 'pending_review' };
-            await saveLocalRecipe(updated);
-            setRecipes((prev) => prev.map((r) => r.id === recipe.id ? updated : r));
-            setPublishingIds((prev) => new Set(prev).add(recipe.id));
-
-            // Run full review pipeline in background
-            submitRecipeForReview(updated).finally(() => {
-              setPublishingIds((prev) => {
-                const next = new Set(prev);
-                next.delete(recipe.id);
-                return next;
-              });
-              // Refresh recipes to pick up updated status/reviewResult
-              getAllRecipesForProtein(proteinId).then((all) => {
-                setRecipes(all.filter((r) => !deletedIdsRef.current.has(r.id)));
-              });
-            });
-          },
-        },
-      ]
-    );
-  };
 
   const handleDelete = (recipe: SavedRecipe) => {
     Alert.alert(
@@ -471,13 +435,93 @@ export default function RecipeListScreen() {
     );
   };
 
-  const handleToggleFavourite = useCallback(async (recipeId: string, e: { stopPropagation: () => void }) => {
-    e.stopPropagation();
+  const handleToggleFavourite = useCallback(async (recipeId: string, e?: { stopPropagation: () => void }) => {
+    e?.stopPropagation();
     const nowFav = await toggleFavourite(recipeId);
     setFavourites((prev) =>
       nowFav ? [...prev, recipeId] : prev.filter((id) => id !== recipeId)
     );
   }, []);
+
+  const handleLongPress = (item: SavedRecipe) => {
+    const isCurated = item.source === 'curated' || item.id.startsWith('spicestrong-') || item.id.startsWith('curated-');
+    const isOwn = item.source === 'user' || item.source === 'ai';
+
+    const isApproved = item.reviewResult?.approved === true;
+
+    const isFav = favourites.includes(item.id);
+
+    const options: { text: string; onPress?: () => void; style?: 'destructive' | 'cancel' }[] = [
+      // Favorite
+      {
+        text: isFav ? '★ Remove from Favourites' : '☆ Add to Favourites',
+        onPress: () => handleToggleFavourite(item.id),
+      },
+      // Add to Meal Plan
+      {
+        text: '📅 Add to Meal Plan',
+        onPress: () => openMealPlan(item),
+      },
+      // Edit
+      {
+        text: isCurated ? '✏️ Edit as Copy' : '✏️ Edit',
+        onPress: () => {
+          if (isCurated) {
+            const copyId = `copy-${Date.now()}`;
+            router.push({
+              pathname: '/screens/AddRecipeScreen',
+              params: {
+                proteinId: item.proteinId,
+                proteinName: item.proteinName,
+                proteinEmoji: item.proteinEmoji,
+                editRecipeId: item.id,
+                copyAsNew: 'true',
+                copyId,
+              },
+            });
+          } else {
+            router.push({
+              pathname: '/screens/AddRecipeScreen',
+              params: {
+                proteinId: item.proteinId,
+                proteinName: item.proteinName,
+                proteinEmoji: item.proteinEmoji,
+                editRecipeId: item.id,
+              },
+            });
+          }
+        },
+      },
+    ];
+
+    // Delete — only for own recipes that are NOT published
+    if (isOwn && !isApproved) {
+      options.push({
+        text: '🗑 Delete',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete Recipe', `Delete "${item.name}"?`, [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete',
+              style: 'destructive',
+              onPress: async () => {
+                deletedIdsRef.current.add(item.id);
+                setRecipes((prev) => prev.filter((r) => r.id !== item.id));
+                try {
+                  await AsyncStorage.setItem('spicestrong_deleted_recipes',
+                    JSON.stringify(Array.from(deletedIdsRef.current)));
+                } catch {}
+              },
+            },
+          ]);
+        },
+      });
+    }
+
+    options.push({ text: 'Cancel', style: 'cancel' });
+    Alert.alert(item.name, 'What would you like to do?', options);
+  };
 
   const renderRecipeCard = (item: SavedRecipe) => {
     const timeMinutes = (item as SavedRecipe & { timeMinutes?: number }).timeMinutes ?? null;
@@ -548,76 +592,11 @@ export default function RecipeListScreen() {
             params: { recipeId: item.id, quantityTier: (selectedTierByRecipeId[item.id] ?? '2-3 servings') },
           })
         }
-        onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
+        onLongPress={() => handleLongPress(item)}
         onRatingPress={() => handleRatingPress(item.id, item.name)}
-        onMealPlan={() => openMealPlan(item)}
         accentColors={gradient}
         nutrition={cardNutrition}
         isBuilding={item.status === 'building'}
-        actionRow={
-          !builtInIds.has(item.id) && !item.id.startsWith('spicestrong-') && !item.id.startsWith('curated-') ? (
-            <View style={styles.actionRow}>
-              {/* Publish button — only for manually-added user recipes */}
-              {item.source === 'user' && (() => {
-                const isSubmitting = publishingIds.has(item.id) || item.status === 'pending_review';
-                const isApproved = item.reviewResult?.approved === true;
-                const isRejected = item.reviewResult?.approved === false;
-                if (isApproved) {
-                  return (
-                    <View style={[styles.publishBtn, styles.publishBtnLive]}>
-                      <Text style={styles.publishBtnTextLive}>Live ✓</Text>
-                    </View>
-                  );
-                }
-                if (isSubmitting) {
-                  return (
-                    <View style={[styles.publishBtn, styles.publishBtnPending]}>
-                      <Text style={styles.publishBtnTextPending}>In Review…</Text>
-                    </View>
-                  );
-                }
-                return (
-                  <TouchableOpacity
-                    style={[styles.publishBtn, isRejected && styles.publishBtnRejected]}
-                    onPress={(e) => { e.stopPropagation(); handlePublish(item); }}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={[styles.publishBtnText, isRejected && styles.publishBtnTextRejected]}>
-                      {isRejected ? '⚠ Resubmit' : '🚀 Publish'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })()}
-              {/* Edit button */}
-              <TouchableOpacity
-                  style={styles.editBtn}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    router.push({
-                      pathname: '/screens/AddRecipeScreen',
-                      params: {
-                        proteinId: item.proteinId,
-                        proteinName: item.proteinName,
-                        proteinEmoji: item.proteinEmoji,
-                        editRecipeId: item.id,
-                      },
-                    });
-                  }}
-                >
-                  <Text style={styles.editBtnText}>✏️</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleDelete(item);
-                }}
-              >
-                <Text style={styles.deleteBtnText}>🗑</Text>
-              </TouchableOpacity>
-            </View>
-          ) : undefined
-        }
       />
     );
   };
@@ -891,32 +870,6 @@ export default function RecipeListScreen() {
 
         {/* Filter modal removed — now using full-screen RecipeFilterScreen */}
 
-        <TouchableOpacity
-          style={styles.spiceBuilderCard}
-          onPress={() =>
-            router.push({
-              pathname: '/screens/AIRecipeBuilderScreen',
-              params: { proteinId, proteinName, proteinEmoji },
-            })
-          }
-          activeOpacity={0.85}
-        >
-          <LinearGradient
-            colors={['#3D1A0A', '#E85D26', '#1A0500']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.spiceBuilderGradient}
-          >
-            <View style={styles.spiceBuilderContent}>
-              <Text style={styles.spiceBuilderEmoji}>⚡</Text>
-              <View style={styles.spiceBuilderText}>
-                <Text style={styles.spiceBuilderTitle}>Build with SpiceBuilder</Text>
-                <Text style={styles.spiceBuilderSub}>AI generates a custom {proteinName} recipe for you</Text>
-              </View>
-              <Text style={styles.spiceBuilderArrow}>›</Text>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
 
       <FlatList
         data={listData}

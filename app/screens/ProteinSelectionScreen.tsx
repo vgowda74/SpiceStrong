@@ -155,8 +155,10 @@ export default function ProteinSelectionScreen() {
       >
         {/* HEADER */}
         <View style={styles.header}>
-          <ProfileMenu />
-          <Text style={styles.headingLine1}>What's your <Text style={styles.headingLine2}>protein today?</Text></Text>
+          <View style={styles.headerTopRow}>
+            <ProfileMenu />
+            <Text style={styles.headingLine1}>What's your <Text style={styles.headingLine2}>protein?</Text></Text>
+          </View>
           <TextInput
             style={styles.search}
             placeholder="Search proteins..."
@@ -188,26 +190,6 @@ export default function ProteinSelectionScreen() {
             ))}
           </ScrollView>
 
-          {/* Scan My Grocery card */}
-          <TouchableOpacity
-            style={styles.scanFridgeCard}
-            onPress={() => router.push('/screens/ScanFridgeScreen')}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={['#3D1A0A', '#1A0500']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.scanFridgeGradient}
-            >
-              <Text style={styles.scanFridgeEmoji}>📸</Text>
-              <View style={styles.scanFridgeTextBlock}>
-                <Text style={styles.scanFridgeTitle}>Scan My Grocery</Text>
-                <Text style={styles.scanFridgeSub}>Scan your groceries — we'll match recipes for you</Text>
-              </View>
-              <Text style={styles.scanFridgeArrow}>›</Text>
-            </LinearGradient>
-          </TouchableOpacity>
 
           {nonVeg.length > 0 && (
             <>
@@ -280,13 +262,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 20,
   },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 16,
+  },
   headingLine1: {
     fontSize: 22,
     fontWeight: '700',
     color: '#FFFFFF',
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
-    marginBottom: 16,
-    marginTop: 8,
   },
   headingLine2: {
     color: ORANGE,
