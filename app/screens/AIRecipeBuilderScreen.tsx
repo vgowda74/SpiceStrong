@@ -30,7 +30,9 @@ const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
 /** Max AI recipes allowed PER PROTEIN TYPE for free users. Set to 0 for unlimited.
  * Change this single constant to adjust the limit for all proteins at launch. */
-const MAX_FREE_AI_RECIPES_PER_PROTEIN = __DEV__ ? 0 : 1;
+const MAX_FREE_AI_RECIPES_PER_PROTEIN = 0; // Disabled — using global limit instead
+const MAX_TOTAL_AI_RECIPES = 30;
+const GLOBAL_AI_COUNT_KEY = 'spicestrong_total_ai_count';
 
 /** AsyncStorage key for per-protein AI recipe count */
 const AI_COUNT_KEY_PREFIX = 'aiRecipeCount_';
@@ -763,31 +765,19 @@ export default function AIRecipeBuilderScreen() {
       Alert.alert('Coming Soon', 'SpiceBuilder recipes for this protein will be available soon!');
       return;
     }
-    // Enforce AI recipe limit PER PROTEIN (permanent counter — survives recipe deletion)
-    if (MAX_FREE_AI_RECIPES_PER_PROTEIN > 0) {
-      try {
-        const countKey = `${AI_COUNT_KEY_PREFIX}${paramProteinId}`;
-        const countStr = await AsyncStorage.getItem(countKey);
-        const aiCount = countStr ? parseInt(countStr, 10) : 0;
-        if (aiCount >= MAX_FREE_AI_RECIPES_PER_PROTEIN) {
-          // Find other proteins the user can still generate for
-          const others: { id: string; name: string; emoji: string }[] = [];
-          for (const pid of AI_ENABLED_PROTEINS) {
-            if (pid === paramProteinId) continue;
-            const otherKey = `${AI_COUNT_KEY_PREFIX}${pid}`;
-            const otherStr = await AsyncStorage.getItem(otherKey);
-            const otherCount = otherStr ? parseInt(otherStr, 10) : 0;
-            if (otherCount < MAX_FREE_AI_RECIPES_PER_PROTEIN) {
-              const info = PROTEIN_INFO[pid];
-              if (info) others.push({ id: pid, ...info });
-            }
-          }
-          setAvailableProteins(others);
-          setShowLimitModal(true);
-          return;
-        }
-      } catch { /* proceed if check fails */ }
-    }
+    // Enforce global AI recipe limit (30 total across all proteins)
+    try {
+      const countStr = await AsyncStorage.getItem(GLOBAL_AI_COUNT_KEY);
+      const totalCount = countStr ? parseInt(countStr, 10) : 0;
+      if (totalCount >= MAX_TOTAL_AI_RECIPES) {
+        Alert.alert(
+          'Recipe Limit Reached',
+          `You've created ${MAX_TOTAL_AI_RECIPES} AI recipes. Upgrade to Premium for unlimited recipes!`,
+          [{ text: 'OK' }],
+        );
+        return;
+      }
+    } catch { /* proceed if check fails */ }
 
     const proteinId = paramProteinId ?? 'chicken';
     const proteinName = paramProteinName ?? 'Chicken';
@@ -814,12 +804,11 @@ export default function AIRecipeBuilderScreen() {
       // Save placeholder to AsyncStorage + Supabase (via recipeService)
       await saveAIRecipe(placeholder);
 
-      // Increment permanent AI recipe counter for this protein
+      // Increment global AI recipe counter
       try {
-        const countKey = `${AI_COUNT_KEY_PREFIX}${paramProteinId}`;
-        const countStr = await AsyncStorage.getItem(countKey);
-        const aiCount = countStr ? parseInt(countStr, 10) : 0;
-        await AsyncStorage.setItem(countKey, String(aiCount + 1));
+        const countStr = await AsyncStorage.getItem(GLOBAL_AI_COUNT_KEY);
+        const totalCount = countStr ? parseInt(countStr, 10) : 0;
+        await AsyncStorage.setItem(GLOBAL_AI_COUNT_KEY, String(totalCount + 1));
       } catch { /* non-critical */ }
     } catch (e) {
       console.error(e);
