@@ -87,6 +87,7 @@ export function ProfileMenu() {
     params: {},
   }));
   const handleFitnessProfile = () => closeMenu(() => router.push('/screens/FitnessProfileScreen'));
+  const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
 
   // ── Menu sections ──
   const SECTIONS: MenuSection[] = [
@@ -108,6 +109,7 @@ export function ProfileMenu() {
     {
       title: 'Kitchen',
       items: [
+        { icon: 'barcode-outline', label: 'Scan Label', onPress: handleScanLabel },
         { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
         { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
       ],
