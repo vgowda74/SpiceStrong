@@ -301,34 +301,83 @@ export default function AddRecipeScreen() {
       };
 
       if (publish) {
-        // ── PUBLISH FLOW: validate then publish ──
-        const reviewResult = await reviewRecipe(recipe as any);
+        // ── PUBLISH FLOW ──
+        // Image-extracted recipes were already validated + auto-fixed during extraction
+        // Only run full review for manually-created recipes
+        if (!fromImageExtraction) {
+          const reviewResult = await reviewRecipe(recipe as any);
 
-        if (!reviewResult.approved) {
-          const issueList = reviewResult.issues.slice(0, 3).join('\n• ');
+          if (!reviewResult.approved) {
+            const issueList = reviewResult.issues.slice(0, 3).join('\n• ');
           const suggestions = reviewResult.suggestions.slice(0, 2);
+          // Build friendly, actionable feedback — deduplicated
+          const seen = new Set<string>();
+          const friendlyIssues = reviewResult.issues.slice(0, 6).map((issue) => {
+            let friendly = '';
+            if (issue.includes('Too many ingredients')) friendly = '📝 Simplify to 15 or fewer ingredients';
+            else if (issue.includes('Too few steps')) friendly = '📝 Add more detailed steps (at least 4)';
+            else if (issue.includes('Too many steps')) friendly = '📝 Combine some steps (maximum 8)';
+            else if (issue.includes('Vague quantity') || issue.includes('Missing quantity')) friendly = '📏 Use exact measurements for all ingredients';
+            else if (issue.includes('description') || issue.includes('Description')) friendly = '✏️ Add a description mentioning the protein';
+            else if (issue.includes('protein density') || issue.includes('6.4')) friendly = '💪 Add more protein to meet the 6.4g/100cal standard';
+            else friendly = `📝 ${issue}`;
+            if (seen.has(friendly)) return null;
+            seen.add(friendly);
+            return friendly;
+          }).filter(Boolean);
+          const friendlyList = friendlyIssues.join('\n');
+
           Alert.alert(
-            'Almost There! 💪',
-            `"${recipeName}" scored ${reviewResult.score}/100 but needs a few tweaks before publishing.\n\n${issueList ? 'What to improve:\n• ' + issueList : ''}${suggestions.length > 0 ? '\n\nTips:\n• ' + suggestions.join('\n• ') : ''}\n\nYou can save it locally and try publishing again after making changes.`,
+            'Just a Few Tweaks 💪',
+            `"${recipeName}" is a great recipe! To publish on SpiceStrong, please adjust:\n\n${friendlyList}${suggestions.length > 0 ? '\n\n💡 ' + suggestions[0] : ''}`,
             [
-              { text: 'Save Locally', onPress: async () => {
+              { text: 'Save & Fix Later', onPress: async () => {
                 await saveRecipe(recipe);
-                Alert.alert('Saved! 💾', `"${recipeName}" saved to your recipes. Edit and try publishing again when ready.`, [{ text: 'OK', onPress: () => router.back() }]);
+                Alert.alert('Saved! 💾', `"${recipeName}" is saved. Edit and publish when ready.`, [{ text: 'OK', onPress: () => router.back() }]);
               }},
-              { text: 'Go Back & Fix', style: 'cancel' },
+              { text: 'Fix Now', style: 'cancel' },
             ],
           );
           setSubmitting(false);
           return;
         }
 
-        // Passed validation — save and publish
-        await saveRecipe(recipe);
-        Alert.alert(
-          'Published! 🎉',
-          `"${recipeName}" passed quality review (score: ${reviewResult.score}/100) and is now being shared with the community!`,
-          [{ text: 'OK', onPress: () => router.back() }],
-        );
+          // Passed validation — save and publish
+          await saveRecipe(recipe);
+          Alert.alert(
+            'Published! 🎉',
+            `"${recipeName}" passed quality review and is now being shared with the community!`,
+            [{ text: 'OK', onPress: () => router.back() }],
+          );
+        } else {
+          // Image-extracted recipe — only check protein density
+          const nutrition = extractedNutrition;
+          if (nutrition && nutrition.calories > 0) {
+            const density = (nutrition.proteinG / nutrition.calories) * 100;
+            if (density < 6.4) {
+              Alert.alert(
+                'Protein Too Low 💪',
+                `"${recipeName}" has ${Math.round(nutrition.proteinG)}g protein and ${Math.round(nutrition.calories)} calories per serving (density: ${density.toFixed(1)}). SpiceStrong requires at least 6.4g protein per 100 calories.\n\nTry increasing the protein source or reducing oils and carbs.`,
+                [
+                  { text: 'Save & Fix Later', onPress: async () => {
+                    await saveRecipe(recipe);
+                    Alert.alert('Saved! 💾', `"${recipeName}" is saved. Adjust protein and publish when ready.`, [{ text: 'OK', onPress: () => router.back() }]);
+                  }},
+                  { text: 'Fix Now', style: 'cancel' },
+                ],
+              );
+              setSubmitting(false);
+              return;
+            }
+          }
+          // Passed protein check — publish
+          await saveRecipe(recipe);
+          Alert.alert(
+            'Published! 🎉',
+            `"${recipeName}" is now being shared with the community!`,
+            [{ text: 'OK', onPress: () => router.back() }],
+          );
+        }
       } else {
         // ── SAVE FLOW: save locally without validation ──
         await saveRecipe(recipe);
@@ -581,6 +630,77 @@ CRITICAL RULES:
       } catch (nutritionErr) {
         console.warn('[SpiceStrong] Nutrition analysis failed (non-blocking):', nutritionErr);
       }
+
+      // Validate + auto-fix recipe to meet SpiceStrong standards
+      setExtractionProgress('Optimizing for high-protein standards...');
+      try {
+        const fixRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 2048,
+            system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
+
+1. PROTEIN DENSITY: proteinG / calories × 100 >= 6.4 (CRITICAL)
+   - If too low: increase protein source quantity, reduce oils/carbs, add protein-rich ingredients
+2. MAX 15 ingredients, MIN 4 steps, MAX 8 steps
+3. ALL quantities must be precise (no "to taste", "some", "a pinch")
+4. "2-3 servings" and "4-6 servings" tiers (4-6 = exactly 2× of 2-3)
+5. Description must mention the protein name and be 1-2 sentences
+6. Each step must have a clear title and detailed description with quantities
+7. chefTip must mention protein per serving and calories
+
+Return the FIXED recipe as the same JSON format. If already compliant, return as-is.
+Return ONLY the JSON, no explanation.`,
+            messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
+          }),
+        });
+        if (fixRes.ok) {
+          const fixData = await fixRes.json();
+          const fixText = (fixData.content?.[0]?.text || '').trim();
+          const fixFirst = fixText.indexOf('{');
+          const fixLast = fixText.lastIndexOf('}');
+          if (fixFirst !== -1 && fixLast > fixFirst) {
+            const fixed = JSON.parse(fixText.substring(fixFirst, fixLast + 1));
+            // Apply fixes
+            if (fixed.name) setRecipeName(fixed.name);
+            if (fixed.description) setDescription(fixed.description);
+            if (fixed.ingredients) {
+              setIngredientsByTier(fixed.ingredients);
+              parsed.ingredients = fixed.ingredients; // Update for image generation
+            }
+            if (fixed.steps?.length > 0) {
+              const fixedSteps = fixed.steps.map((s: any) => ({
+                title: s.title || '', description: s.description || '',
+                emoji: s.emoji || '🔥', timerMinutes: s.timerMinutes || undefined,
+              }));
+              setSteps(fixedSteps);
+              parsed.steps = fixed.steps; // Update for image generation
+            }
+            if (fixed.chefTip) parsed.chefTip = fixed.chefTip;
+            console.log('[SpiceStrong] Recipe optimized for SpiceStrong standards');
+          }
+        }
+      } catch (fixErr) {
+        console.warn('[SpiceStrong] Auto-fix failed (non-blocking):', fixErr);
+      }
+
+      // Re-run nutrition after auto-fix (ingredients may have changed)
+      try {
+        const fixedTier23 = parsed.ingredients?.['2-3 servings'] || [];
+        if (fixedTier23.length > 0) {
+          const fixedNutrition = await analyzeNutrition(fixedTier23, 2.5);
+          if (fixedNutrition) {
+            setExtractedNutrition(fixedNutrition);
+          }
+        }
+      } catch {}
 
       // Generate AI hero + step images
       setExtractionProgress('Creating recipe images...');

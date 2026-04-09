@@ -192,50 +192,80 @@ function buildStepPrompt(
   previousSteps: { title?: string; description?: string }[],
   ingredients: { name: string; quantity?: string }[],
 ): string {
-  // Build previous steps summary for context
-  const prevSummary = previousSteps.length > 0
-    ? previousSteps.map((s, i) => `Step ${i + 1}: ${s.title || s.description?.slice(0, 50)}`).join('. ') + '.'
-    : 'This is the first step.';
-
-  // Extract specific ingredients mentioned in this step's description
   const stepDesc = currentStep.description || currentStep.title || '';
+
+  // Extract specific ingredients WITH quantities mentioned in this step
   const mentionedIngredients = ingredients
     .filter((ing) => {
-      const name = ing.name.toLowerCase();
-      const desc = stepDesc.toLowerCase();
-      return desc.includes(name.split('(')[0].trim().toLowerCase().split(' ').pop() || '');
+      const words = ing.name.toLowerCase().split(/[\s(]/);
+      return words.some((w) => w.length > 2 && stepDesc.toLowerCase().includes(w));
     })
     .map((i) => `${i.quantity || ''} ${i.name}`.trim())
-    .slice(0, 4);
+    .slice(0, 5);
 
-  const ingredientContext = mentionedIngredients.length > 0
-    ? `Ingredients visible: ${mentionedIngredients.join(', ')}.`
+  // Detect the physical state of food at this step
+  const descLower = stepDesc.toLowerCase();
+
+  // Detect cut sizes explicitly
+  let cutSize = '';
+  if (/small.*piece|cube|dice|1.inch|bite.size/i.test(stepDesc)) cutSize = 'cut into small 1-inch cubes';
+  else if (/strip|julienne|thin.*slice/i.test(stepDesc)) cutSize = 'cut into thin strips';
+  else if (/large.*piece|chunk|quarter/i.test(stepDesc)) cutSize = 'in large chunks';
+  else if (/mince|fine.*chop/i.test(stepDesc)) cutSize = 'finely minced';
+  else if (/slice/i.test(stepDesc)) cutSize = 'sliced into even pieces';
+
+  // Detect cooking state
+  let cookingState = '';
+  if (/golden.brown|brown|carameliz/i.test(stepDesc)) cookingState = 'golden brown and caramelized';
+  else if (/crispy|crisp|crunchy/i.test(stepDesc)) cookingState = 'crispy and golden with visible char marks';
+  else if (/tender|soft|translucent/i.test(stepDesc)) cookingState = 'softened and translucent';
+  else if (/boil|bubble/i.test(stepDesc)) cookingState = 'bubbling with visible steam';
+  else if (/simmer/i.test(stepDesc)) cookingState = 'gently simmering with small bubbles';
+  else if (/marinate|coat|rub/i.test(stepDesc)) cookingState = 'being coated evenly with the marinade/seasoning';
+  else if (/raw|fresh|uncooked/i.test(stepDesc)) cookingState = 'fresh and raw';
+
+  // Detect cookware
+  let cookware = '';
+  if (/pan|skillet|wok|sauté|stir.fry/i.test(stepDesc)) cookware = 'dark cast iron skillet on gas stove, oil shimmering';
+  else if (/pot|boil|simmer|stew|broth/i.test(stepDesc)) cookware = 'large stainless steel pot on the stove';
+  else if (/oven|bake|roast|broil|sheet/i.test(stepDesc)) cookware = 'rimmed baking sheet lined with parchment paper';
+  else if (/grill/i.test(stepDesc)) cookware = 'hot grill grates with visible char lines';
+  else if (/chop|dice|slice|mince|cut|peel/i.test(stepDesc)) cookware = 'wooden cutting board with a sharp chef knife';
+  else if (/mix|whisk|stir|combine|toss/i.test(stepDesc)) cookware = 'large glass mixing bowl';
+  else if (/marinate|season/i.test(stepDesc)) cookware = 'glass bowl with the food being coated';
+  else if (/serve|plate|garnish|finish/i.test(stepDesc)) cookware = 'dark ceramic plate being plated';
+  else cookware = 'clean kitchen counter with prep area';
+
+  // Build accumulated context from ALL previous steps with full descriptions
+  // This ensures step 6 knows exactly what the food should look like from steps 1-5
+  const prevContext = previousSteps.length > 0
+    ? 'PREVIOUS STEPS (food should reflect the cumulative result of all these):\n' +
+      previousSteps.map((s, i) => {
+        const desc = s.description || s.title || '';
+        // Extract key visual transformations from each step
+        const visual = desc.length > 100 ? desc.slice(0, 100) + '...' : desc;
+        return `  Step ${i + 1}: ${s.title || 'Prep'} — ${visual}`;
+      }).join('\n') +
+      '\nThe pan/plate should show the ACCUMULATED result of ALL above steps — not just the current step.'
     : '';
 
-  // Determine cookware and visual state from description
-  const hasPan = /pan|skillet|wok|sauté|fry/i.test(stepDesc);
-  const hasPot = /pot|boil|simmer|stew|soup/i.test(stepDesc);
-  const hasOven = /oven|bake|roast|broil/i.test(stepDesc);
-  const hasCutting = /chop|dice|slice|mince|cut|trim/i.test(stepDesc);
-  const hasMarinate = /marinate|season|rub|coat/i.test(stepDesc);
-  const hasGarnish = /garnish|serve|plate|finish/i.test(stepDesc);
+  return `Photorealistic food photography — Step ${stepIndex + 1} of ${totalSteps} for "${recipeName}".
 
-  let cookwareHint = 'on a wooden cutting board';
-  if (hasPan) cookwareHint = 'in a dark cast iron skillet on a gas stove';
-  else if (hasPot) cookwareHint = 'in a large stainless steel pot on the stove';
-  else if (hasOven) cookwareHint = 'on a baking sheet going into the oven';
-  else if (hasCutting) cookwareHint = 'on a wooden cutting board with a sharp chef knife';
-  else if (hasMarinate) cookwareHint = 'in a glass bowl being mixed';
-  else if (hasGarnish) cookwareHint = 'being plated on a dark ceramic dish';
+SCENE: ${stepDesc}
+${mentionedIngredients.length > 0 ? `EXACT INGREDIENTS VISIBLE: ${mentionedIngredients.join(', ')}` : ''}
+${cutSize ? `FOOD SIZE/CUT: The food is ${cutSize} — this MUST be visually accurate` : ''}
+${cookingState ? `COOKING STATE: The food looks ${cookingState}` : ''}
+COOKWARE: ${cookware}
+${prevContext}
 
-  return `Photorealistic cooking scene — Step ${stepIndex + 1} of ${totalSteps} making "${recipeName}".
-
-What's happening: ${currentStep.title || ''}. ${stepDesc}
-${ingredientContext}
-Previous steps completed: ${prevSummary}
-Setting: ${cookwareHint}. Real home kitchen, warm natural window light, slightly cluttered counter. Overhead close-up angle, shallow depth of field.
-
-The image must look like a real photograph — real food with natural imperfections, glistening oils, actual steam or sizzle if cooking. Warm color tones, slight grain. No digital art, no illustration, no text, no logos, no watermarks.`;
+CRITICAL VISUAL RULES:
+- If the step says "cut into small cubes" the image MUST show small 1-inch cubes, NOT large pieces
+- If the step says "golden brown" the food MUST look golden brown, not raw
+- Quantities must match: "500g chicken" should look like a substantial amount, not a tiny piece
+- Show realistic portion sizes matching the quantities listed
+- Overhead 45-degree angle, natural window light, warm tones
+- Real photograph look — oil glistening, steam if hot, natural food imperfections
+- No text, no logos, no watermarks, no illustrated/cartoon style`;
 }
 
 /**
