@@ -162,12 +162,92 @@ async function callFal(prompt: string, label: string, model: FalModel = 'schnell
 }
 
 /**
+ * Build a context-aware hero image prompt.
+ * Includes visible ingredients, cuisine style, and expected presentation.
+ */
+function buildHeroPrompt(
+  recipeName: string,
+  ingredients: { name: string; quantity?: string }[],
+): string {
+  // Extract key visible ingredients for the final dish (skip oils, salt, water, spices)
+  const HIDDEN = /oil|salt|pepper|water|spray|powder|paste|extract|sauce|vinegar/i;
+  const visibleIngredients = ingredients
+    .filter((i) => !HIDDEN.test(i.name))
+    .slice(0, 6)
+    .map((i) => i.name.toLowerCase())
+    .join(', ');
+
+  return `Award-winning food photography of "${recipeName}" — a finished, plated dish. The plate shows: ${visibleIngredients}. Shot from 45-degree overhead angle on a dark ceramic plate, rustic wooden table. Natural window light with soft directional shadows. Steam gently rising. Fresh herb garnish on top. Vibrant, appetizing colors with visible texture — crispy edges, glistening oil, charred marks, melted cheese, fresh greens. Shallow depth of field, 85mm lens, Bon Appétit magazine quality. Photorealistic, not illustrated. No text, no logos, no watermarks, no hands.`;
+}
+
+/**
+ * Build a context-aware step image prompt with progressive context.
+ * Each step knows what happened before it for visual continuity.
+ */
+function buildStepPrompt(
+  recipeName: string,
+  currentStep: { title?: string; description?: string },
+  stepIndex: number,
+  totalSteps: number,
+  previousSteps: { title?: string; description?: string }[],
+  ingredients: { name: string; quantity?: string }[],
+): string {
+  // Build previous steps summary for context
+  const prevSummary = previousSteps.length > 0
+    ? previousSteps.map((s, i) => `Step ${i + 1}: ${s.title || s.description?.slice(0, 50)}`).join('. ') + '.'
+    : 'This is the first step.';
+
+  // Extract specific ingredients mentioned in this step's description
+  const stepDesc = currentStep.description || currentStep.title || '';
+  const mentionedIngredients = ingredients
+    .filter((ing) => {
+      const name = ing.name.toLowerCase();
+      const desc = stepDesc.toLowerCase();
+      return desc.includes(name.split('(')[0].trim().toLowerCase().split(' ').pop() || '');
+    })
+    .map((i) => `${i.quantity || ''} ${i.name}`.trim())
+    .slice(0, 4);
+
+  const ingredientContext = mentionedIngredients.length > 0
+    ? `Ingredients visible: ${mentionedIngredients.join(', ')}.`
+    : '';
+
+  // Determine cookware and visual state from description
+  const hasPan = /pan|skillet|wok|sauté|fry/i.test(stepDesc);
+  const hasPot = /pot|boil|simmer|stew|soup/i.test(stepDesc);
+  const hasOven = /oven|bake|roast|broil/i.test(stepDesc);
+  const hasCutting = /chop|dice|slice|mince|cut|trim/i.test(stepDesc);
+  const hasMarinate = /marinate|season|rub|coat/i.test(stepDesc);
+  const hasGarnish = /garnish|serve|plate|finish/i.test(stepDesc);
+
+  let cookwareHint = 'on a wooden cutting board';
+  if (hasPan) cookwareHint = 'in a dark cast iron skillet on a gas stove';
+  else if (hasPot) cookwareHint = 'in a large stainless steel pot on the stove';
+  else if (hasOven) cookwareHint = 'on a baking sheet going into the oven';
+  else if (hasCutting) cookwareHint = 'on a wooden cutting board with a sharp chef knife';
+  else if (hasMarinate) cookwareHint = 'in a glass bowl being mixed';
+  else if (hasGarnish) cookwareHint = 'being plated on a dark ceramic dish';
+
+  return `Photorealistic cooking scene — Step ${stepIndex + 1} of ${totalSteps} making "${recipeName}".
+
+What's happening: ${currentStep.title || ''}. ${stepDesc}
+${ingredientContext}
+Previous steps completed: ${prevSummary}
+Setting: ${cookwareHint}. Real home kitchen, warm natural window light, slightly cluttered counter. Overhead close-up angle, shallow depth of field.
+
+The image must look like a real photograph — real food with natural imperfections, glistening oils, actual steam or sizzle if cooking. Warm color tones, slight grain. No digital art, no illustration, no text, no logos, no watermarks.`;
+}
+
+/**
  * Generate a hero image of the finished cooked dish.
  */
-async function generateDishImage(recipeName: string, recipeId: string): Promise<ImageResult> {
+async function generateDishImage(
+  recipeName: string,
+  recipeId: string,
+  ingredients: { name: string; quantity?: string }[],
+): Promise<ImageResult> {
   try {
-    const prompt = `Award-winning food photography of ${recipeName}, beautifully plated on a ceramic dish, overhead angle, shallow depth of field, natural window light with soft shadows, steam rising from hot food, fresh herb garnish, vibrant colors, professional food styling, Bon Appétit magazine quality, 85mm lens, bokeh background with rustic wooden table. No text, no logos, no watermarks.`;
-
+    const prompt = buildHeroPrompt(recipeName, ingredients);
     console.log(`[SpiceStrong] Generating dish hero image (dev): ${recipeName}`);
 
     const result = await callFal(prompt, `dish: ${recipeName}`, 'dev');
@@ -186,21 +266,22 @@ async function generateDishImage(recipeName: string, recipeId: string): Promise<
 }
 
 /**
- * Generate an image for a single cooking step.
+ * Generate a context-aware image for a single cooking step.
  */
 async function generateStepImage(
-  stepTitle: string,
-  stepDescription: string,
   recipeName: string,
   recipeId: string,
   stepIndex: number,
+  totalSteps: number,
+  currentStep: { title?: string; description?: string },
+  previousSteps: { title?: string; description?: string }[],
+  ingredients: { name: string; quantity?: string }[],
 ): Promise<ImageResult> {
   try {
-    const prompt = `Close-up food photography of cooking step: ${stepTitle}. ${stepDescription}. Making ${recipeName}. Real home kitchen, natural window light, hands working with actual ingredients, warm tones, shallow depth of field. No text, no logos.`;
+    const prompt = buildStepPrompt(recipeName, currentStep, stepIndex, totalSteps, previousSteps, ingredients);
+    console.log(`[SpiceStrong] Generating step image (schnell): Step ${stepIndex + 1} - ${currentStep.title}`);
 
-    console.log(`[SpiceStrong] Generating step image (schnell): Step ${stepIndex + 1} - ${stepTitle}`);
-
-    const result = await callFal(prompt, `step ${stepIndex + 1}: ${stepTitle}`, 'schnell');
+    const result = await callFal(prompt, `step ${stepIndex + 1}: ${currentStep.title}`, 'schnell');
     if (!result.url) return { url: null, error: result.error };
 
     const fileName = `${recipeId}_step_${stepIndex}.jpg`;
@@ -236,23 +317,35 @@ export async function generateAllRecipeImages(
   const recipeId = recipe.id ?? recipe.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
   const recipeName = recipe.name;
   const steps = recipe.steps ?? [];
+  // Get the 2-3 servings ingredient list with quantities
+  const ingredientList = recipe.ingredients?.['2-3 servings']
+    ?? Object.values(recipe.ingredients ?? {})[0]
+    ?? [];
 
-  console.log(`[SpiceStrong] Generating images for: ${recipeName} (1 hero + ${steps.length} steps)`);
+  console.log(`[SpiceStrong] Generating images for: ${recipeName} (1 hero + ${steps.length} steps, ${ingredientList.length} ingredients)`);
   getImageDir();
 
-  // Generate hero image first (critical — shows on recipe card)
-  const dishResult = await generateDishImage(recipeName, recipeId);
+  // Generate hero image first — context-aware with visible ingredients
+  const dishResult = await generateDishImage(recipeName, recipeId, ingredientList);
 
-  // Generate step images in parallel batches of 3
+  // Generate step images with progressive context chain
+  // Each step knows what happened before it for visual continuity
   const stepImages: Record<string, string | null> = {};
   for (let i = 0; i < steps.length; i += 3) {
     const batch = steps.slice(i, i + 3);
     const results = await Promise.all(
       batch.map((step, batchIdx) => {
         const stepIdx = i + batchIdx;
-        const title = step.title || `Step ${stepIdx + 1}`;
-        const desc = step.description || title;
-        return generateStepImage(title, desc, recipeName, recipeId, stepIdx);
+        const previousSteps = steps.slice(0, stepIdx);
+        return generateStepImage(
+          recipeName,
+          recipeId,
+          stepIdx,
+          steps.length,
+          step,
+          previousSteps,
+          ingredientList,
+        );
       }),
     );
     results.forEach((result, batchIdx) => {

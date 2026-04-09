@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { QUANTITY_TIERS, type QuantityTier, type IngredientsByTier, type CookingStep, saveRecipe, getRecipeById } from '../../src/store/recipes';
 import { saveAIRecipe, uploadRecipeHeroImage, uploadStepImage, updateRecipeStatus } from '../../services/recipeService';
-import { saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { generateAllRecipeImages, saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import { PROTEINS } from '../../src/theme';
@@ -68,6 +68,7 @@ export default function AddRecipeScreen() {
   const [importImageBase64, setImportImageBase64] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [extractionProgress, setExtractionProgress] = useState<string | null>(null);
   const [fromImageExtraction, setFromImageExtraction] = useState(false);
 
   // Wizard state — start at image_import for new recipes, basics for editing
@@ -338,28 +339,26 @@ export default function AddRecipeScreen() {
         );
       }
 
-      // Background: save images locally + upload to Supabase + review pipeline
+      // Background: generate AI images + upload to Supabase + review pipeline
       (async () => {
         try {
-          // 1. Save image URIs locally so they show immediately
-          const stepImages: Record<string, string | null> = {};
-          steps.forEach((s, i) => {
-            if (s.photoUri) stepImages[String(i)] = s.photoUri;
+          // 1. Generate AI hero + step images (context-aware)
+          console.log('[SpiceStrong] Starting AI image generation for recipe:', recipeName.trim());
+          const aiImages = await generateAllRecipeImages({
+            id: recipeId,
+            name: recipeName.trim(),
+            ingredients: ingredientsByTier,
+            steps: steps.filter(s => s.description.trim()),
           });
-          const imageResults: RecipeImageResults = {
-            dishImage: heroImageUri,
-            ingredientImages: {},
-            stepImages,
-          };
-          await saveRecipeImages(recipeId, imageResults);
+          await saveRecipeImages(recipeId, aiImages);
 
           // 2. Upload hero image to Supabase Storage
-          if (heroImageUri) {
-            await uploadRecipeHeroImage(recipeId, heroImageUri);
+          if (aiImages.dishImage) {
+            await uploadRecipeHeroImage(recipeId, aiImages.dishImage);
           }
 
           // 3. Upload step photos to Supabase Storage
-          for (const [idx, uri] of Object.entries(stepImages)) {
+          for (const [idx, uri] of Object.entries(aiImages.stepImages)) {
             if (uri) {
               try {
                 await uploadStepImage(recipeId, parseInt(idx, 10), uri);
@@ -428,9 +427,8 @@ export default function AddRecipeScreen() {
     if (!result.canceled && result.assets?.[0]) {
       const uri = result.assets[0].uri;
 
-      // Save full-quality URI for hero image
+      // Save URI for preview only — hero image will be AI-generated
       setImportImageUri(uri);
-      setHeroImageUri(uri);
 
       // Resize to 1024px wide + 50% JPEG compression (guaranteed under 5MB)
       try {
@@ -454,6 +452,7 @@ export default function AddRecipeScreen() {
     if (!importImageBase64) return;
     setExtracting(true);
     setExtractionError(null);
+    setExtractionProgress('Analyzing your photo...');
     try {
       const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
       if (!apiKey) throw new Error('No API key');
@@ -568,6 +567,7 @@ CRITICAL RULES:
         })));
       }
 
+      setExtractionProgress('Getting nutrition details...');
       // Get nutrition from Edamam using extracted ingredients
       try {
         const tier23 = parsed.ingredients?.['2-3 servings'] || [];
@@ -580,6 +580,44 @@ CRITICAL RULES:
         }
       } catch (nutritionErr) {
         console.warn('[SpiceStrong] Nutrition analysis failed (non-blocking):', nutritionErr);
+      }
+
+      // Generate AI hero + step images
+      setExtractionProgress('Creating recipe images...');
+      try {
+        const recipeId = `user-${Date.now()}`;
+        const stepsForImages = (parsed.steps || []).map((s: any) => ({
+          title: s.title || '', description: s.description || '',
+        }));
+        const ingredientsForImages = parsed.ingredients || { '2-3 servings': [] };
+
+        console.log(`[SpiceStrong] Generating AI images for extracted recipe: ${parsed.name}`);
+
+        // Generate hero image first (user sees it on review)
+        const aiImages = await generateAllRecipeImages({
+          id: recipeId,
+          name: parsed.name || 'Recipe',
+          ingredients: ingredientsForImages,
+          steps: stepsForImages,
+        });
+        await saveRecipeImages(recipeId, aiImages);
+
+        // Set hero image so it shows in the hero step
+        if (aiImages.dishImage) {
+          setHeroImageUri(aiImages.dishImage);
+          console.log(`[SpiceStrong] Hero image generated: ${aiImages.dishImage}`);
+        }
+
+        // Set step images on the step objects
+        if (Object.keys(aiImages.stepImages).length > 0) {
+          setSteps((prev) => prev.map((s, i) => ({
+            ...s,
+            photoUri: aiImages.stepImages[String(i)] || s.photoUri,
+          })));
+          console.log(`[SpiceStrong] Step images generated: ${Object.keys(aiImages.stepImages).length}`);
+        }
+      } catch (imgErr) {
+        console.warn('[SpiceStrong] Image generation failed (non-blocking):', imgErr);
       }
 
       setFromImageExtraction(true);
@@ -680,8 +718,8 @@ CRITICAL RULES:
               {extracting && (
                 <View style={styles.importCenter}>
                   <ActivityIndicator color="#E85D26" size="large" />
-                  <Text style={styles.importTitle}>Extracting recipe...</Text>
-                  <Text style={styles.importSubtitle}>Reading ingredients, steps, and details from your photo</Text>
+                  <Text style={styles.importTitle}>{extractionProgress || 'Extracting recipe...'}</Text>
+                  <Text style={styles.importSubtitle}>This may take a moment</Text>
                 </View>
               )}
             </View>
