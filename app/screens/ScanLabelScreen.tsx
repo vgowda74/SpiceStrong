@@ -10,9 +10,12 @@
  * - AI health summary personalized to fitness goals
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Dimensions,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -22,6 +25,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -80,6 +84,9 @@ export default function ScanLabelScreen() {
 
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [barcodeOpen, setBarcodeOpen] = useState(false);
+  const [barcodeScanned, setBarcodeScanned] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [labelData, setLabelData] = useState<LabelData | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
   const [dietaryViolations, setDietaryViolations] = useState<string[]>([]);
@@ -276,6 +283,101 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
   };
 
   // ── Health Score Calculation ──
+  // ── Barcode lookup via Edamam Food Database ──
+  const handleBarcodeScan = async (barcode: string) => {
+    if (barcodeScanned) return;
+    setBarcodeScanned(true);
+    setBarcodeOpen(false);
+    setScanning(true);
+    setError(null);
+
+    try {
+      const appId = process.env.EXPO_PUBLIC_EDAMAM_FOOD_APP_ID;
+      const appKey = process.env.EXPO_PUBLIC_EDAMAM_FOOD_APP_KEY;
+      if (!appId || !appKey) throw new Error('Edamam Food DB keys not configured');
+
+      // Look up barcode in Edamam Food Database
+      const url = `https://api.edamam.com/api/food-database/v2/parser?app_id=${appId}&app_key=${appKey}&upc=${barcode}`;
+      console.log(`[SpiceStrong] Barcode lookup: ${barcode}`);
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status === 404) throw new Error('not_food');
+        throw new Error(`Edamam ${res.status}`);
+      }
+      const data = await res.json();
+
+      if (!data.hints || data.hints.length === 0) {
+        throw new Error('not_food');
+      }
+
+      const food = data.hints[0].food;
+      const nutrients = food.nutrients || {};
+
+      const label: LabelData = {
+        productName: food.label || food.knownAs || 'Unknown Product',
+        servingSize: food.servingSizes?.[0]?.label || '1 serving',
+        calories: Math.round(nutrients.ENERC_KCAL || 0),
+        proteinG: Math.round((nutrients.PROCNT || 0) * 10) / 10,
+        carbsG: Math.round((nutrients.CHOCDF || 0) * 10) / 10,
+        fatG: Math.round((nutrients.FAT || 0) * 10) / 10,
+        saturatedFatG: Math.round((nutrients.FASAT || 0) * 10) / 10,
+        transFatG: Math.round((nutrients.FATRN || 0) * 10) / 10,
+        fiberG: Math.round((nutrients.FIBTG || 0) * 10) / 10,
+        sugarG: Math.round((nutrients.SUGAR || 0) * 10) / 10,
+        addedSugarG: 0,
+        sodiumMg: Math.round(nutrients.NA || 0),
+        cholesterolMg: Math.round(nutrients.CHOLE || 0),
+        ingredients: [],
+        additives: [],
+        allergens: food.foodContentsLabel ? food.foodContentsLabel.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean) : [],
+      };
+
+      setLabelData(label);
+      const score = calculateHealthScore(label);
+      setHealthScore(score);
+
+      const dietary = await getDietaryRestrictions();
+      setDietaryViolations(checkDietaryViolations(label, dietary));
+
+      const targets = await getSavedMacroTargets();
+      if (targets) {
+        setDailyPct({
+          calories: Math.round((label.calories / targets.calories) * 100),
+          proteinG: Math.round((label.proteinG / targets.proteinG) * 100),
+          carbsG: Math.round((label.carbsG / targets.carbsG) * 100),
+          fatG: Math.round((label.fatG / targets.fatG) * 100),
+        });
+      }
+
+      // AI summary
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (apiKey) {
+        const summaryRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 300,
+            messages: [{ role: 'user', content: `Fitness nutrition expert — 2-3 sentence assessment for high-protein fitness nutrition. Product: ${label.productName}. Per serving: ${label.calories} cal, ${label.proteinG}g protein, ${label.carbsG}g carbs, ${label.fatG}g fat, ${label.sugarG}g sugar, ${label.sodiumMg}mg sodium. Protein density: ${label.calories > 0 ? ((label.proteinG / label.calories) * 100).toFixed(1) : 0}g per 100 cal. Start with ✅ if good or ⚠️ if concerning.` }],
+          }),
+        });
+        if (summaryRes.ok) {
+          const sd = await summaryRes.json();
+          setAiSummary(sd.content?.[0]?.text || '');
+        }
+      }
+    } catch (err: any) {
+      if (err?.message === 'not_food') {
+        setError('This product wasn\'t found in our food database. It may not be a food item, or try scanning the nutrition label instead.');
+      } else {
+        setError(err?.message || 'Could not look up this barcode.');
+      }
+    } finally {
+      setScanning(false);
+    }
+  };
+
   function calculateHealthScore(label: LabelData): HealthScore {
     // Protein density score (40%)
     const density = label.calories > 0 ? (label.proteinG / label.calories) * 100 : 0;
@@ -350,22 +452,50 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
 
-        {/* Camera/Gallery buttons */}
-        {!imageUri && !scanning && (
+        {/* Camera/Barcode buttons */}
+        {!imageUri && !scanning && !labelData && (
           <View style={styles.uploadSection}>
             <Text style={styles.uploadEmoji}>🔍</Text>
             <Text style={styles.uploadTitle}>Check Any Product</Text>
-            <Text style={styles.uploadSub}>Scan a nutrition label to see if it meets your health standards</Text>
+            <Text style={styles.uploadSub}>Photograph the nutrition label & ingredients list, or scan the barcode</Text>
             <View style={styles.btnRow}>
               <TouchableOpacity style={styles.cameraBtn} onPress={() => pickImage(true)} activeOpacity={0.8}>
-                <Text style={styles.cameraBtnText}>📷 Camera</Text>
+                <Text style={styles.cameraBtnText}>📷 Photo Label</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.galleryBtn} onPress={() => pickImage(false)} activeOpacity={0.8}>
-                <Text style={styles.galleryBtnText}>🖼 Gallery</Text>
+              <TouchableOpacity style={styles.galleryBtn} onPress={async () => {
+                if (!cameraPermission?.granted) {
+                  const perm = await requestCameraPermission();
+                  if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required for barcode scanning.'); return; }
+                }
+                setBarcodeScanned(false);
+                setBarcodeOpen(true);
+              }} activeOpacity={0.8}>
+                <Text style={styles.galleryBtnText}>📊 Scan Barcode</Text>
               </TouchableOpacity>
             </View>
+            <Text style={styles.hintText}>💡 For best results, capture both the Nutrition Facts panel and ingredients list in one photo</Text>
           </View>
         )}
+
+        {/* Barcode Scanner Modal */}
+        <Modal visible={barcodeOpen} animationType="slide" onRequestClose={() => setBarcodeOpen(false)}>
+          <View style={styles.barcodeContainer}>
+            <CameraView
+              style={styles.barcodeCamera}
+              barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39'] }}
+              onBarcodeScanned={barcodeScanned ? undefined : (result) => {
+                if (result.data) handleBarcodeScan(result.data);
+              }}
+            />
+            <View style={styles.barcodeOverlay}>
+              <View style={styles.barcodeCrosshair} />
+              <Text style={styles.barcodeHint}>Point at the barcode on the product</Text>
+            </View>
+            <TouchableOpacity style={styles.barcodeCloseBtn} onPress={() => setBarcodeOpen(false)}>
+              <Text style={styles.barcodeCloseBtnText}>✕ Close</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
 
         {/* Scanning */}
         {scanning && (
@@ -539,6 +669,31 @@ const styles = StyleSheet.create({
   cameraBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   galleryBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   galleryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  hintText: { fontSize: 12, color: 'rgba(255,255,255,0.40)', textAlign: 'center', marginTop: 16, lineHeight: 18, paddingHorizontal: 10 },
+
+  // Barcode scanner
+  barcodeContainer: { flex: 1, backgroundColor: '#000' },
+  barcodeCamera: { flex: 1 },
+  barcodeOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  barcodeCrosshair: {
+    width: 250,
+    height: 150,
+    borderWidth: 2,
+    borderColor: ORANGE,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  barcodeHint: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginTop: 20, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  barcodeCloseBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 60 : 40,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  barcodeCloseBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
 
   // Scanning
   scanningWrap: { alignItems: 'center', paddingTop: 60, gap: 12 },
