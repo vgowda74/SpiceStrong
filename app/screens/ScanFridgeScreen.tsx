@@ -23,16 +23,17 @@ import {
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   identifyIngredients,
+  scanReceiptOrList,
   DEFAULT_PANTRY_STAPLES,
   type ScannedIngredient,
   type IngredientCategory,
 } from '../../services/fridgeScanService';
-import { addPantryItemsBatch } from '../../services/pantryService';
+import { addPantryItemsBatch, addToGroceryList } from '../../services/pantryService';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -62,6 +63,18 @@ type Step = 'capture' | 'scanning' | 'review';
 export default function ScanFridgeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ mode?: string }>();
+
+  // mode: 'receipt' = scan grocery receipt → add to pantry
+  //        'list' = scan shopping list image → add to grocery list
+  //        default = original fridge scan flow
+  const scanMode = (params.mode === 'receipt' || params.mode === 'list') ? params.mode : 'fridge';
+
+  const modeConfig = {
+    fridge: { title: 'Scan My Grocery', stepTitle: 'Scan your groceries or pantry', stepHint: 'Up to 4 photos — grocery bags, fridge, pantry shelves', scanningText: 'Scanning your ingredients...', doneBtn: 'Find Recipes' },
+    receipt: { title: 'Scan Receipt', stepTitle: 'Photograph your grocery receipt', stepHint: 'Take a clear photo of the receipt — we\'ll extract food items', scanningText: 'Reading your receipt...', doneBtn: 'Add to Pantry' },
+    list: { title: 'Scan Shopping List', stepTitle: 'Photograph your shopping list', stepHint: 'Handwritten note, printed list, SMS screenshot, or any list image', scanningText: 'Reading your list...', doneBtn: 'Add to Shopping List' },
+  }[scanMode];
 
   const [step, setStep] = useState<Step>('capture');
   const [photos, setPhotos] = useState<{ uri: string; base64: string }[]>([]);
@@ -107,12 +120,15 @@ export default function ScanFridgeScreen() {
   const startScan = async () => {
     setStep('scanning');
     try {
-      const results = await identifyIngredients(photos.map((p) => ({ base64: p.base64, uri: p.uri })));
+      const photoData = photos.map((p) => ({ base64: p.base64, uri: p.uri }));
+      const results = scanMode === 'fridge'
+        ? await identifyIngredients(photoData)
+        : await scanReceiptOrList(photoData, scanMode);
       setIngredients(results);
       setStep('review');
     } catch (err: any) {
-      console.error('[SpiceStrong] Fridge scan error:', err);
-      Alert.alert('Scan Failed', err?.message ?? 'Could not identify ingredients.');
+      console.error(`[SpiceStrong] ${scanMode} scan error:`, err);
+      Alert.alert('Scan Failed', err?.message ?? 'Could not read the image.');
       setStep('capture');
     }
   };
@@ -148,21 +164,40 @@ export default function ScanFridgeScreen() {
     });
   };
 
-  // ── Find recipes ──
-  const findRecipes = async () => {
-    // Merge identified ingredients + checked pantry staples
-    const pantryItems = DEFAULT_PANTRY_STAPLES.filter((s) => pantryChecked.has(s.name));
-    const allIngredients = [...ingredients, ...pantryItems.filter((p) => !ingredients.some((i) => i.name === p.name))];
-    // Save all scanned ingredients to persistent pantry
-    await addPantryItemsBatch(allIngredients.map((i) => ({
-      name: i.name,
-      category: i.category,
-      quantity: i.quantity,
-      state: i.state,
-    })));
-    // Store in AsyncStorage for results screen
-    await AsyncStorage.setItem('spicestrong_fridge_scan', JSON.stringify(allIngredients));
-    router.push('/screens/FridgeRecipeResultsScreen');
+  // ── Save items ──
+  const handleDone = async () => {
+    if (scanMode === 'list') {
+      // Add to grocery/shopping list
+      for (const ing of ingredients) {
+        await addToGroceryList({ name: ing.name, quantity: ing.quantity });
+      }
+      Alert.alert('Added!', `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} added to your shopping list.`, [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } else if (scanMode === 'receipt') {
+      // Add to pantry
+      await addPantryItemsBatch(ingredients.map((i) => ({
+        name: i.name,
+        category: i.category,
+        quantity: i.quantity,
+        state: i.state,
+      })));
+      Alert.alert('Added!', `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} added to your pantry.`, [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } else {
+      // Original fridge flow — find recipes
+      const pantryItems = DEFAULT_PANTRY_STAPLES.filter((s) => pantryChecked.has(s.name));
+      const allIngredients = [...ingredients, ...pantryItems.filter((p) => !ingredients.some((i) => i.name === p.name))];
+      await addPantryItemsBatch(allIngredients.map((i) => ({
+        name: i.name,
+        category: i.category,
+        quantity: i.quantity,
+        state: i.state,
+      })));
+      await AsyncStorage.setItem('spicestrong_fridge_scan', JSON.stringify(allIngredients));
+      router.push('/screens/FridgeRecipeResultsScreen');
+    }
   };
 
   // ── Group ingredients by category ──
@@ -179,15 +214,15 @@ export default function ScanFridgeScreen() {
         <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Scan My Grocery</Text>
+        <Text style={styles.headerTitle}>{modeConfig.title}</Text>
         <View style={{ width: 30 }} />
       </View>
 
       {/* Step 1: Photo Capture */}
       {step === 'capture' && (
         <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
-          <Text style={styles.stepTitle}>Scan your groceries or pantry</Text>
-          <Text style={styles.stepHint}>Up to {MAX_PHOTOS} photos — grocery bags, fridge, pantry shelves</Text>
+          <Text style={styles.stepTitle}>{modeConfig.stepTitle}</Text>
+          <Text style={styles.stepHint}>{modeConfig.stepHint}</Text>
 
           {/* Photo grid */}
           <View style={styles.photoGrid}>
@@ -225,8 +260,8 @@ export default function ScanFridgeScreen() {
       {step === 'scanning' && (
         <View style={styles.scanningWrap}>
           <ActivityIndicator color={ORANGE} size="large" />
-          <Text style={styles.scanningTitle}>Scanning your ingredients...</Text>
-          <Text style={styles.scanningHint}>AI is identifying proteins, vegetables, dairy, and more</Text>
+          <Text style={styles.scanningTitle}>{modeConfig.scanningText}</Text>
+          <Text style={styles.scanningHint}>AI is reading and categorizing your items</Text>
         </View>
       )}
 
@@ -291,7 +326,8 @@ export default function ScanFridgeScreen() {
               </View>
             </View>
 
-            {/* Pantry staples */}
+            {/* Pantry staples — only for fridge scan mode */}
+            {scanMode === 'fridge' && (
             <View style={styles.pantrySection}>
               <Text style={styles.catLabel}>🏠 Also have at home?</Text>
               <Text style={styles.pantryHint}>Common items not usually in fridge photos</Text>
@@ -313,13 +349,14 @@ export default function ScanFridgeScreen() {
                 })}
               </View>
             </View>
+            )}
           </ScrollView>
 
-          {/* Find recipes footer */}
+          {/* Action footer */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-            <TouchableOpacity style={styles.findBtn} onPress={findRecipes} activeOpacity={0.8}>
+            <TouchableOpacity style={styles.findBtn} onPress={handleDone} activeOpacity={0.8}>
               <LinearGradient colors={['#F07030', '#C84A10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.findBtnGradient}>
-                <Text style={styles.findBtnText}>Find Recipes</Text>
+                <Text style={styles.findBtnText}>{modeConfig.doneBtn}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>

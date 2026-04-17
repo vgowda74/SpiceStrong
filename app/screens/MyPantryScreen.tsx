@@ -10,7 +10,9 @@
 
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -63,6 +65,83 @@ export default function MyPantryScreen() {
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const isSelecting = selectedItems.size > 0;
 
+  // Nutrition IQ summary + ingredient info modals
+  const [summaryVisible, setSummaryVisible] = useState(false);
+  const [summaryText, setSummaryText] = useState('');
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false);
+  const [infoText, setInfoText] = useState('');
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoItemName, setInfoItemName] = useState('');
+
+  const handleNutritionIQ = async () => {
+    if (items.length === 0) return;
+    setSummaryVisible(true);
+    setSummaryLoading(true);
+    setSummaryText('');
+    const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+    if (!apiKey) { setSummaryText('AI is not configured.'); setSummaryLoading(false); return; }
+    try {
+      const itemList = items.map((i) => `${i.name} (${i.quantity})`).join(', ');
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Analyze this pantry using the Protein Source Quality framework. Be encouraging but direct — don't sugarcoat.
+
+PROTEIN QUALITY TIERS (cal per 25g protein):
+- S tier: Whey ~120, egg whites ~120, chicken breast ~130, lean fish ~130, Greek yogurt ~180
+- A tier: Tofu/tempeh ~250, low-fat paneer ~180, chicken thigh ~200-250
+- B tier: Whole eggs ~280, skimmed milk ~250
+- C/D tier: Legumes/nuts/seeds 400-900 cal (good for fiber, bad as primary protein)
+- F tier: Junk/processed food with zero protein value
+
+Pantry items: ${itemList}
+
+Give a report card (use emojis):
+1. Protein Shelf Score (S/A/B/C/D) — classify their protein sources by tier. List each protein item with its tier.
+2. Wholesome Score (A-F) — ratio of whole foods vs processed. Call out any junk food directly.
+3. 75% Rule Check — is 75% of their protein from S/A/B tier sources? (Recommended for muscle synthesis)
+4. Missing essentials — 2-3 specific S/A tier items to add
+5. Quick win — one high-protein meal they can make RIGHT NOW with what they have
+
+Keep it under 250 words. Be specific to THEIR items.` }],
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSummaryText(data.content?.[0]?.text || 'Could not generate summary.');
+      } else {
+        const errBody = await res.text().catch(() => '');
+        console.error('[SpiceStrong] Nutrition IQ error:', res.status, errBody);
+        setSummaryText('Could not generate summary. Please try again.');
+      }
+    } catch (err) {
+      console.error('[SpiceStrong] Nutrition IQ failed:', err);
+      setSummaryText('Could not connect. Check your internet and try again.');
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const handleIngredientInfo = async (name: string) => {
+    setInfoItemName(name);
+    setInfoVisible(true);
+    setInfoLoading(true);
+    setInfoText('');
+    try {
+      const { getIngredientInfo } = require('../../services/ingredientInfoService');
+      const text = await getIngredientInfo(name);
+      setInfoText(text);
+    } catch {
+      setInfoText('Could not load info. Please try again.');
+    } finally {
+      setInfoLoading(false);
+    }
+  };
+
   const loadItems = useCallback(async () => {
     setItems(await getPantryItems());
   }, []);
@@ -74,6 +153,10 @@ export default function MyPantryScreen() {
       item.name,
       `Quantity: ${item.quantity}${item.state && item.state !== 'raw' ? ` · ${item.state}` : ''}`,
       [
+        {
+          text: '💡 Learn About It',
+          onPress: () => handleIngredientInfo(item.name),
+        },
         {
           text: '🛒 Move to Grocery',
           onPress: async () => {
@@ -193,10 +276,10 @@ export default function MyPantryScreen() {
         </View>
         <TouchableOpacity
           style={styles.scanBtn}
-          onPress={() => router.push('/screens/ScanFridgeScreen')}
+          onPress={() => router.push({ pathname: '/screens/ScanFridgeScreen', params: { mode: 'receipt' } })}
           activeOpacity={0.8}
         >
-          <Text style={styles.scanBtnText}>📸 Scan</Text>
+          <Text style={styles.scanBtnText}>🧾 Scan Receipt</Text>
         </TouchableOpacity>
       </View>
 
@@ -239,6 +322,18 @@ export default function MyPantryScreen() {
         </View>
       )}
 
+      {/* Nutrition IQ button */}
+      {items.length > 0 && (
+        <TouchableOpacity style={styles.nutritionIQBtn} onPress={handleNutritionIQ} activeOpacity={0.8}>
+          <Text style={styles.nutritionIQEmoji}>🧠</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.nutritionIQTitle}>Nutrition IQ</Text>
+            <Text style={styles.nutritionIQSub}>Tap for a health report of your pantry</Text>
+          </View>
+          <Text style={styles.nutritionIQArrow}>›</Text>
+        </TouchableOpacity>
+      )}
+
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
@@ -249,14 +344,14 @@ export default function MyPantryScreen() {
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyEmoji}>🛒</Text>
             <Text style={styles.emptyTitle}>Pantry is empty</Text>
-            <Text style={styles.emptySub}>Scan your groceries or add items below</Text>
+            <Text style={styles.emptySub}>Scan a grocery receipt or add items manually</Text>
             <TouchableOpacity
               style={styles.emptyScanBtn}
-              onPress={() => router.push('/screens/ScanFridgeScreen')}
+              onPress={() => router.push({ pathname: '/screens/ScanFridgeScreen', params: { mode: 'receipt' } })}
               activeOpacity={0.8}
             >
               <LinearGradient colors={['#F07030', '#C84A10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.emptyScanGradient}>
-                <Text style={styles.emptyScanText}>📸 Scan My Grocery</Text>
+                <Text style={styles.emptyScanText}>🧾 Scan Receipt</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
@@ -322,6 +417,54 @@ export default function MyPantryScreen() {
           );
         })}
       </ScrollView>
+
+      {/* Nutrition IQ Summary Modal */}
+      <Modal visible={summaryVisible} transparent animationType="slide" onRequestClose={() => setSummaryVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🧠 Nutrition IQ</Text>
+              <TouchableOpacity onPress={() => setSummaryVisible(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {summaryLoading ? (
+              <View style={styles.modalLoading}>
+                <ActivityIndicator color={ORANGE} size="large" />
+                <Text style={styles.modalLoadingText}>Analyzing your pantry...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalBody}>{summaryText}</Text>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Ingredient Info Modal */}
+      <Modal visible={infoVisible} transparent animationType="slide" onRequestClose={() => setInfoVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>💡 {infoItemName}</Text>
+              <TouchableOpacity onPress={() => setInfoVisible(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {infoLoading ? (
+              <View style={styles.modalLoading}>
+                <ActivityIndicator color={ORANGE} size="large" />
+                <Text style={styles.modalLoadingText}>Looking up {infoItemName}...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalBody}>{infoText}</Text>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
     </View>
   );
@@ -540,4 +683,53 @@ const styles = StyleSheet.create({
   },
   addCatEmoji: { fontSize: 12 },
   addCatText: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.40)' },
+
+  // Nutrition IQ button
+  nutritionIQBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: 'rgba(232,93,38,0.10)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(232,93,38,0.25)',
+    gap: 12,
+  },
+  nutritionIQEmoji: { fontSize: 28 },
+  nutritionIQTitle: { fontSize: 15, fontWeight: '800', color: ORANGE },
+  nutritionIQSub: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 1 },
+  nutritionIQArrow: { fontSize: 24, color: 'rgba(232,93,38,0.50)', fontWeight: '300' },
+
+  // Modals
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#1A1A1A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '75%',
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
+  modalClose: { fontSize: 18, color: 'rgba(255,255,255,0.50)', fontWeight: '600' },
+  modalLoading: { alignItems: 'center', paddingVertical: 50, gap: 16 },
+  modalLoadingText: { fontSize: 14, color: 'rgba(255,255,255,0.45)' },
+  modalScroll: { paddingHorizontal: 20, paddingTop: 16 },
+  modalBody: { fontSize: 15, color: 'rgba(255,255,255,0.85)', lineHeight: 24 },
 });

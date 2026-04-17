@@ -154,9 +154,47 @@ export async function getFitnessProfile(): Promise<FitnessProfile | null> {
   }
 }
 
+const BODY_STATS_HISTORY_KEY = 'spicestrong_body_stats_history';
+
+export interface BodyStatsEntry {
+  date: string;
+  weightKg: number;
+  bodyFatPercent?: number;
+  timestamp: number;
+}
+
 export async function saveFitnessProfile(profile: FitnessProfile): Promise<void> {
   profile.updatedAt = Date.now();
   await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+
+  // Save body stats to history for progress tracking
+  try {
+    const today = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const entry: BodyStatsEntry = {
+      date: today,
+      weightKg: profile.weightKg,
+      bodyFatPercent: profile.bodyFatPercent,
+      timestamp: Date.now(),
+    };
+    const raw = await AsyncStorage.getItem(BODY_STATS_HISTORY_KEY);
+    const history: BodyStatsEntry[] = raw ? JSON.parse(raw) : [];
+    // Replace if same date exists, else append
+    const existingIdx = history.findIndex((h) => h.date === today);
+    if (existingIdx >= 0) history[existingIdx] = entry;
+    else history.push(entry);
+    // Keep last 365 entries
+    const trimmed = history.slice(-365);
+    await AsyncStorage.setItem(BODY_STATS_HISTORY_KEY, JSON.stringify(trimmed));
+  } catch {}
+}
+
+export async function getBodyStatsHistory(): Promise<BodyStatsEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(BODY_STATS_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
 }
 
 /**

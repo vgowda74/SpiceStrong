@@ -190,7 +190,10 @@
       "Bash(grep -n \"system\\\\|SYSTEM_PROMPT\\\\|prompt.*=.*\\\\`\" C:/Users/v_gow/SpiceStrong/services/recipeService.ts)",
       "Bash(python scripts/create-testing-checklist.py)",
       "Bash(node scripts/create-testing-checklist.js)",
-      "Bash(node -e \"console.log\\(Object.keys\\(require\\(''@fal-ai/client''\\)\\)\\)\")"
+      "Bash(node -e \"console.log\\(Object.keys\\(require\\(''@fal-ai/client''\\)\\)\\)\")",
+      "Bash(eas build:*)",
+      "Bash(taskkill /F /FI \"WINDOWTITLE eq *eas*\")",
+      "Bash(pkill -f \"eas build\")"
     ]
   },
   "remote": {

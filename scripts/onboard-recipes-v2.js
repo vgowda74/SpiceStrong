@@ -718,6 +718,7 @@ async function processExcelFile(xlsxPath) {
     nutrition,
     source: 'curated',
     is_active: true,
+    is_published: true,
     is_pro: false,
     spice_level: spiceLevel,
     cuisine: strOrNull(info['Cuisine']) || null,
@@ -727,14 +728,28 @@ async function processExcelFile(xlsxPath) {
     fingerprint,
   };
 
-  // Try insert with all columns; if cuisine/tags/fingerprint columns don't exist, retry without them
-  let { error: insertError } = await supabase.from('recipes').insert(recipeRow);
+  // Try insert with retries on transient network errors (fetch failed)
+  const insertWithRetry = async () => {
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const res = await supabase.from('recipes').insert(recipeRow);
+        return res;
+      } catch (netErr) {
+        if (attempt === 4) throw netErr;
+        const waitMs = attempt * 5000;
+        console.log(`  Network error (attempt ${attempt}/4), retrying in ${waitMs/1000}s: ${netErr.message}`);
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
+  };
+
+  let { error: insertError } = await insertWithRetry();
   if (insertError && insertError.message.includes('schema cache')) {
     console.log('  NOTE: Some columns not in DB yet — inserting without cuisine/tags/fingerprint');
     delete recipeRow.cuisine;
     delete recipeRow.tags;
     delete recipeRow.fingerprint;
-    ({ error: insertError } = await supabase.from('recipes').insert(recipeRow));
+    ({ error: insertError } = await insertWithRetry());
   }
   // Handle duplicate fingerprint at DB level (belt + suspenders with pre-check)
   if (insertError && insertError.code === '23505' && insertError.message?.includes('fingerprint')) {
@@ -798,6 +813,7 @@ async function processExcelFile(xlsxPath) {
 
   if (nutritionData) {
     console.log(`  Nutrition: ${nutritionData.calories} kcal, ${nutritionData.protein_g}g protein, ${nutritionData.carbs_g}g carbs, ${nutritionData.fat_g}g fat`);
+    // Store per-column nutrition for DB queries
     Object.assign(pipelineUpdate, {
       calories: nutritionData.calories,
       protein_g: nutritionData.protein_g,
@@ -805,6 +821,14 @@ async function processExcelFile(xlsxPath) {
       fat_g: nutritionData.fat_g,
       fiber_g: nutritionData.fiber_g,
     });
+    // Also store ai_nutrition as batch totals (per-serving × 2.5) for the app
+    pipelineUpdate.ai_nutrition = {
+      calories: Math.round(nutritionData.calories * 2.5),
+      proteinG: Math.round(nutritionData.protein_g * 2.5),
+      carbsG: Math.round(nutritionData.carbs_g * 2.5),
+      fatG: Math.round(nutritionData.fat_g * 2.5),
+      fiberG: Math.round((nutritionData.fiber_g || 0) * 2.5),
+    };
   }
 
   // Update the recipe row with classification + nutrition data

@@ -318,5 +318,9 @@ Before returning JSON, verify every item:
   □ CROSS-CHECK: Is every ingredient from the 2-3 serving list accounted for
     in at least one step's ingredientsUsed? If not, add the missing step.
   □ Description mentions the protein name and approximate protein content
+  □ Every step has an "imagePrompt" field: a short (max 15 words) literal
+    description of ONLY what is physically visible at that exact cooking moment.
+    Example step "Blanch spinach in boiling water" → imagePrompt: "spinach leaves in a pot of boiling water on the stove"
+    NEVER include the recipe name or ingredients from other steps in imagePrompt.
 If any check fails, fix the recipe before returning — never fudge the numbers.
 `.trim();

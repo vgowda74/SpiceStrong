@@ -88,30 +88,40 @@ export function ProfileMenu() {
   }));
   const handleFitnessProfile = () => closeMenu(() => router.push('/screens/FitnessProfileScreen'));
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
+  const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
+  const handleScanMenu = () => closeMenu(() => router.push('/screens/ScanMenuScreen'));
 
   // ── Menu sections ──
   const SECTIONS: MenuSection[] = [
     {
+      title: 'My Profile',
       items: [
         { icon: 'body-outline', label: 'Fitness Profile', onPress: handleFitnessProfile },
+        { icon: 'stats-chart-outline', label: 'Progress Report', onPress: handleProgressReport },
         { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },
       ],
     },
     {
-      title: 'Plan & Cook',
+      title: 'Recipes',
       items: [
-        { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
-        { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
         { icon: 'flash-outline', label: 'SpiceBuilder Recipe', onPress: handleSpiceBuilder },
         { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
       ],
     },
     {
-      title: 'Kitchen',
+      title: 'Meal Planning',
       items: [
-        { icon: 'barcode-outline', label: 'Scan Label', onPress: handleScanLabel },
-        { icon: 'basket-outline', label: 'My Pantry', onPress: handleMyPantry },
-        { icon: 'cart-outline', label: 'Grocery List', onPress: handleGroceryList },
+        { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
+        { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
+      ],
+    },
+    {
+      title: 'Smart Tools',
+      items: [
+        { icon: 'barcode-outline', label: 'Scan Nutrition Label', onPress: handleScanLabel },
+        { icon: 'restaurant-outline', label: 'Scan Restaurant Menu', onPress: handleScanMenu },
+        { icon: 'basket-outline', label: 'My Pantry Items', onPress: handleMyPantry },
+        { icon: 'cart-outline', label: 'My Shopping List', onPress: handleGroceryList },
       ],
     },
   ];

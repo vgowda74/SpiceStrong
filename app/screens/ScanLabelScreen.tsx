@@ -65,6 +65,8 @@ interface HealthScore {
   proteinScore: number;
   sugarSodiumScore: number;
   processingScore: number;
+  cleanScore: number;
+  cleanFlags: string[];
   dietaryScore: number;
   color: string;
   label: string;
@@ -86,6 +88,8 @@ export default function ScanLabelScreen() {
   const [scanning, setScanning] = useState(false);
   const [barcodeOpen, setBarcodeOpen] = useState(false);
   const [barcodeScanned, setBarcodeScanned] = useState(false);
+  const [barcodeReady, setBarcodeReady] = useState(false);
+  const scanLockRef = useRef(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [labelData, setLabelData] = useState<LabelData | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
@@ -176,9 +180,10 @@ If the image is NOT a nutrition label, return: {"identified": false}
 Rules:
 - Read EXACT values from the label — do not estimate
 - Use per-serving values
-- List ALL ingredients if the ingredient list is visible
-- Flag any food additives, artificial colors, preservatives separately in "additives"
-- List allergen warnings in "allergens"`,
+- CRITICAL: Read the ENTIRE ingredients list — this is just as important as the nutrition numbers. Look for the fine print text that starts with "Ingredients:" and list EVERY single ingredient.
+- Separate out additives from the ingredients: artificial colors (Red 40, Yellow 5, Blue 1), preservatives (sodium benzoate, potassium sorbate, BHA, BHT), artificial sweeteners (sucralose, aspartame, acesulfame potassium), emulsifiers, and chemical-sounding additives go in "additives"
+- List allergen warnings in "allergens" (look for "Contains:" or bold allergens in ingredients)
+- If ingredients text is visible but hard to read, try your best — partial extraction is better than empty`,
           messages: [{
             role: 'user',
             content: [
@@ -285,9 +290,10 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
   // ── Health Score Calculation ──
   // ── Barcode lookup via Edamam Food Database ──
   const handleBarcodeScan = async (barcode: string) => {
-    if (barcodeScanned) return;
+    if (scanLockRef.current) return;
+    scanLockRef.current = true;
     setBarcodeScanned(true);
-    setBarcodeOpen(false);
+    // Keep camera visible during lookup — only close on success
     setScanning(true);
     setError(null);
 
@@ -296,82 +302,191 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       const appKey = process.env.EXPO_PUBLIC_EDAMAM_FOOD_APP_KEY;
       if (!appId || !appKey) throw new Error('Edamam Food DB keys not configured');
 
-      // Look up barcode in Edamam Food Database
-      const url = `https://api.edamam.com/api/food-database/v2/parser?app_id=${appId}&app_key=${appKey}&upc=${barcode}`;
       console.log(`[SpiceStrong] Barcode lookup: ${barcode}`);
 
-      const res = await fetch(url);
-      if (!res.ok) {
-        if (res.status === 404) throw new Error('not_food');
-        throw new Error(`Edamam ${res.status}`);
+      let label: LabelData | null = null;
+
+      // Helper: scale per-100g values to per-serving
+      const scale100gToServing = (per100g: number, servingGrams: number) =>
+        Math.round((per100g * servingGrams / 100) * 10) / 10;
+
+      // ── Try Edamam Food Database first ──
+      try {
+        const url = `https://api.edamam.com/api/food-database/v2/parser?app_id=${appId}&app_key=${appKey}&upc=${barcode}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.hints && data.hints.length > 0) {
+            const food = data.hints[0].food;
+            const nutrients = food.nutrients || {};
+            // Edamam nutrients are per 100g; convert to per-serving
+            const servingInfo = food.servingSizes?.[0];
+            const servingG = servingInfo?.quantity || 100;
+            const servingLabel = servingInfo?.label || '100g';
+            label = {
+              productName: food.label || food.knownAs || 'Unknown Product',
+              servingSize: servingLabel,
+              calories: Math.round((nutrients.ENERC_KCAL || 0) * servingG / 100),
+              proteinG: scale100gToServing(nutrients.PROCNT || 0, servingG),
+              carbsG: scale100gToServing(nutrients.CHOCDF || 0, servingG),
+              fatG: scale100gToServing(nutrients.FAT || 0, servingG),
+              saturatedFatG: scale100gToServing(nutrients.FASAT || 0, servingG),
+              transFatG: scale100gToServing(nutrients.FATRN || 0, servingG),
+              fiberG: scale100gToServing(nutrients.FIBTG || 0, servingG),
+              sugarG: scale100gToServing(nutrients.SUGAR || 0, servingG),
+              addedSugarG: 0,
+              sodiumMg: Math.round((nutrients.NA || 0) * servingG / 100),
+              cholesterolMg: Math.round((nutrients.CHOLE || 0) * servingG / 100),
+              ingredients: [],
+              additives: [],
+              allergens: food.foodContentsLabel ? food.foodContentsLabel.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean) : [],
+            };
+            console.log(`[SpiceStrong] Edamam hit: ${label.productName} (serving: ${servingG}g)`);
+          }
+        }
+      } catch (e) {
+        console.log('[SpiceStrong] Edamam lookup failed, trying fallback', e);
       }
-      const data = await res.json();
 
-      if (!data.hints || data.hints.length === 0) {
-        throw new Error('not_food');
+      // ── Fallback: Open Food Facts (free, huge barcode DB) ──
+      if (!label) {
+        try {
+          const offRes = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+          if (offRes.ok) {
+            const offData = await offRes.json();
+            if (offData.status === 1 && offData.product) {
+              const p = offData.product;
+              const n = p.nutriments || {};
+              // Prefer per-serving fields; fall back to scaling per-100g
+              const hasServing = !!(n['energy-kcal_serving'] || n.proteins_serving);
+              const servingG = parseFloat(p.serving_quantity) || 100;
+              label = {
+                productName: p.product_name || p.generic_name || 'Unknown Product',
+                servingSize: p.serving_size || p.quantity || '100g',
+                calories: Math.round(hasServing
+                  ? (n['energy-kcal_serving'] || (n.energy_serving ? n.energy_serving / 4.184 : 0))
+                  : ((n['energy-kcal_100g'] || (n.energy_100g ? n.energy_100g / 4.184 : 0)) * servingG / 100)),
+                proteinG: hasServing
+                  ? Math.round((n.proteins_serving || 0) * 10) / 10
+                  : scale100gToServing(n.proteins_100g || 0, servingG),
+                carbsG: hasServing
+                  ? Math.round((n.carbohydrates_serving || 0) * 10) / 10
+                  : scale100gToServing(n.carbohydrates_100g || 0, servingG),
+                fatG: hasServing
+                  ? Math.round((n.fat_serving || 0) * 10) / 10
+                  : scale100gToServing(n.fat_100g || 0, servingG),
+                saturatedFatG: hasServing
+                  ? Math.round((n['saturated-fat_serving'] || 0) * 10) / 10
+                  : scale100gToServing(n['saturated-fat_100g'] || 0, servingG),
+                transFatG: hasServing
+                  ? Math.round((n['trans-fat_serving'] || 0) * 10) / 10
+                  : scale100gToServing(n['trans-fat_100g'] || 0, servingG),
+                fiberG: hasServing
+                  ? Math.round((n.fiber_serving || 0) * 10) / 10
+                  : scale100gToServing(n.fiber_100g || 0, servingG),
+                sugarG: hasServing
+                  ? Math.round((n.sugars_serving || 0) * 10) / 10
+                  : scale100gToServing(n.sugars_100g || 0, servingG),
+                addedSugarG: 0,
+                sodiumMg: hasServing
+                  ? Math.round((n.sodium_serving || 0) * 1000)
+                  : Math.round((n.sodium_100g || 0) * 1000 * servingG / 100),
+                cholesterolMg: hasServing
+                  ? Math.round((n.cholesterol_serving || 0) * 1000)
+                  : Math.round((n.cholesterol_100g || 0) * 1000 * servingG / 100),
+                ingredients: p.ingredients_text ? p.ingredients_text.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean) : [],
+                additives: p.additives_tags ? p.additives_tags.map((t: string) => t.replace('en:', '')) : [],
+                allergens: p.allergens_tags ? p.allergens_tags.map((t: string) => t.replace('en:', '')) : [],
+              };
+              console.log(`[SpiceStrong] Open Food Facts hit: ${label.productName} (serving: ${p.serving_size || 'per 100g'})`);
+            }
+          }
+        } catch (e) {
+          console.log('[SpiceStrong] Open Food Facts lookup failed', e);
+        }
       }
 
-      const food = data.hints[0].food;
-      const nutrients = food.nutrients || {};
+      if (!label) throw new Error('not_food');
 
-      const label: LabelData = {
-        productName: food.label || food.knownAs || 'Unknown Product',
-        servingSize: food.servingSizes?.[0]?.label || '1 serving',
-        calories: Math.round(nutrients.ENERC_KCAL || 0),
-        proteinG: Math.round((nutrients.PROCNT || 0) * 10) / 10,
-        carbsG: Math.round((nutrients.CHOCDF || 0) * 10) / 10,
-        fatG: Math.round((nutrients.FAT || 0) * 10) / 10,
-        saturatedFatG: Math.round((nutrients.FASAT || 0) * 10) / 10,
-        transFatG: Math.round((nutrients.FATRN || 0) * 10) / 10,
-        fiberG: Math.round((nutrients.FIBTG || 0) * 10) / 10,
-        sugarG: Math.round((nutrients.SUGAR || 0) * 10) / 10,
-        addedSugarG: 0,
-        sodiumMg: Math.round(nutrients.NA || 0),
-        cholesterolMg: Math.round(nutrients.CHOLE || 0),
-        ingredients: [],
-        additives: [],
-        allergens: food.foodContentsLabel ? food.foodContentsLabel.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean) : [],
-      };
-
+      // Lookup succeeded — close the camera and show results
+      setBarcodeOpen(false);
       setLabelData(label);
       const score = calculateHealthScore(label);
       setHealthScore(score);
 
-      const dietary = await getDietaryRestrictions();
-      setDietaryViolations(checkDietaryViolations(label, dietary));
+      // Secondary enrichment — don't let failures here trigger the "not found" alert
+      try {
+        const dietary = await getDietaryRestrictions();
+        setDietaryViolations(checkDietaryViolations(label, dietary));
+      } catch (e) { console.log('[SpiceStrong] Dietary check failed', e); }
 
-      const targets = await getSavedMacroTargets();
-      if (targets) {
-        setDailyPct({
-          calories: Math.round((label.calories / targets.calories) * 100),
-          proteinG: Math.round((label.proteinG / targets.proteinG) * 100),
-          carbsG: Math.round((label.carbsG / targets.carbsG) * 100),
-          fatG: Math.round((label.fatG / targets.fatG) * 100),
-        });
-      }
-
-      // AI summary
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (apiKey) {
-        const summaryRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 300,
-            messages: [{ role: 'user', content: `Fitness nutrition expert — 2-3 sentence assessment for high-protein fitness nutrition. Product: ${label.productName}. Per serving: ${label.calories} cal, ${label.proteinG}g protein, ${label.carbsG}g carbs, ${label.fatG}g fat, ${label.sugarG}g sugar, ${label.sodiumMg}mg sodium. Protein density: ${label.calories > 0 ? ((label.proteinG / label.calories) * 100).toFixed(1) : 0}g per 100 cal. Start with ✅ if good or ⚠️ if concerning.` }],
-          }),
-        });
-        if (summaryRes.ok) {
-          const sd = await summaryRes.json();
-          setAiSummary(sd.content?.[0]?.text || '');
+      try {
+        const targets = await getSavedMacroTargets();
+        if (targets) {
+          setDailyPct({
+            calories: Math.round((label.calories / targets.calories) * 100),
+            proteinG: Math.round((label.proteinG / targets.proteinG) * 100),
+            carbsG: Math.round((label.carbsG / targets.carbsG) * 100),
+            fatG: Math.round((label.fatG / targets.fatG) * 100),
+          });
         }
-      }
+      } catch (e) { console.log('[SpiceStrong] Macro targets failed', e); }
+
+      try {
+        const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+        if (apiKey) {
+          const summaryRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 300,
+              messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
+
+PROTEIN QUALITY TIERS (calories needed for 25g protein):
+- Superior (S): Whey ~120cal, egg whites ~120cal, chicken breast ~130cal, lean fish ~130cal, Greek yogurt ~180cal
+- High-Efficiency (A): Tofu/tempeh ~250cal, low-fat paneer ~180cal, chicken thigh ~200-250cal
+- Moderate (B): Whole eggs ~280cal, skimmed milk ~250cal
+- Low-Efficiency (C/D): Legumes/nuts/seeds 400-900cal for 25g protein — good for fiber/micros but terrible as primary protein
+
+PRODUCT: ${label.productName}
+Per serving: ${label.calories} cal, ${label.proteinG}g protein, ${label.carbsG}g carbs, ${label.fatG}g fat, ${label.sugarG}g sugar, ${label.sodiumMg}mg sodium
+Protein density: ${label.calories > 0 ? ((label.proteinG / label.calories) * 100).toFixed(1) : 0}g per 100 cal
+Calories per 25g protein: ${label.proteinG > 0 ? Math.round((25 / label.proteinG) * label.calories) : 'N/A (no protein)'}
+
+Give a 2-3 sentence verdict. Include:
+- Which tier this product falls into (S/A/B/C/D)
+- Calories needed to get 25g protein from this product
+- Whether this helps or hurts fitness goals — be direct, no sugarcoating
+Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
+            }),
+          });
+          if (summaryRes.ok) {
+            const sd = await summaryRes.json();
+            setAiSummary(sd.content?.[0]?.text || '');
+          }
+        }
+      } catch (e) { console.log('[SpiceStrong] AI summary failed', e); }
     } catch (err: any) {
       if (err?.message === 'not_food') {
-        setError('This product wasn\'t found in our food database. It may not be a food item, or try scanning the nutrition label instead.');
+        Alert.alert(
+          'Product Not Found',
+          'This product wasn\'t found in our food database. It may not be a food item.',
+          [
+            { text: 'Scan Again', onPress: () => { setBarcodeScanned(false); scanLockRef.current = false; } },
+            { text: 'Photo Label Instead', onPress: () => { setBarcodeOpen(false); pickImage(true); } },
+            { text: 'Cancel', style: 'cancel', onPress: () => { setBarcodeOpen(false); setBarcodeScanned(false); scanLockRef.current = false; } },
+          ],
+        );
       } else {
-        setError(err?.message || 'Could not look up this barcode.');
+        Alert.alert(
+          'Scan Error',
+          'Could not read this barcode. Try holding the camera steady and closer to the barcode.',
+          [
+            { text: 'Try Again', onPress: () => { setBarcodeScanned(false); scanLockRef.current = false; } },
+            { text: 'Cancel', style: 'cancel', onPress: () => { setBarcodeOpen(false); setBarcodeScanned(false); scanLockRef.current = false; } },
+          ],
+        );
       }
     } finally {
       setScanning(false);
@@ -389,19 +504,68 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
     const sodiumPenalty = Math.min(100, Math.round((label.sodiumMg / 800) * 100)); // 800mg per serving = bad
     const sugarSodiumScore = Math.max(0, 100 - Math.round((sugarPenalty + sodiumPenalty) / 2));
 
-    // Processing score (20%)
+    // Processing score (15%)
     const additiveCount = label.additives.length;
-    const processingScore = additiveCount === 0 ? 100 : additiveCount <= 2 ? 70 : additiveCount <= 5 ? 40 : 10;
+    const hasIngredients = label.ingredients.length > 0;
+    const processingScore = additiveCount === 0
+      ? (hasIngredients ? 100 : 70)
+      : additiveCount <= 2 ? 70 : additiveCount <= 5 ? 40 : 10;
 
-    // Dietary compliance score (15%)
-    // Will be adjusted after checking restrictions
-    const dietaryScore = 100; // Default — updated after dietary check
+    // Clean Ingredients score (20%) — Bobby Approved style
+    // Scans ingredients + additives for harmful compounds
+    const allIngredientText = [...label.ingredients, ...label.additives].join(' ').toLowerCase();
+    const cleanFlags: string[] = [];
+    let cleanPenalty = 0;
+
+    // Seed oils (refined industrial oils — inflammatory)
+    const seedOils = ['canola', 'soybean oil', 'sunflower oil', 'safflower', 'corn oil', 'grapeseed', 'cottonseed', 'vegetable oil', 'rapeseed'];
+    seedOils.forEach((oil) => {
+      if (allIngredientText.includes(oil)) { cleanFlags.push(`Seed oil (${oil})`); cleanPenalty += 15; }
+    });
+
+    // High-fructose corn syrup
+    if (/high.fructose|hfcs|corn syrup/i.test(allIngredientText)) { cleanFlags.push('High-fructose corn syrup'); cleanPenalty += 25; }
+
+    // Artificial sweeteners
+    const sweeteners = ['sucralose', 'aspartame', 'acesulfame', 'saccharin', 'neotame', 'advantame'];
+    sweeteners.forEach((s) => {
+      if (allIngredientText.includes(s)) { cleanFlags.push(`Artificial sweetener (${s})`); cleanPenalty += 15; }
+    });
+
+    // Artificial colors
+    const colors = ['red 40', 'red #40', 'yellow 5', 'yellow #5', 'yellow 6', 'blue 1', 'blue #1', 'fd&c'];
+    colors.forEach((c) => {
+      if (allIngredientText.includes(c)) { cleanFlags.push(`Artificial color (${c})`); cleanPenalty += 20; }
+    });
+
+    // Preservatives
+    const preservatives = ['bha', 'bht', 'tbhq', 'sodium benzoate', 'potassium sorbate', 'sodium nitrite', 'sodium nitrate'];
+    preservatives.forEach((p) => {
+      if (allIngredientText.includes(p)) { cleanFlags.push(`Preservative (${p})`); cleanPenalty += 10; }
+    });
+
+    // Natural flavors (vague, often hides chemicals)
+    if (/natural flavor|artificial flavor/i.test(allIngredientText)) { cleanFlags.push('"Natural flavors"'); cleanPenalty += 5; }
+
+    // Other flags
+    if (allIngredientText.includes('carrageenan')) { cleanFlags.push('Carrageenan'); cleanPenalty += 5; }
+    if (allIngredientText.includes('maltodextrin')) { cleanFlags.push('Maltodextrin'); cleanPenalty += 5; }
+    if (allIngredientText.includes('monosodium glutamate') || allIngredientText.includes('msg')) { cleanFlags.push('MSG'); cleanPenalty += 5; }
+
+    // If no ingredients were read, give a neutral 70 (can't assess)
+    const cleanScore = !hasIngredients
+      ? 70
+      : Math.max(0, 100 - cleanPenalty);
+
+    // Dietary compliance score (10%)
+    const dietaryScore = 100;
 
     const total = Math.round(
-      proteinScore * 0.40 +
-      sugarSodiumScore * 0.25 +
-      processingScore * 0.20 +
-      dietaryScore * 0.15
+      proteinScore * 0.35 +
+      sugarSodiumScore * 0.20 +
+      processingScore * 0.15 +
+      cleanScore * 0.20 +
+      dietaryScore * 0.10
     );
 
     let color = GREEN, label2 = 'Excellent', emoji = '🟢';
@@ -409,7 +573,7 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
     if (total < 50) { color = ORANGE; label2 = 'Poor'; emoji = '🟠'; }
     if (total < 20) { color = RED; label2 = 'Bad'; emoji = '🔴'; }
 
-    return { total, proteinScore, sugarSodiumScore, processingScore, dietaryScore, color, label: label2, emoji };
+    return { total, proteinScore, sugarSodiumScore, processingScore, cleanScore, cleanFlags, dietaryScore, color, label: label2, emoji };
   }
 
   // ── Dietary Restriction Check ──
@@ -467,8 +631,11 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
                   const perm = await requestCameraPermission();
                   if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required for barcode scanning.'); return; }
                 }
-                setBarcodeScanned(false);
+                setBarcodeScanned(false); scanLockRef.current = false;
+                setBarcodeReady(false);
                 setBarcodeOpen(true);
+                // Give camera 2 seconds to focus before accepting scans
+                setTimeout(() => setBarcodeReady(true), 2000);
               }} activeOpacity={0.8}>
                 <Text style={styles.galleryBtnText}>📊 Scan Barcode</Text>
               </TouchableOpacity>
@@ -483,13 +650,17 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
             <CameraView
               style={styles.barcodeCamera}
               barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39'] }}
-              onBarcodeScanned={barcodeScanned ? undefined : (result) => {
-                if (result.data) handleBarcodeScan(result.data);
+              onBarcodeScanned={(!barcodeReady || barcodeScanned) ? undefined : (result) => {
+                if (result.data && result.data.length >= 8) {
+                  handleBarcodeScan(result.data);
+                }
               }}
             />
             <View style={styles.barcodeOverlay}>
               <View style={styles.barcodeCrosshair} />
-              <Text style={styles.barcodeHint}>Point at the barcode on the product</Text>
+              <Text style={styles.barcodeHint}>
+                {barcodeScanned ? 'Looking up product…' : (barcodeReady ? 'Point at the barcode — hold steady' : 'Focusing camera...')}
+              </Text>
             </View>
             <TouchableOpacity style={styles.barcodeCloseBtn} onPress={() => setBarcodeOpen(false)}>
               <Text style={styles.barcodeCloseBtnText}>✕ Close</Text>
@@ -555,7 +726,20 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
                   <View style={styles.scoreBarBg}><View style={[styles.scoreBarFill, { width: `${healthScore.processingScore}%`, backgroundColor: healthScore.processingScore >= 70 ? GREEN : healthScore.processingScore >= 40 ? YELLOW : RED }]} /></View>
                   <Text style={styles.scoreRowVal}>{healthScore.processingScore}%</Text>
                 </View>
+                <View style={styles.scoreRow}>
+                  <Text style={styles.scoreRowLabel}>🌿 Clean Ingredients</Text>
+                  <View style={styles.scoreBarBg}><View style={[styles.scoreBarFill, { width: `${healthScore.cleanScore}%`, backgroundColor: healthScore.cleanScore >= 70 ? GREEN : healthScore.cleanScore >= 40 ? YELLOW : RED }]} /></View>
+                  <Text style={styles.scoreRowVal}>{healthScore.cleanScore}%</Text>
+                </View>
               </View>
+              {healthScore.cleanFlags.length > 0 && (
+                <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: '#FF6B6B', letterSpacing: 0.5, marginBottom: 6 }}>⚠️ RED FLAGS</Text>
+                  {healthScore.cleanFlags.slice(0, 5).map((flag, i) => (
+                    <Text key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.70)', marginTop: 2 }}>• {flag}</Text>
+                  ))}
+                </View>
+              )}
             </View>
 
             {/* SpiceStrong Protein Check */}

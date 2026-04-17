@@ -19,10 +19,12 @@ import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } fr
 import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'expo-image';
 import { PROTEINS } from '../../src/theme';
 
 import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt';
+import { analyzeNutrition } from '../../services/nutritionService';
 import { getDietaryRestrictions } from '../../services/dietaryService';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 
@@ -356,7 +358,8 @@ Return this exact JSON structure (no markdown, no preamble):
       "description": "Clear instruction with visual doneness cues, 2-4 sentences.",
       "tip": "Specific technique tip for this step",
       "timerSeconds": 300,
-      "ingredientsUsed": "comma-separated ingredient names used in this step"
+      "ingredientsUsed": "comma-separated ingredient names used in this step",
+      "imagePrompt": "Short literal description of ONLY what is physically visible at this exact moment — e.g. 'spinach leaves in a pot of boiling water'. Do NOT mention the recipe name or ingredients from other steps. Max 15 words."
     }
   ]
 }
@@ -600,6 +603,14 @@ export default function AIRecipeBuilderScreen() {
   const [referenceImageBase64, setReferenceImageBase64] = useState<string | null>(null);
   const [generatedRecipe, setGeneratedRecipe] = useState<Record<string, unknown> | null>(null);
   const [filtersConfirmed, setFiltersConfirmed] = useState(false);
+  // Entry mode: 'choose' = pick import or builder, 'import' = photo import in progress, 'review' = save/publish choice, 'builder' = current flow
+  const [screenMode, setScreenMode] = useState<'choose' | 'import' | 'review' | 'builder'>('choose');
+  const [importImageUri, setImportImageUri] = useState<string | null>(null);
+  const [importImageBase64, setImportImageBase64] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importStep, setImportStep] = useState('');
+  const [importedRecipe, setImportedRecipe] = useState<SavedRecipe | null>(null);
+  const [publishing, setPublishing] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [availableProteins, setAvailableProteins] = useState<{ id: string; name: string; emoji: string }[]>([]);
 
@@ -725,12 +736,11 @@ export default function AIRecipeBuilderScreen() {
   }, [isDrinkProtein, showMeatType, selectedMeatType, selectedDrinkType, selectedDrinkFlavor, selectedProteinGoal, selectedMealType, selectedCookingTime, selectedSpiceLevel, selectedDietary, selectedCuisine, meatTypeOptions]);
 
   const pickReferenceImage = async (useCamera: boolean) => {
-    // Max 5MB base64 for Claude = ~3.75MB raw image. Use low quality.
     const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: false,
-      quality: 0.3,
-      base64: true,
+      quality: 0.8,
+      base64: false,
     };
     let result: ImagePicker.ImagePickerResult;
     if (useCamera) {
@@ -743,15 +753,321 @@ export default function AIRecipeBuilderScreen() {
       result = await ImagePicker.launchImageLibraryAsync(opts);
     }
     if (!result.canceled && result.assets?.[0]) {
-      let b64 = result.assets[0].base64 || '';
-      if (b64.includes(',')) b64 = b64.split(',')[1];
-      // Check size — Claude max is 5MB base64
-      if (b64.length > 5_000_000) {
-        Alert.alert('Image Too Large', 'Please use a smaller image or take a new photo.');
+      const uri = result.assets[0].uri;
+      setReferenceImageUri(uri);
+      try {
+        const manipulated = await manipulateAsync(
+          uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+        );
+        const b64 = manipulated.base64 || '';
+        console.log(`[SpiceStrong] Reference: compressed base64=${Math.round(b64.length / 1024)}KB`);
+        setReferenceImageBase64(b64 || null);
+      } catch (e) {
+        console.error('[SpiceStrong] Image compression failed:', e);
+        Alert.alert('Could not process image', 'Try a different photo.');
+      }
+    }
+  };
+
+  // ── Photo Import: pick image and extract recipe via Claude Vision ──
+  const pickImportImage = async (useCamera: boolean) => {
+    const opts: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.8,
+      base64: false, // Don't get base64 from picker — we'll resize first
+    };
+    let result: ImagePicker.ImagePickerResult;
+    if (useCamera) {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required.'); return; }
+      result = await ImagePicker.launchCameraAsync(opts);
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Gallery access required.'); return; }
+      result = await ImagePicker.launchImageLibraryAsync(opts);
+    }
+    if (!result.canceled && result.assets?.[0]) {
+      const uri = result.assets[0].uri;
+      setImportImageUri(uri);
+
+      // Resize to 1024px wide + 50% JPEG compression (guaranteed under 5MB base64)
+      try {
+        const manipulated = await manipulateAsync(
+          uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+        );
+        const b64 = manipulated.base64 || '';
+        console.log(`[SpiceStrong] Import: compressed base64=${Math.round(b64.length / 1024)}KB`);
+        setImportImageBase64(b64 || null);
+        setScreenMode('import');
+      } catch (e) {
+        console.error('[SpiceStrong] Image compression failed:', e);
+        Alert.alert('Could not process image', 'Try a different photo.');
+      }
+    }
+  };
+
+  const handleImportFromPhoto = async () => {
+    if (!importImageBase64 || !ANTHROPIC_KEY) return;
+    setImporting(true);
+    setImportStep('Analyzing your photo...');
+
+    try {
+      // Enforce global AI recipe limit
+      try {
+        const countStr = await AsyncStorage.getItem(GLOBAL_AI_COUNT_KEY);
+        const totalCount = countStr ? parseInt(countStr, 10) : 0;
+        if (totalCount >= MAX_TOTAL_AI_RECIPES) {
+          Alert.alert('Recipe Limit Reached', `You've created ${MAX_TOTAL_AI_RECIPES} AI recipes. Upgrade to Premium for unlimited recipes!`);
+          setImporting(false);
+          return;
+        }
+      } catch { /* proceed */ }
+
+      // ── Step 1: Extract recipe from image (same prompt as AddRecipeScreen) ──
+      setImportStep('Extracting recipe details...');
+
+      let mediaType = 'image/jpeg';
+      if (importImageBase64.startsWith('iVBOR')) mediaType = 'image/png';
+      else if (importImageBase64.startsWith('UklGR')) mediaType = 'image/webp';
+
+      const extractRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 2048,
+          system: `You are a recipe extraction engine for a high-protein cooking app.
+
+STEP 1: Determine if the image contains food.
+- If the image is NOT food (person, landscape, object, text without recipe, etc.), return: {"error": "not_food"}
+- If the image IS food or a recipe (screenshot, book, handwritten, or a dish), proceed to Step 2.
+
+STEP 2: Extract the recipe and identify the PRIMARY protein.
+Return ONLY this JSON:
+{
+  "name": "Recipe name",
+  "description": "1-2 sentence description",
+  "primaryProtein": "chicken|fish|lamb|goat|pork|beef|prawns|eggs|paneer|tofu|soy|beans|milk|whey",
+  "mealType": "breakfast|lunch_dinner|snack_dessert",
+  "difficulty": "Easy|Medium|Hard",
+  "cookTime": "30 min",
+  "cuisine": "Indian|Thai|Mediterranean|Chinese|Mexican|American|Other",
+  "ingredients": {
+    "2-3 servings": [{"name": "Ingredient", "quantity": "500g"}],
+    "4-6 servings": [{"name": "Ingredient", "quantity": "1kg"}]
+  },
+  "steps": [{"title": "Step", "description": "Details with quantities for each ingredient used", "emoji": "🔥", "timerMinutes": 5, "ingredientsUsed": "comma-separated ingredient names ONLY from this step", "imagePrompt": "Short literal description of ONLY what is physically visible at this moment — max 15 words, no recipe name"}],
+  "chefTip": "One line tip"
+}
+
+CRITICAL RULES:
+- primaryProtein MUST be one of: chicken, fish, lamb, goat, pork, beef, prawns, eggs, paneer, tofu, soy, beans, milk, whey
+- If the dish has multiple proteins, pick the DOMINANT one
+- If no clear protein is visible, use "eggs" as default
+- Max 15 ingredients, 4-8 steps, precise quantities, 4-6 tier = 2x of 2-3 tier
+- ingredientsUsed for each step must ONLY list ingredients actually used in THAT step — never include ingredients from other steps
+- Every ingredient from the ingredient list must appear in exactly one step's ingredientsUsed
+- Step description must mention each ingredient in ingredientsUsed with its quantity`,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: importImageBase64 } },
+              { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
+            ],
+          }],
+        }),
+      });
+
+      if (!extractRes.ok) {
+        const errBody = await extractRes.text().catch(() => '');
+        throw new Error(`API returned ${extractRes.status}: ${errBody.slice(0, 200)}`);
+      }
+      const extractData = await extractRes.json();
+      let text = (extractData.content?.[0]?.text || '').trim();
+      text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      if (firstBrace === -1 || lastBrace <= firstBrace) throw new Error('Could not parse response');
+      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+
+      if (parsed.error === 'not_food') {
+        Alert.alert('Not a Recipe', 'This doesn\'t look like food or a recipe. Please upload a photo of a dish or a recipe screenshot.');
+        setImporting(false);
         return;
       }
-      setReferenceImageUri(result.assets[0].uri);
-      setReferenceImageBase64(b64 || null);
+      if (!parsed.name) {
+        Alert.alert('Could Not Read', 'Could not identify a recipe from this image. Try a clearer photo.');
+        setImporting(false);
+        return;
+      }
+
+      // ── Step 2: Auto-fix for high-protein standards (same as AddRecipeScreen) ──
+      setImportStep('Optimizing for high-protein standards...');
+      try {
+        const fixRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_KEY,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 2048,
+            system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
+
+1. PROTEIN DENSITY: proteinG / calories × 100 >= 6.4 (CRITICAL)
+   - If too low: increase protein source quantity, reduce oils/carbs, add protein-rich ingredients
+2. MAX 15 ingredients, MIN 4 steps, MAX 8 steps
+3. ALL quantities must be precise (no "to taste", "some", "a pinch")
+4. "2-3 servings" and "4-6 servings" tiers (4-6 = exactly 2× of 2-3)
+5. Description must mention the protein name and be 1-2 sentences
+6. Each step must have a clear title and detailed description with quantities
+7. chefTip must mention protein per serving and calories
+8. Each step MUST have "ingredientsUsed" listing ONLY ingredients used in THAT step (not other steps)
+9. Every ingredient must appear in exactly one step's ingredientsUsed
+10. Each step MUST have "imagePrompt": a short (max 15 words) literal description of what is physically visible at that cooking moment — no recipe name, no ingredients from other steps
+
+Return the FIXED recipe as the same JSON format. If already compliant, return as-is.
+Return ONLY the JSON, no explanation.`,
+            messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
+          }),
+        });
+        if (fixRes.ok) {
+          const fixData = await fixRes.json();
+          const fixText = (fixData.content?.[0]?.text || '').trim();
+          const fixFirst = fixText.indexOf('{');
+          const fixLast = fixText.lastIndexOf('}');
+          if (fixFirst !== -1 && fixLast > fixFirst) {
+            const fixed = JSON.parse(fixText.substring(fixFirst, fixLast + 1));
+            if (fixed.name) parsed.name = fixed.name;
+            if (fixed.description) parsed.description = fixed.description;
+            if (fixed.ingredients) parsed.ingredients = fixed.ingredients;
+            if (fixed.steps?.length > 0) parsed.steps = fixed.steps;
+            if (fixed.chefTip) parsed.chefTip = fixed.chefTip;
+            if (fixed.mealType) parsed.mealType = fixed.mealType;
+            console.log('[SpiceStrong] Recipe optimized for SpiceStrong standards');
+          }
+        }
+      } catch (fixErr) {
+        console.warn('[SpiceStrong] Auto-fix failed (non-blocking):', fixErr);
+      }
+
+      // ── Step 3: Get real nutrition from Edamam ──
+      setImportStep('Getting nutrition details...');
+      let nutritionData: { calories: number; proteinG: number; fatG: number; carbsG: number; fiberG: number; sugarG?: number; sodiumMg?: number } | null = null;
+      try {
+        const tier23 = parsed.ingredients?.['2-3 servings'] || [];
+        if (tier23.length > 0) {
+          nutritionData = await analyzeNutrition(tier23, 2.5);
+          if (nutritionData) {
+            console.log(`[SpiceStrong] Nutrition: ${nutritionData.calories} cal, ${nutritionData.proteinG}g P`);
+          }
+        }
+      } catch (nutritionErr) {
+        console.warn('[SpiceStrong] Nutrition analysis failed (non-blocking):', nutritionErr);
+      }
+
+      // ── Step 4: Map to SavedRecipe and save ──
+      setImportStep('Saving recipe...');
+
+      // Detect protein from extracted data
+      const detectedProtein = parsed.primaryProtein || 'eggs';
+      const proteinMatch = PROTEINS.find((p: any) => p.id === detectedProtein);
+      const pId = proteinMatch?.id || 'eggs';
+      const pName = proteinMatch?.name || 'Eggs';
+      const pEmoji = proteinMatch?.emoji || '🥚';
+
+      // Build the recipe object matching saveRecipeFromAI format
+      const recipeForSave: Record<string, unknown> = {
+        name: parsed.name,
+        proteinId: pId,
+        proteinName: pName,
+        proteinEmoji: pEmoji,
+        description: parsed.description || '',
+        mealType: parsed.mealType || 'lunch_dinner',
+        difficulty: parsed.difficulty,
+        cookTime: parsed.cookTime,
+        ingredients: parsed.ingredients,
+        steps: (parsed.steps || []).map((s: any, i: number) => ({
+          id: `step${i + 1}`,
+          title: s.title || '',
+          description: s.description || '',
+          emoji: s.emoji || '🔥',
+          tip: s.tip || '',
+          timerSeconds: s.timerMinutes ? s.timerMinutes * 60 : 0,
+        })),
+        // Use Edamam nutrition if available, else fall back to AI values
+        protein: nutritionData ? `${Math.round(nutritionData.proteinG)}g` : (parsed.protein || '0g'),
+        calories: nutritionData ? `${Math.round(nutritionData.calories)} kcal` : (parsed.calories || '0 kcal'),
+        fatG: nutritionData ? `${Math.round(nutritionData.fatG)}g` : (parsed.fatG || '0g'),
+        carbsG: nutritionData ? `${Math.round(nutritionData.carbsG)}g` : (parsed.carbsG || '0g'),
+        fiberG: nutritionData ? `${Math.round(nutritionData.fiberG)}g` : (parsed.fiberG || '0g'),
+      };
+
+      const placeholderId = Date.now().toString();
+      const saved = await saveRecipeFromAI(recipeForSave, placeholderId);
+      saved.status = 'ready';
+
+      // ── Step 5: Generate images (hero + step) ──
+      setImportStep('Creating recipe images...');
+      try {
+        const stepsForImages = (parsed.steps || []).map((s: any) => ({
+          title: s.title || '', description: s.description || '',
+        }));
+        const ingredientsForImages = parsed.ingredients || { '2-3 servings': [] };
+
+        const aiImages = await generateAllRecipeImages({
+          id: saved.id,
+          name: parsed.name || 'Recipe',
+          ingredients: ingredientsForImages,
+          steps: stepsForImages,
+        });
+        await saveRecipeImages(saved.id, aiImages);
+
+        // Upload hero to Supabase
+        if (aiImages.dishImage) {
+          uploadRecipeHeroImage(saved.id, aiImages.dishImage).catch(() => {});
+        }
+      } catch (imgErr) {
+        console.warn('[SpiceStrong] Image generation failed (non-blocking):', imgErr);
+        // Fall back to the user's photo as hero
+        const fallbackImages: RecipeImageResults = { dishImage: importImageUri, ingredientImages: {}, stepImages: {} };
+        await saveRecipeImages(saved.id, fallbackImages);
+        if (importImageUri) uploadRecipeHeroImage(saved.id, importImageUri).catch(() => {});
+      }
+
+      // Save locally
+      await saveAIRecipe(saved);
+      updateRecipeStatus(saved.id, 'ready').catch(() => {});
+
+      // Increment global count
+      try {
+        const countStr = await AsyncStorage.getItem(GLOBAL_AI_COUNT_KEY);
+        const totalCount = countStr ? parseInt(countStr, 10) : 0;
+        await AsyncStorage.setItem(GLOBAL_AI_COUNT_KEY, String(totalCount + 1));
+      } catch { /* non-critical */ }
+
+      // Show the review screen with Save/Publish options
+      setImportedRecipe(saved);
+      setImporting(false);
+      setScreenMode('review');
+
+    } catch (err: any) {
+      console.error('[SpiceStrong] Photo import failed:', err);
+      setImporting(false);
+      Alert.alert('Import Failed', 'Could not extract recipe from this photo. Try a clearer image.');
     }
   };
 
@@ -864,9 +1180,10 @@ export default function AIRecipeBuilderScreen() {
         referenceImageBase64,
       );
 
-      // Step 2: Save recipe
+      // Step 2: Save recipe — mark as curated so it's visible to all users
       setGenStep('Crafting your recipe...');
       saved = await saveRecipeFromAI(result, placeholderId);
+      (saved as any).source = 'curated';
       const syncResult = await saveAIRecipe(saved);
 
       if (syncResult.duplicate) {
@@ -956,12 +1273,198 @@ export default function AIRecipeBuilderScreen() {
 
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => {
+            if (screenMode === 'review') {
+              // From review, go back to choose (recipe already saved locally)
+              setScreenMode('choose');
+              setImportedRecipe(null);
+              setImportImageUri(null);
+              setImportImageBase64(null);
+            } else if (screenMode === 'builder' || screenMode === 'import') {
+              setScreenMode('choose');
+              setImportImageUri(null);
+              setImportImageBase64(null);
+            } else {
+              router.back();
+            }
+          }} activeOpacity={0.8}>
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
           <Text style={styles.title}>SpiceBuilder</Text>
           <View style={styles.headerSpacer} />
         </View>
+
+        {/* ── Entry screen: Choose mode ── */}
+        {screenMode === 'choose' && !generating && (
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { justifyContent: 'center', paddingTop: 40 }]} showsVerticalScrollIndicator={false}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+              How would you like to create?
+            </Text>
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28 }}>
+              Import a recipe from a photo or build one with AI
+            </Text>
+
+            {/* Import from Photo card */}
+            <TouchableOpacity
+              style={styles.modeCard}
+              onPress={() => pickImportImage(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modeCardEmoji}>📸</Text>
+              <View style={styles.modeCardTextBlock}>
+                <Text style={styles.modeCardTitle}>Import from Photo</Text>
+                <Text style={styles.modeCardDesc}>Photograph a cookbook page, recipe card, or screenshot</Text>
+              </View>
+              <Text style={styles.modeCardArrow}>›</Text>
+            </TouchableOpacity>
+
+            {/* Take Photo option */}
+            <TouchableOpacity
+              style={styles.modeCard}
+              onPress={() => pickImportImage(true)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modeCardEmoji}>📷</Text>
+              <View style={styles.modeCardTextBlock}>
+                <Text style={styles.modeCardTitle}>Take a Photo</Text>
+                <Text style={styles.modeCardDesc}>Snap a picture of a recipe right now</Text>
+              </View>
+              <Text style={styles.modeCardArrow}>›</Text>
+            </TouchableOpacity>
+
+            {/* Divider */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 20 }}>
+              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.12)' }} />
+              <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: '600', marginHorizontal: 14 }}>OR</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.12)' }} />
+            </View>
+
+            {/* SpiceBuilder AI card */}
+            <TouchableOpacity
+              style={[styles.modeCard, { borderColor: 'rgba(232,93,38,0.40)' }]}
+              onPress={() => setScreenMode('builder')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.modeCardEmoji}>🍳</Text>
+              <View style={styles.modeCardTextBlock}>
+                <Text style={[styles.modeCardTitle, { color: '#E85D26' }]}>Build with AI</Text>
+                <Text style={styles.modeCardDesc}>Pick your protein, cuisine, macros and let AI create the recipe</Text>
+              </View>
+              <Text style={[styles.modeCardArrow, { color: '#E85D26' }]}>›</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        )}
+
+        {/* ── Import confirmation screen ── */}
+        {screenMode === 'import' && !importing && (
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { alignItems: 'center', paddingTop: 30 }]} showsVerticalScrollIndicator={false}>
+            {importImageUri && (
+              <Image source={{ uri: importImageUri }} style={{ width: 260, height: 260, borderRadius: 20, marginBottom: 20 }} contentFit="cover" />
+            )}
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+              Ready to import
+            </Text>
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28, paddingHorizontal: 20 }}>
+              AI will extract the recipe, calculate nutrition, and create cooking steps
+            </Text>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { width: '100%' }]}
+              onPress={handleImportFromPhoto}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.primaryBtnText}>Import Recipe</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ marginTop: 14, paddingVertical: 10 }}
+              onPress={() => { setScreenMode('choose'); setImportImageUri(null); setImportImageBase64(null); }}
+              activeOpacity={0.75}
+            >
+              <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 14, fontWeight: '600' }}>Choose a different photo</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        )}
+
+        {/* Import progress */}
+        {importing && (
+          <View style={styles.genOverlay}>
+            <View style={styles.genContent}>
+              <ActivityIndicator color="#E85D26" size="large" style={{ marginBottom: 24 }} />
+              <Text style={styles.genEmoji}>📸</Text>
+              <Text style={styles.genTitle}>Importing Recipe</Text>
+              <Text style={styles.genStep}>{importStep}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* ── Post-import review: Save or Publish ── */}
+        {screenMode === 'review' && importedRecipe && (
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { alignItems: 'center', paddingTop: 20 }]} showsVerticalScrollIndicator={false}>
+            {importImageUri && (
+              <Image source={{ uri: importImageUri }} style={{ width: 220, height: 220, borderRadius: 20, marginBottom: 16 }} contentFit="cover" />
+            )}
+            <Text style={{ fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+              {importedRecipe.name}
+            </Text>
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 6 }}>
+              {importedRecipe.proteinEmoji} {importedRecipe.proteinName}
+            </Text>
+            {importedRecipe.aiNutrition && (
+              <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20 }}>
+                <Text style={{ color: '#E85D26', fontSize: 13, fontWeight: '700' }}>{Math.round((importedRecipe.aiNutrition.proteinG || 0) / 2.5)}g protein</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>{Math.round((importedRecipe.aiNutrition.calories || 0) / 2.5)} cal</Text>
+                <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>{(importedRecipe.steps?.length || 0)} steps</Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: 24, paddingHorizontal: 20 }}>
+              Recipe extracted successfully. Save it locally or publish for all users.
+            </Text>
+
+            {/* Publish button */}
+            <TouchableOpacity
+              style={[styles.primaryBtn, { width: '100%', marginBottom: 12 }, publishing && { opacity: 0.6 }]}
+              onPress={async () => {
+                if (publishing) return;
+                setPublishing(true);
+                try {
+                  (importedRecipe as any).source = 'curated';
+                  await saveAIRecipe(importedRecipe);
+                  try { await classifyAndEnrichRecipe(importedRecipe); } catch { /* non-fatal */ }
+                  if (importImageUri) uploadRecipeHeroImage(importedRecipe.id, importImageUri).catch(() => {});
+                  updateRecipeStatus(importedRecipe.id, 'ready').catch(() => {});
+                  Alert.alert('Published!', `"${importedRecipe.name}" is now live for all users.`, [
+                    { text: 'View Recipe', onPress: () => router.replace({ pathname: '/screens/RecipeOverviewScreen', params: { recipeId: importedRecipe.id, quantityTier: '2-3 servings' } }) },
+                  ]);
+                } catch (e) {
+                  Alert.alert('Publish Failed', 'Could not publish. The recipe is saved locally.');
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+              disabled={publishing}
+              activeOpacity={0.85}
+            >
+              {publishing ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={styles.primaryBtnText}>Publish for Everyone</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Save locally button */}
+            <TouchableOpacity
+              style={{ width: '100%', backgroundColor: GLASS, borderRadius: 16, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: BORDER_LIGHT }}
+              onPress={() => {
+                Alert.alert('Saved!', `"${importedRecipe.name}" is saved to your recipes.`, [
+                  { text: 'View Recipe', onPress: () => router.replace({ pathname: '/screens/RecipeOverviewScreen', params: { recipeId: importedRecipe.id, quantityTier: '2-3 servings' } }) },
+                ]);
+              }}
+              disabled={publishing}
+              activeOpacity={0.85}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>Save Locally Only</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        )}
 
         {/* Generation progress screen */}
         {generating && (
@@ -991,7 +1494,7 @@ export default function AIRecipeBuilderScreen() {
         )}
 
         <ScrollView
-          style={[styles.scroll, generating && { display: 'none' }]}
+          style={[styles.scroll, (generating || screenMode !== 'builder') && { display: 'none' }]}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -1625,4 +2128,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+
+  // Mode selection cards
+  modeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+    gap: 14,
+  },
+  modeCardEmoji: { fontSize: 32 },
+  modeCardTextBlock: { flex: 1 },
+  modeCardTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginBottom: 3 },
+  modeCardDesc: { fontSize: 12, color: 'rgba(255,255,255,0.50)', lineHeight: 17 },
+  modeCardArrow: { fontSize: 28, color: 'rgba(255,255,255,0.30)', fontWeight: '300' },
 });

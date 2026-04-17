@@ -10,7 +10,9 @@
 
 import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  Modal,
   Platform,
   ScrollView,
   Share,
@@ -48,6 +50,85 @@ export default function GroceryListScreen() {
   const [addName, setAddName] = useState('');
   const [addQty, setAddQty] = useState('');
 
+  // Smart Summary + ingredient info modals
+  const [summaryVisible, setSummaryVisible] = useState(false);
+  const [summaryText, setSummaryText] = useState('');
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false);
+  const [infoText, setInfoText] = useState('');
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoItemName, setInfoItemName] = useState('');
+
+  const handleSmartSummary = async () => {
+    if (items.length === 0) return;
+    setSummaryVisible(true);
+    setSummaryLoading(true);
+    setSummaryText('');
+    const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+    if (!apiKey) { setSummaryText('AI is not configured.'); setSummaryLoading(false); return; }
+    try {
+      const toBuy = items.filter((i) => !i.checked).map((i) => `${i.name} (${i.quantity})`).join(', ');
+      const done = items.filter((i) => i.checked).map((i) => `${i.name} (${i.quantity})`).join(', ');
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          messages: [{ role: 'user', content: `You are a brutally honest fitness shopping advisor. Analyze this grocery list using the Protein Source Quality framework. Be direct — call out bad choices.
+
+PROTEIN QUALITY TIERS (cal per 25g protein):
+- S tier: Whey ~120, egg whites ~120, chicken breast ~130, lean fish ~130, Greek yogurt ~180
+- A tier: Tofu/tempeh ~250, low-fat paneer ~180, chicken thigh ~200-250
+- B tier: Whole eggs ~280, skimmed milk ~250
+- C/D tier: Legumes/nuts/seeds 400-900 cal (good for fiber, bad as primary protein)
+- F tier: Junk/processed food with zero protein value
+
+To buy: ${toBuy || 'nothing'}
+Already bought: ${done || 'nothing'}
+
+Give a shopping report card (use emojis):
+1. Protein Score — classify each protein item by tier (S/A/B/C/D/F). Are they buying S/A tier sources?
+2. Smart Picks — 2-3 best items on their list for fitness goals, with WHY
+3. Red Flags — any junk food, processed items, or calorie-inefficient choices? Call them out.
+4. Missing — 2-3 specific S/A tier items to add to the list
+5. Budget tip — how to get more protein per dollar from their current list
+
+Keep it under 250 words. Be specific to THEIR items.` }],
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSummaryText(data.content?.[0]?.text || 'Could not generate summary.');
+      } else {
+        const errBody = await res.text().catch(() => '');
+        console.error('[SpiceStrong] Smart Summary error:', res.status, errBody);
+        setSummaryText('Could not generate summary. Please try again.');
+      }
+    } catch (err) {
+      console.error('[SpiceStrong] Smart Summary failed:', err);
+      setSummaryText('Could not connect. Check your internet and try again.');
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
+  const handleIngredientInfo = async (name: string) => {
+    setInfoItemName(name);
+    setInfoVisible(true);
+    setInfoLoading(true);
+    setInfoText('');
+    try {
+      const { getIngredientInfo } = require('../../services/ingredientInfoService');
+      const text = await getIngredientInfo(name);
+      setInfoText(text);
+    } catch {
+      setInfoText('Could not load info. Please try again.');
+    } finally {
+      setInfoLoading(false);
+    }
+  };
+
   const loadItems = useCallback(async () => {
     setItems(await getGroceryList());
   }, []);
@@ -64,6 +145,10 @@ export default function GroceryListScreen() {
       item.name,
       `${item.quantity}${item.fromRecipe ? `\nFrom: ${item.fromRecipe}` : ''}`,
       [
+        {
+          text: '💡 Learn About It',
+          onPress: () => handleIngredientInfo(item.name),
+        },
         {
           text: '📦 Move to Pantry',
           onPress: async () => {
@@ -139,9 +224,14 @@ export default function GroceryListScreen() {
           <Text style={styles.headerTitle}>Grocery List</Text>
           <Text style={styles.headerSub}>{uncheckedItems.length} to buy · {checkedItems.length} done</Text>
         </View>
-        <TouchableOpacity style={styles.shareBtn} onPress={handleShare} activeOpacity={0.8}>
-          <Text style={styles.shareBtnText}>📤 Share</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity style={styles.shareBtn} onPress={() => router.push({ pathname: '/screens/ScanFridgeScreen', params: { mode: 'list' } })} activeOpacity={0.8}>
+            <Text style={styles.shareBtnText}>📸 Scan</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.shareBtn} onPress={handleShare} activeOpacity={0.8}>
+            <Text style={styles.shareBtnText}>📤 Share</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Quick add — at top */}
@@ -170,6 +260,18 @@ export default function GroceryListScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Smart Summary button */}
+      {items.length > 0 && (
+        <TouchableOpacity style={styles.smartSummaryBtn} onPress={handleSmartSummary} activeOpacity={0.8}>
+          <Text style={styles.smartSummaryEmoji}>🧠</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.smartSummaryTitle}>Nutrition IQ</Text>
+            <Text style={styles.smartSummarySub}>Tap for a health check of your shopping list</Text>
+          </View>
+          <Text style={styles.smartSummaryArrow}>›</Text>
+        </TouchableOpacity>
+      )}
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
@@ -300,6 +402,55 @@ export default function GroceryListScreen() {
           <Text style={styles.orderBtnText}>🛍 Order</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Smart Summary Modal */}
+      <Modal visible={summaryVisible} transparent animationType="slide" onRequestClose={() => setSummaryVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🧠 Nutrition IQ</Text>
+              <TouchableOpacity onPress={() => setSummaryVisible(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {summaryLoading ? (
+              <View style={styles.modalLoading}>
+                <ActivityIndicator color={GREEN} size="large" />
+                <Text style={styles.modalLoadingText}>Analyzing your shopping list...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalBody}>{summaryText}</Text>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Ingredient Info Modal */}
+      <Modal visible={infoVisible} transparent animationType="slide" onRequestClose={() => setInfoVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>💡 {infoItemName}</Text>
+              <TouchableOpacity onPress={() => setInfoVisible(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {infoLoading ? (
+              <View style={styles.modalLoading}>
+                <ActivityIndicator color={GREEN} size="large" />
+                <Text style={styles.modalLoadingText}>Looking up {infoItemName}...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.modalBody}>{infoText}</Text>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -490,4 +641,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addBtnText: { color: '#FFFFFF', fontSize: 22, fontWeight: '700' },
+
+  // Smart Summary button
+  smartSummaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    backgroundColor: 'rgba(34,197,94,0.10)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(34,197,94,0.25)',
+    gap: 12,
+  },
+  smartSummaryEmoji: { fontSize: 28 },
+  smartSummaryTitle: { fontSize: 15, fontWeight: '800', color: GREEN },
+  smartSummarySub: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 1 },
+  smartSummaryArrow: { fontSize: 24, color: 'rgba(34,197,94,0.50)', fontWeight: '300' },
+
+  // Modals
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#1A1A1A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '75%',
+    paddingBottom: 40,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
+  modalClose: { fontSize: 18, color: 'rgba(255,255,255,0.50)', fontWeight: '600' },
+  modalLoading: { alignItems: 'center', paddingVertical: 50, gap: 16 },
+  modalLoadingText: { fontSize: 14, color: 'rgba(255,255,255,0.45)' },
+  modalScroll: { paddingHorizontal: 20, paddingTop: 16 },
+  modalBody: { fontSize: 15, color: 'rgba(255,255,255,0.85)', lineHeight: 24 },
 });

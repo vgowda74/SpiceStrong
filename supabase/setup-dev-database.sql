@@ -218,6 +218,19 @@ CREATE POLICY "Delete meal plan" ON meal_plan FOR DELETE USING (true);
 -- ============================================================
 -- 8. STORAGE BUCKET
 -- ============================================================
+-- INGREDIENT INFO CACHE (shared across all users)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ingredient_info (
+  name TEXT PRIMARY KEY,
+  info_text TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+ALTER TABLE ingredient_info ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anyone can read ingredient info" ON ingredient_info FOR SELECT USING (true);
+CREATE POLICY "Anyone can insert ingredient info" ON ingredient_info FOR INSERT WITH CHECK (true);
+CREATE POLICY "Anyone can update ingredient info" ON ingredient_info FOR UPDATE USING (true);
+
+-- ============================================================
 -- Create this manually in Supabase Dashboard > Storage:
 -- Bucket name: recipe-images
 -- Public: Yes

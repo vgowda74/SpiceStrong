@@ -359,7 +359,12 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
             .or(`source.eq.curated,device_id.eq.${deviceId}`)
             .order('created_at', { ascending: true });
 
-          if (error || !data) return null;
+          if (error || !data) {
+            console.error(`[SpiceStrong] Supabase fetch FAILED for ${proteinId}:`, error?.message || 'no data');
+            return null;
+          }
+          console.log(`[SpiceStrong] Supabase fetch OK for ${proteinId}: ${data.length} recipes`);
+          data.forEach((r: any) => console.log(`  [recipe] ${r.name} | source=${r.source}`));
 
           const supabaseRecipes = (data as SupabaseRecipeRow[]).map(mapSupabaseRowToRecipe);
 
@@ -533,8 +538,9 @@ async function syncRecipeToSupabase(
     meal_type: recipe.mealType ?? null,
     ingredients: recipe.ingredients,
     steps: recipe.steps,
-    source: recipe.source === 'user' ? 'user' : 'ai' as const,
+    source: recipe.source === 'curated' ? 'curated' : (recipe.source === 'user' ? 'user' : 'ai'),
     is_active: true,
+    is_published: recipe.source === 'curated',
     is_pro: false,
     // DB CHECK constraint only allows 'building' or 'ready'
     status: (recipe.status === 'building') ? 'building' : 'ready',

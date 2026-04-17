@@ -2,7 +2,7 @@
   "expo": {
     "name": "SpiceStrong",
     "slug": "SpiceStrong",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "spicestrong",
@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.spicestrong.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition to let you describe recipes by voice in the SpiceBuilder."
       }
     },
     "android": {

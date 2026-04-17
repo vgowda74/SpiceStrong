@@ -542,7 +542,7 @@ Return ONLY this JSON:
     "2-3 servings": [{"name": "Ingredient", "quantity": "500g"}],
     "4-6 servings": [{"name": "Ingredient", "quantity": "1kg"}]
   },
-  "steps": [{"title": "Step", "description": "Details", "emoji": "🔥", "timerMinutes": 5}],
+  "steps": [{"title": "Step", "description": "Details with quantities for each ingredient used", "emoji": "🔥", "timerMinutes": 5, "ingredientsUsed": "comma-separated ingredient names ONLY from this step", "imagePrompt": "Short literal description of ONLY what is physically visible at this moment — max 15 words, no recipe name"}],
   "chefTip": "One line tip"
 }
 
@@ -550,7 +550,10 @@ CRITICAL RULES:
 - primaryProtein MUST be one of: chicken, fish, lamb, goat, pork, beef, prawns, eggs, paneer, tofu, soy, beans, milk, whey
 - If the dish has multiple proteins, pick the DOMINANT one
 - If no clear protein is visible, use "eggs" as default
-- Max 15 ingredients, 4-8 steps, precise quantities, 4-6 tier = 2x of 2-3 tier`,
+- Max 15 ingredients, 4-8 steps, precise quantities, 4-6 tier = 2x of 2-3 tier
+- ingredientsUsed for each step must ONLY list ingredients actually used in THAT step — never include ingredients from other steps
+- Every ingredient from the ingredient list must appear in exactly one step's ingredientsUsed
+- Step description must mention each ingredient in ingredientsUsed with its quantity`,
           messages: [{
             role: 'user',
             content: [
@@ -655,6 +658,9 @@ CRITICAL RULES:
 5. Description must mention the protein name and be 1-2 sentences
 6. Each step must have a clear title and detailed description with quantities
 7. chefTip must mention protein per serving and calories
+8. Each step MUST have "ingredientsUsed" listing ONLY ingredients used in THAT step (not other steps)
+9. Every ingredient must appear in exactly one step's ingredientsUsed
+10. Each step MUST have "imagePrompt": a short (max 15 words) literal description of what is physically visible at that cooking moment — no recipe name, no ingredients from other steps
 
 Return the FIXED recipe as the same JSON format. If already compliant, return as-is.
 Return ONLY the JSON, no explanation.`,
@@ -1191,11 +1197,11 @@ Return ONLY the JSON, no explanation.`,
                 ))}
               </View>
 
-              {/* Disclaimer */}
+              {/* Info note */}
               <View style={styles.disclaimer}>
-                <Ionicons name="shield-checkmark-outline" size={16} color="rgba(255,255,255,0.5)" />
+                <Ionicons name="bookmark-outline" size={16} color="rgba(255,255,255,0.5)" />
                 <Text style={styles.disclaimerText}>
-                  Your recipe will be reviewed for quality and safety before publishing.
+                  Your recipe will be saved to your device for personal use.
                 </Text>
               </View>
             </>
@@ -1205,32 +1211,18 @@ Return ONLY the JSON, no explanation.`,
         {/* Bottom Navigation */}
         <View style={styles.bottomBar}>
           {currentStep === 'review' ? (
-            <View style={styles.reviewBtnRow}>
-              <TouchableOpacity
-                style={[styles.saveDraftBtn, submitting && styles.submitBtnDisabled]}
-                onPress={() => handleSubmit(false)}
-                disabled={submitting}
-                activeOpacity={0.85}
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#E85D26" />
-                ) : (
-                  <Text style={styles.saveDraftBtnText}>💾 Save</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.publishBtn, submitting && styles.submitBtnDisabled]}
-                onPress={() => handleSubmit(true)}
-                disabled={submitting}
-                activeOpacity={0.85}
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text style={styles.publishBtnText}>🚀 Publish</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={[styles.nextBtn, submitting && styles.submitBtnDisabled]}
+              onPress={() => handleSubmit(false)}
+              disabled={submitting}
+              activeOpacity={0.85}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={styles.nextBtnText}>Save Recipe</Text>
+              )}
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity style={styles.nextBtn} onPress={goNext} activeOpacity={0.85}>
               <Text style={styles.nextBtnText}>Continue</Text>

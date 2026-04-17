@@ -494,7 +494,7 @@ export default function RecipeListScreen() {
       },
     ];
 
-    // Delete — only for own recipes that are NOT published
+    // Delete — own recipes (non-published) OR any recipe in dev mode
     if (isOwn && !isApproved) {
       options.push({
         text: '🗑 Delete',
@@ -512,6 +512,37 @@ export default function RecipeListScreen() {
                   await AsyncStorage.setItem('spicestrong_deleted_recipes',
                     JSON.stringify(Array.from(deletedIdsRef.current)));
                 } catch {}
+              },
+            },
+          ]);
+        },
+      });
+    }
+
+    // Dev mode: delete any recipe including curated (removes from Supabase too)
+    if (__DEV__ && isCurated) {
+      options.push({
+        text: '💀 Delete from DB (Dev)',
+        style: 'destructive',
+        onPress: () => {
+          Alert.alert('Delete from Production DB', `Permanently delete "${item.name}" from Supabase?\n\nThis cannot be undone.`, [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete Forever',
+              style: 'destructive',
+              onPress: async () => {
+                try {
+                  const { supabase } = require('../../services/supabase');
+                  await supabase.from('recipe_images').delete().eq('recipe_id', item.id);
+                  await supabase.from('recipes').delete().eq('id', item.id);
+                  deletedIdsRef.current.add(item.id);
+                  setRecipes((prev) => prev.filter((r) => r.id !== item.id));
+                  await AsyncStorage.setItem('spicestrong_deleted_recipes',
+                    JSON.stringify(Array.from(deletedIdsRef.current)));
+                  Alert.alert('Deleted', `"${item.name}" removed from database.`);
+                } catch (e: any) {
+                  Alert.alert('Error', e?.message || 'Could not delete from Supabase.');
+                }
               },
             },
           ]);
@@ -1212,18 +1243,18 @@ const styles = StyleSheet.create({
   tabPillTextActive: { color: '#FFFFFF', fontWeight: '700' },
   pantryCheckRow: {
     marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 4,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(34,120,60,0.25)',
+    marginTop: 10,
+    marginBottom: 6,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(34,180,70,0.35)',
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: 'rgba(34,100,50,0.35)',
+    backgroundColor: 'rgba(34,110,50,0.55)',
   },
   pantryCheckRowOn: {
-    backgroundColor: 'rgba(34,130,60,0.50)',
-    borderColor: 'rgba(34,200,80,0.60)',
+    backgroundColor: 'rgba(34,140,60,0.70)',
+    borderColor: 'rgba(80,220,100,0.70)',
   },
   pantryBgText: {
     position: 'absolute',
@@ -1238,33 +1269,35 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     includeFontPadding: false,
     paddingTop: 4,
+    opacity: 0.25,
   },
   pantryCheckContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 16,
     zIndex: 1,
+    backgroundColor: 'rgba(10,40,20,0.45)',
   },
   pantryCheckTextBlock: { flex: 1 },
   pantryCheckBox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.50)',
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 2.5,
+    borderColor: 'rgba(255,255,255,0.60)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   pantryCheckBoxOn: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#FFFFFF',
+    backgroundColor: '#4ADE80',
+    borderColor: '#4ADE80',
   },
-  pantryCheckMark: { color: '#22784C', fontSize: 13, fontWeight: '800' },
-  pantryCheckLabel: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  pantryCheckMark: { color: '#0A2814', fontSize: 14, fontWeight: '900' },
+  pantryCheckLabel: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
   pantryCheckLabelOn: { color: '#FFFFFF' },
-  pantryItemCount: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.60)', marginTop: 1 },
+  pantryItemCount: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.70)', marginTop: 2 },
 
   // Advanced filter icon button
   filterIconBtn: {

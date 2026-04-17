@@ -166,6 +166,129 @@ export async function identifyIngredients(
 }
 
 // ═══════════════════════════════════════
+// 2B. RECEIPT / LIST SCANNING
+// ═══════════════════════════════════════
+
+/**
+ * Scan a receipt or handwritten grocery list image and extract items.
+ * mode: 'receipt' = grocery receipt → items go to pantry
+ *       'list' = handwritten/screenshot shopping list → items go to grocery list
+ */
+export async function scanReceiptOrList(
+  base64Images: { base64: string; uri: string }[],
+  mode: 'receipt' | 'list',
+): Promise<ScannedIngredient[]> {
+  if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
+  if (base64Images.length === 0) throw new Error('No photos provided');
+
+  const images = prepareImagesFromBase64(base64Images);
+  if (images.length === 0) throw new Error('Could not process any photos');
+
+  const systemPrompt = mode === 'receipt'
+    ? `You are a grocery receipt reader for a fitness cooking app. Extract FOOD ITEMS ONLY from the receipt photo.
+
+RULES:
+- Only include food/drink items — skip non-food items (bags, cleaning supplies, etc.)
+- Normalize names: "BNLS CHKN BRST" → "chicken breast", "ORG EGGS 12CT" → "eggs"
+- Extract quantity from the receipt if visible (e.g. "2x", "1kg", "500g")
+- If quantity isn't clear, use "1" as default
+- Categorize each item: PROTEIN, VEGETABLE, FRUIT, DAIRY, GRAIN, CONDIMENT, SPICE, or PANTRY
+- State should be "raw" unless item is clearly frozen, canned, or cooked
+
+Return ONLY this JSON:
+{
+  "ingredients": [
+    {"name": "chicken breast", "category": "PROTEIN", "state": "raw", "quantity": "500g", "confidence": "high"}
+  ]
+}
+
+If receipt is unreadable, return: {"ingredients": [], "error": "Could not read receipt"}`
+    : `You are a shopping list reader for a fitness cooking app. Extract items from this handwritten list, printed list, SMS screenshot, or note.
+
+RULES:
+- Extract every food item mentioned
+- Normalize names to common English (e.g. "tom" → "tomato", "chx" → "chicken")
+- Extract quantity if written (e.g. "2kg rice", "6 eggs")
+- If quantity isn't written, use "1" as default
+- Categorize each item: PROTEIN, VEGETABLE, FRUIT, DAIRY, GRAIN, CONDIMENT, SPICE, or PANTRY
+
+Return ONLY this JSON:
+{
+  "ingredients": [
+    {"name": "chicken breast", "category": "PROTEIN", "state": "raw", "quantity": "1kg", "confidence": "high"}
+  ]
+}
+
+If the image doesn't contain a list, return: {"ingredients": [], "error": "Could not read list"}`;
+
+  const content: any[] = [];
+  for (const img of images) {
+    content.push({
+      type: 'image',
+      source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+    });
+  }
+  content.push({ type: 'text', text: mode === 'receipt' ? 'Read this grocery receipt and extract all food items.' : 'Read this shopping list and extract all items.' });
+
+  // Retry up to 2 times on 529 overloaded errors
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content }],
+      }),
+    });
+    if (res.status !== 529 || attempt === 2) break;
+    console.log(`[SpiceStrong] ${mode} scan overloaded, retrying in ${(attempt + 1) * 3}s...`);
+    await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+  }
+
+  if (!res!.ok) {
+    const errBody = await res!.text().catch(() => '');
+    console.error(`[SpiceStrong] ${mode} scan API error ${res!.status}:`, errBody);
+    let errMsg = res!.status === 529 ? 'Server is busy, please try again in a moment.' : `API returned ${res!.status}`;
+    try { const errJson = JSON.parse(errBody); errMsg = errJson.error?.message || errMsg; } catch {}
+    throw new Error(errMsg);
+  }
+
+  const data = await res!.json();
+  const text = data.content?.[0]?.text || '';
+  console.log(`[SpiceStrong] ${mode} scan response:`, text);
+
+  const jsonMatch = text.match(/\{[\s\S]*?"ingredients"[\s\S]*?\]/);
+  if (!jsonMatch) throw new Error('Could not parse items from response');
+
+  let depth = 0;
+  let endIdx = 0;
+  const start = text.indexOf(jsonMatch[0]);
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    if (text[i] === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
+  }
+
+  const parsed = JSON.parse(text.slice(start, endIdx));
+  if (parsed.error) throw new Error(parsed.error);
+
+  return (parsed.ingredients || []).map((ing: any) => ({
+    name: String(ing.name ?? '').toLowerCase().trim(),
+    category: ing.category ?? 'PANTRY',
+    state: ing.state ?? 'raw',
+    quantity: String(ing.quantity ?? '1'),
+    confidence: ing.confidence ?? 'low',
+  }));
+}
+
+// ═══════════════════════════════════════
 // 3. SMART HIGH-PROTEIN SUBSTITUTIONS
 // ═══════════════════════════════════════
 
