@@ -27,6 +27,8 @@ import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt
 import { analyzeNutrition } from '../../services/nutritionService';
 import { getDietaryRestrictions } from '../../services/dietaryService';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
+import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
+import PaywallModal from '../../components/PaywallModal';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -613,6 +615,8 @@ export default function AIRecipeBuilderScreen() {
   const [publishing, setPublishing] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [availableProteins, setAvailableProteins] = useState<{ id: string; name: string; emoji: string }[]>([]);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
 
   const isVegProtein = VEG_PROTEIN_IDS.includes(paramProteinId ?? '');
   const isDrinkProtein = DRINK_PROTEIN_IDS.includes(paramProteinId ?? '');
@@ -813,6 +817,10 @@ export default function AIRecipeBuilderScreen() {
 
   const handleImportFromPhoto = async () => {
     if (!importImageBase64 || !ANTHROPIC_KEY) return;
+    // Freemium limit check
+    const limitResult = await checkLimit('ai_recipe');
+    if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
+
     setImporting(true);
     setImportStep('Analyzing your photo...');
 
@@ -1042,10 +1050,8 @@ Return ONLY the JSON, no explanation.`,
         }
       } catch (imgErr) {
         console.warn('[SpiceStrong] Image generation failed (non-blocking):', imgErr);
-        // Fall back to the user's photo as hero
-        const fallbackImages: RecipeImageResults = { dishImage: importImageUri, ingredientImages: {}, stepImages: {} };
-        await saveRecipeImages(saved.id, fallbackImages);
-        if (importImageUri) uploadRecipeHeroImage(saved.id, importImageUri).catch(() => {});
+        // Save with no images — don't use uploaded photo as hero
+        await saveRecipeImages(saved.id, { dishImage: null, ingredientImages: {}, stepImages: {} });
       }
 
       // Save locally
@@ -1058,6 +1064,7 @@ Return ONLY the JSON, no explanation.`,
         const totalCount = countStr ? parseInt(countStr, 10) : 0;
         await AsyncStorage.setItem(GLOBAL_AI_COUNT_KEY, String(totalCount + 1));
       } catch { /* non-critical */ }
+      recordUsage('ai_recipe');
 
       // Show the review screen with Save/Publish options
       setImportedRecipe(saved);
@@ -1072,6 +1079,10 @@ Return ONLY the JSON, no explanation.`,
   };
 
   const handleGenerate = async () => {
+    // Freemium limit check
+    const limitResult = await checkLimit('ai_recipe');
+    if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
+
     if (!ANTHROPIC_KEY) {
       Alert.alert('', 'AI is not configured. Set EXPO_PUBLIC_ANTHROPIC_KEY.');
       return;
@@ -1119,13 +1130,6 @@ Return ONLY the JSON, no explanation.`,
     try {
       // Save placeholder to AsyncStorage + Supabase (via recipeService)
       await saveAIRecipe(placeholder);
-
-      // Increment global AI recipe counter
-      try {
-        const countStr = await AsyncStorage.getItem(GLOBAL_AI_COUNT_KEY);
-        const totalCount = countStr ? parseInt(countStr, 10) : 0;
-        await AsyncStorage.setItem(GLOBAL_AI_COUNT_KEY, String(totalCount + 1));
-      } catch { /* non-critical */ }
     } catch (e) {
       console.error(e);
       Alert.alert('', 'Could not save recipe, try again');
@@ -1180,70 +1184,47 @@ Return ONLY the JSON, no explanation.`,
         referenceImageBase64,
       );
 
-      // Step 2: Save recipe — mark as curated so it's visible to all users
-      setGenStep('Crafting your recipe...');
+      // Step 2: Save recipe and show immediately — don't wait for images
+      setGenStep('Saving your recipe...');
       saved = await saveRecipeFromAI(result, placeholderId);
       (saved as any).source = 'curated';
-      const syncResult = await saveAIRecipe(saved);
-
-      if (syncResult.duplicate) {
-        await saveAIRecipe(saved, true);
-      }
-
-      // Classify (non-fatal)
-      try {
-        await classifyAndEnrichRecipe(saved);
-      } catch (classErr) {
-        console.warn('[SpiceStrong] Classification failed (non-fatal):', classErr);
-      }
-
-      // Step 3: Generate images (hero + steps)
-      setGenStep('Creating hero image...');
-      let heroImage: string | null = null;
-      if (referenceImageUri) {
-        heroImage = referenceImageUri;
-      } else {
-        // Generate ONLY hero image (fast — ~3 seconds with flux/dev)
-        const { generateAllRecipeImages: genImages } = require('../../services/imageGenerationService');
-        const imgResult = await genImages({
-          id: saved.id,
-          name: String(result.name ?? ''),
-          ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
-          steps: [], // empty = hero only, no step images
-        });
-        heroImage = imgResult.dishImage;
-      }
-      const imageResults: RecipeImageResults = { dishImage: heroImage, ingredientImages: {}, stepImages: {} };
-      await saveRecipeImages(saved.id, imageResults);
-
-      if (heroImage) {
-        uploadRecipeHeroImage(saved.id, heroImage).catch(() => {});
-      }
-
-      // Step 4: Finalize
-      setGenStep('Almost done...');
       saved.status = 'ready';
-      await saveAIRecipe(saved);
+      const syncResult = await saveAIRecipe(saved);
+      if (syncResult.duplicate) await saveAIRecipe(saved, true);
       updateRecipeStatus(saved.id, 'ready').catch(() => {});
 
-      // Step 5: Generate step images in BACKGROUND (non-blocking)
+      // Increment count
+      try {
+        const countStr = await AsyncStorage.getItem(GLOBAL_AI_COUNT_KEY);
+        const totalCount = countStr ? parseInt(countStr, 10) : 0;
+        await AsyncStorage.setItem(GLOBAL_AI_COUNT_KEY, String(totalCount + 1));
+      } catch { /* non-critical */ }
+      recordUsage('ai_recipe');
+
+      // Show recipe immediately — user can view it while images generate
+      setGenRecipeId(saved.id);
+      setGenStep('Your recipe is ready! Generating images...');
+
+      // All remaining work in BACKGROUND (non-blocking)
+      const bgSavedId = saved.id;
+      const bgName = String(result.name ?? '');
+      const bgIngredients = result.ingredients as Record<string, { name: string; quantity?: string }[]>;
+      const bgSteps = (result.steps as { title?: string; description?: string }[]) ?? [];
       (async () => {
         try {
-          const { generateAllRecipeImages: genStepImages, saveRecipeImages: saveStepImgs } = require('../../services/imageGenerationService');
-          const stepImgResult = await genStepImages({
-            id: saved.id,
-            name: String(result.name ?? ''),
-            ingredients: result.ingredients as Record<string, { name: string; quantity?: string }[]>,
-            steps: (result.steps as { title?: string; description?: string }[]) ?? [],
-          });
-          await saveStepImgs(saved.id, { dishImage: heroImage, ingredientImages: {}, stepImages: stepImgResult.stepImages });
+          // Classify (non-blocking)
+          classifyAndEnrichRecipe(saved).catch(() => {});
+
+          // Generate hero + step images in parallel
+          const { generateAllRecipeImages: genImages, saveRecipeImages: saveImgs } = require('../../services/imageGenerationService');
+          const imgResult = await genImages({ id: bgSavedId, name: bgName, ingredients: bgIngredients, steps: bgSteps });
+          await saveImgs(bgSavedId, imgResult);
+          if (imgResult.dishImage) uploadRecipeHeroImage(bgSavedId, imgResult.dishImage).catch(() => {});
+          console.log(`[SpiceStrong] Background images done for: ${bgName}`);
         } catch (e) {
-          console.warn('[SpiceStrong] Background step image generation failed:', e);
+          console.warn('[SpiceStrong] Background image generation failed:', e);
         }
       })();
-
-      setGenRecipeId(saved.id);
-      setGenStep('Your recipe is ready!');
 
     } catch (err) {
       console.error('[SpiceStrong] Recipe generation failed:', err);
@@ -1721,6 +1702,7 @@ Return ONLY the JSON, no explanation.`,
           </View>
         </View>
       </Modal>
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
     </ImageBackground>
   );
 }

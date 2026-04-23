@@ -10,3 +10,6 @@ node_modules/
 
 expo-env.d.ts
 # @end expo-cliandroid/
+
+# Google Play service account key
+google-service-account.json

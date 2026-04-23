@@ -124,12 +124,60 @@ export default function ScanFridgeScreen() {
       const results = scanMode === 'fridge'
         ? await identifyIngredients(photoData)
         : await scanReceiptOrList(photoData, scanMode);
+
+      // Receipt/list mode: skip review, go straight to confirmation
+      if (scanMode === 'receipt' || scanMode === 'list') {
+        if (results.length === 0) {
+          Alert.alert('No Items Found', 'Could not identify any items from the image. Try a clearer photo.');
+          setStep('capture');
+          return;
+        }
+        const itemList = results.slice(0, 8).map((i) => `• ${i.name} (${i.quantity})`).join('\n');
+        const moreText = results.length > 8 ? `\n...and ${results.length - 8} more` : '';
+        const target = scanMode === 'receipt' ? 'pantry' : 'shopping list';
+        Alert.alert(
+          `Found ${results.length} Items`,
+          `These items will be added to your ${target}:\n\n${itemList}${moreText}`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => setStep('capture') },
+            {
+              text: `Add ${results.length} Items`,
+              onPress: async () => {
+                if (scanMode === 'receipt') {
+                  await addPantryItemsBatch(results.map((i) => ({
+                    name: i.name,
+                    category: i.category,
+                    quantity: i.quantity,
+                    state: i.state,
+                  })));
+                } else {
+                  for (const ing of results) {
+                    await addToGroceryList({ name: ing.name, quantity: ing.quantity });
+                  }
+                }
+                Alert.alert('Done!', `${results.length} item${results.length !== 1 ? 's' : ''} added to your ${target}.`, [
+                  { text: 'OK', onPress: () => router.back() },
+                ]);
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      // Fridge mode: show review screen as before
       setIngredients(results);
       setStep('review');
     } catch (err: any) {
       console.error(`[SpiceStrong] ${scanMode} scan error:`, err);
-      Alert.alert('Scan Failed', err?.message ?? 'Could not read the image.');
-      setStep('capture');
+      const friendly = scanMode === 'receipt'
+        ? 'We had trouble reading that receipt. Try taking a clearer photo with good lighting and make sure the text is visible.'
+        : scanMode === 'list'
+        ? 'We had trouble reading that list. Try holding the camera steady, make sure the writing is visible, and use good lighting.'
+        : 'We had trouble identifying the items. Try a clearer photo with good lighting.';
+      Alert.alert('Let\'s Try Again', friendly, [
+        { text: 'OK', onPress: () => setStep('capture') },
+      ]);
     }
   };
 
@@ -167,24 +215,50 @@ export default function ScanFridgeScreen() {
   // ── Save items ──
   const handleDone = async () => {
     if (scanMode === 'list') {
-      // Add to grocery/shopping list
-      for (const ing of ingredients) {
-        await addToGroceryList({ name: ing.name, quantity: ing.quantity });
-      }
-      Alert.alert('Added!', `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} added to your shopping list.`, [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      // Confirm before adding to shopping list
+      Alert.alert(
+        'Add to Shopping List',
+        `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} will be added to your shopping list.\n\n${ingredients.slice(0, 5).map((i) => `• ${i.name} (${i.quantity})`).join('\n')}${ingredients.length > 5 ? `\n...and ${ingredients.length - 5} more` : ''}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: `Add ${ingredients.length} Items`,
+            onPress: async () => {
+              for (const ing of ingredients) {
+                await addToGroceryList({ name: ing.name, quantity: ing.quantity });
+              }
+              Alert.alert('Added!', `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} added to your shopping list.`, [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            },
+          },
+        ],
+      );
+      return;
     } else if (scanMode === 'receipt') {
-      // Add to pantry
-      await addPantryItemsBatch(ingredients.map((i) => ({
-        name: i.name,
-        category: i.category,
-        quantity: i.quantity,
-        state: i.state,
-      })));
-      Alert.alert('Added!', `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} added to your pantry.`, [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      // Confirm before adding to pantry
+      Alert.alert(
+        'Add to Pantry',
+        `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} will be added to your pantry.\n\n${ingredients.slice(0, 5).map((i) => `• ${i.name} (${i.quantity})`).join('\n')}${ingredients.length > 5 ? `\n...and ${ingredients.length - 5} more` : ''}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: `Add ${ingredients.length} Items`,
+            onPress: async () => {
+              await addPantryItemsBatch(ingredients.map((i) => ({
+                name: i.name,
+                category: i.category,
+                quantity: i.quantity,
+                state: i.state,
+              })));
+              Alert.alert('Added!', `${ingredients.length} item${ingredients.length !== 1 ? 's' : ''} added to your pantry.`, [
+                { text: 'OK', onPress: () => router.back() },
+              ]);
+            },
+          },
+        ],
+      );
+      return;
     } else {
       // Original fridge flow — find recipes
       const pantryItems = DEFAULT_PANTRY_STAPLES.filter((s) => pantryChecked.has(s.name));

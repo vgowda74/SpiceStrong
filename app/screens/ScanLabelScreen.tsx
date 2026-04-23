@@ -31,6 +31,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getDietaryRestrictions } from '../../services/dietaryService';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
+import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
+import PaywallModal from '../../components/PaywallModal';
+import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -90,6 +93,8 @@ export default function ScanLabelScreen() {
   const [barcodeScanned, setBarcodeScanned] = useState(false);
   const [barcodeReady, setBarcodeReady] = useState(false);
   const scanLockRef = useRef(false);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [labelData, setLabelData] = useState<LabelData | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
@@ -99,6 +104,10 @@ export default function ScanLabelScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const pickImage = async (useCamera: boolean) => {
+    // Freemium limit check
+    const limitResult = await checkLimit('scan');
+    if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
+
     const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       allowsEditing: false,
@@ -231,6 +240,7 @@ Rules:
         allergens: parsed.allergens || [],
       };
       setLabelData(label);
+      recordUsage('scan');
 
       // Step 2: Calculate health score
       const score = calculateHealthScore(label);
@@ -291,6 +301,10 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
   // ── Barcode lookup via Edamam Food Database ──
   const handleBarcodeScan = async (barcode: string) => {
     if (scanLockRef.current) return;
+    // Freemium limit check
+    const limitResult = await checkLimit('scan');
+    if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); setBarcodeOpen(false); return; }
+
     scanLockRef.current = true;
     setBarcodeScanned(true);
     // Keep camera visible during lookup — only close on success
@@ -306,12 +320,41 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
 
       let label: LabelData | null = null;
 
+      // ── Check Supabase cache first (instant, free) ──
+      try {
+        const { supabase } = require('../../services/supabase');
+        const { data: cached } = await supabase.from('barcode_cache').select('*').eq('barcode', barcode).maybeSingle();
+        if (cached && cached.product_name) {
+          console.log(`[SpiceStrong] Barcode cache HIT: ${cached.product_name}`);
+          label = {
+            productName: cached.product_name,
+            servingSize: cached.serving_size || '1 serving',
+            calories: cached.calories || 0,
+            proteinG: cached.protein_g || 0,
+            carbsG: cached.carbs_g || 0,
+            fatG: cached.fat_g || 0,
+            saturatedFatG: cached.saturated_fat_g || 0,
+            transFatG: cached.trans_fat_g || 0,
+            fiberG: cached.fiber_g || 0,
+            sugarG: cached.sugar_g || 0,
+            addedSugarG: 0,
+            sodiumMg: cached.sodium_mg || 0,
+            cholesterolMg: cached.cholesterol_mg || 0,
+            ingredients: cached.ingredients || [],
+            additives: cached.additives || [],
+            allergens: cached.allergens || [],
+          };
+        }
+      } catch (e) {
+        console.log('[SpiceStrong] Barcode cache lookup failed (non-blocking):', e);
+      }
+
       // Helper: scale per-100g values to per-serving
       const scale100gToServing = (per100g: number, servingGrams: number) =>
         Math.round((per100g * servingGrams / 100) * 10) / 10;
 
-      // ── Try Edamam Food Database first ──
-      try {
+      // ── Try Edamam Food Database (only if not cached) ──
+      if (!label) try {
         const url = `https://api.edamam.com/api/food-database/v2/parser?app_id=${appId}&app_key=${appKey}&upc=${barcode}`;
         const res = await fetch(url);
         if (res.ok) {
@@ -408,9 +451,37 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
 
       if (!label) throw new Error('not_food');
 
+      // Save to Supabase cache (non-blocking, saves cost for future scans)
+      try {
+        const { supabase } = require('../../services/supabase');
+        supabase.from('barcode_cache').upsert({
+          barcode,
+          product_name: label.productName,
+          serving_size: label.servingSize,
+          calories: label.calories,
+          protein_g: label.proteinG,
+          carbs_g: label.carbsG,
+          fat_g: label.fatG,
+          saturated_fat_g: label.saturatedFatG,
+          trans_fat_g: label.transFatG,
+          fiber_g: label.fiberG,
+          sugar_g: label.sugarG,
+          sodium_mg: label.sodiumMg,
+          cholesterol_mg: label.cholesterolMg,
+          ingredients: label.ingredients,
+          additives: label.additives,
+          allergens: label.allergens,
+          source: 'api',
+        }, { onConflict: 'barcode' }).then(({ error }: any) => {
+          if (error) console.warn('[SpiceStrong] Barcode cache save failed:', error.message);
+          else console.log(`[SpiceStrong] Barcode cached: ${barcode} → ${label!.productName}`);
+        });
+      } catch {}
+
       // Lookup succeeded — close the camera and show results
       setBarcodeOpen(false);
       setLabelData(label);
+      recordUsage('scan');
       const score = calculateHealthScore(label);
       setHealthScore(score);
 
@@ -443,11 +514,13 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
               max_tokens: 300,
               messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
 
-PROTEIN QUALITY TIERS (calories needed for 25g protein):
-- Superior (S): Whey ~120cal, egg whites ~120cal, chicken breast ~130cal, lean fish ~130cal, Greek yogurt ~180cal
-- High-Efficiency (A): Tofu/tempeh ~250cal, low-fat paneer ~180cal, chicken thigh ~200-250cal
-- Moderate (B): Whole eggs ~280cal, skimmed milk ~250cal
-- Low-Efficiency (C/D): Legumes/nuts/seeds 400-900cal for 25g protein — good for fiber/micros but terrible as primary protein
+PROTEIN TIER SYSTEM:
+- S-Tier (Supreme): Highest protein, very low fat/calories. Examples: chicken breast, turkey, tuna in water, whey isolate, egg whites.
+- A-Tier (Excellent): Very high quality, slightly less lean. Examples: lean ground beef 93/7, shrimp, non-fat Greek yogurt, white fish, cottage cheese, tofu.
+- B-Tier (Good): Good protein but more fat or lower density. Examples: whole eggs, salmon, lean pork, lamb, lentils.
+- C-Tier (Average): Protein with significant fats/carbs. Examples: protein bars, ground beef 80/20, beans, cheese.
+- D-Tier (Low): Perceived as protein but primarily fat. Examples: peanut butter, nuts, sausage, bacon.
+- F-Tier (Skip): Low protein, high fat/sugar. Examples: hot dogs, fried chicken, nuggets, processed junk.
 
 PRODUCT: ${label.productName}
 Per serving: ${label.calories} cal, ${label.proteinG}g protein, ${label.carbsG}g carbs, ${label.fatG}g fat, ${label.sugarG}g sugar, ${label.sodiumMg}mg sodium
@@ -635,7 +708,7 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
                 setBarcodeReady(false);
                 setBarcodeOpen(true);
                 // Give camera 2 seconds to focus before accepting scans
-                setTimeout(() => setBarcodeReady(true), 2000);
+                setTimeout(() => setBarcodeReady(true), 4000);
               }} activeOpacity={0.8}>
                 <Text style={styles.galleryBtnText}>📊 Scan Barcode</Text>
               </TouchableOpacity>
@@ -711,26 +784,45 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
 
               {/* Score breakdown */}
               <View style={styles.scoreBreakdown}>
-                <View style={styles.scoreRow}>
-                  <Text style={styles.scoreRowLabel}>💪 Protein Density</Text>
-                  <View style={styles.scoreBarBg}><View style={[styles.scoreBarFill, { width: `${healthScore.proteinScore}%`, backgroundColor: healthScore.proteinScore >= 64 ? GREEN : healthScore.proteinScore >= 40 ? YELLOW : RED }]} /></View>
-                  <Text style={styles.scoreRowVal}>{healthScore.proteinScore}%</Text>
-                </View>
-                <View style={styles.scoreRow}>
-                  <Text style={styles.scoreRowLabel}>🍬 Sugar & Sodium</Text>
-                  <View style={styles.scoreBarBg}><View style={[styles.scoreBarFill, { width: `${healthScore.sugarSodiumScore}%`, backgroundColor: healthScore.sugarSodiumScore >= 60 ? GREEN : healthScore.sugarSodiumScore >= 30 ? YELLOW : RED }]} /></View>
-                  <Text style={styles.scoreRowVal}>{healthScore.sugarSodiumScore}%</Text>
-                </View>
-                <View style={styles.scoreRow}>
-                  <Text style={styles.scoreRowLabel}>🏭 Processing</Text>
-                  <View style={styles.scoreBarBg}><View style={[styles.scoreBarFill, { width: `${healthScore.processingScore}%`, backgroundColor: healthScore.processingScore >= 70 ? GREEN : healthScore.processingScore >= 40 ? YELLOW : RED }]} /></View>
-                  <Text style={styles.scoreRowVal}>{healthScore.processingScore}%</Text>
-                </View>
-                <View style={styles.scoreRow}>
-                  <Text style={styles.scoreRowLabel}>🌿 Clean Ingredients</Text>
-                  <View style={styles.scoreBarBg}><View style={[styles.scoreBarFill, { width: `${healthScore.cleanScore}%`, backgroundColor: healthScore.cleanScore >= 70 ? GREEN : healthScore.cleanScore >= 40 ? YELLOW : RED }]} /></View>
-                  <Text style={styles.scoreRowVal}>{healthScore.cleanScore}%</Text>
-                </View>
+                {[
+                  {
+                    label: '💪 Protein Density',
+                    value: healthScore.proteinScore,
+                    color: healthScore.proteinScore >= 64 ? GREEN : healthScore.proteinScore >= 40 ? YELLOW : RED,
+                    info: 'Measures grams of protein per 100 calories. Higher = more muscle-building fuel per calorie. SpiceStrong standard is 6.4g per 100 cal. S-Tier proteins like chicken breast score 100%.',
+                  },
+                  {
+                    label: '🍬 Sugar & Sodium',
+                    value: healthScore.sugarSodiumScore,
+                    color: healthScore.sugarSodiumScore >= 60 ? GREEN : healthScore.sugarSodiumScore >= 30 ? YELLOW : RED,
+                    info: 'Penalizes excess sugar (>12g/serving) and sodium (>800mg/serving). WHO recommends <25g sugar and <2000mg sodium daily. High scores mean low sugar and sodium — ideal for fitness.',
+                  },
+                  {
+                    label: '🏭 Processing',
+                    value: healthScore.processingScore,
+                    color: healthScore.processingScore >= 70 ? GREEN : healthScore.processingScore >= 40 ? YELLOW : RED,
+                    info: 'Rates how many artificial additives are in the product. Fewer additives = higher score. Products with 0 additives and a clean ingredient list score 100%. More than 5 additives drops to 10%.',
+                  },
+                  {
+                    label: '🌿 Clean Ingredients',
+                    value: healthScore.cleanScore,
+                    color: healthScore.cleanScore >= 70 ? GREEN : healthScore.cleanScore >= 40 ? YELLOW : RED,
+                    info: 'Scans for harmful ingredients that sabotage fitness goals: seed oils (canola, soybean), artificial sweeteners (sucralose, aspartame), artificial colors (Red 40), preservatives (BHA, BHT), and high-fructose corn syrup. Each harmful ingredient lowers the score.',
+                  },
+                ].map((row) => (
+                  <TouchableOpacity
+                    key={row.label}
+                    style={styles.scoreRow}
+                    onPress={() => Alert.alert(row.label.replace(/^.\s/, ''), row.info)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.scoreRowLabel}>{row.label}</Text>
+                    <View style={styles.scoreBarBg}>
+                      <View style={[styles.scoreBarFill, { width: `${row.value}%`, backgroundColor: row.color }]} />
+                    </View>
+                    <Text style={styles.scoreRowVal}>{row.value}%</Text>
+                  </TouchableOpacity>
+                ))}
               </View>
               {healthScore.cleanFlags.length > 0 && (
                 <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}>
@@ -751,6 +843,30 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
                   <Text style={styles.proteinCardTitle}>{passes ? '✅' : '❌'} SpiceStrong Standard</Text>
                   <Text style={styles.proteinCardValue}>{density.toFixed(1)}g protein per 100 cal</Text>
                   <Text style={styles.proteinCardReq}>{passes ? 'Meets the 6.4g/100cal requirement' : `Below 6.4g/100cal requirement — needs ${((6.4 - density) * labelData.calories / 100).toFixed(0)}g more protein`}</Text>
+                </View>
+              );
+            })()}
+
+            {/* Protein Tier Badge */}
+            {(() => {
+              const tier = getProductTier(labelData.productName, labelData.proteinG, labelData.calories);
+              const calPer25g = labelData.proteinG > 0 ? Math.round((25 / labelData.proteinG) * labelData.calories) : 0;
+              return (
+                <View style={[styles.proteinCard, { borderColor: tier.color + '50' }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                    <View style={{ backgroundColor: tier.color + '20', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 6, borderWidth: 1.5, borderColor: tier.color + '40' }}>
+                      <Text style={{ fontSize: 20, fontWeight: '900', color: tier.color }}>{tier.tier}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: tier.color }}>{tier.emoji} {tier.label} Protein</Text>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.50)', marginTop: 2 }}>{tier.description}</Text>
+                    </View>
+                  </View>
+                  {labelData.proteinG > 0 && (
+                    <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.70)', marginTop: 4 }}>
+                      {calPer25g} calories to get 25g protein from this product
+                    </Text>
+                  )}
                 </View>
               );
             })()}
@@ -829,6 +945,7 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
           </>
         )}
       </ScrollView>
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
     </View>
   );
 }
@@ -907,7 +1024,7 @@ const styles = StyleSheet.create({
   scoreRowLabel: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.55)', width: 120 },
   scoreBarBg: { flex: 1, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.08)' },
   scoreBarFill: { height: 6, borderRadius: 3 },
-  scoreRowVal: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.60)', width: 35, textAlign: 'right' },
+  scoreRowVal: { fontSize: 12, fontWeight: '700', color: 'rgba(255,255,255,0.60)', minWidth: 42, textAlign: 'right' },
 
   // Protein check
   proteinCard: { backgroundColor: SURFACE, borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 14, gap: 4 },

@@ -28,6 +28,8 @@ import { useRouter } from 'expo-router';
 import { generateAutoMealPlan, type AutoPlanPreferences } from '../../services/autoMealPlanService';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { type MealSlot } from '../../services/mealPlanService';
+import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
+import PaywallModal from '../../components/PaywallModal';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -101,8 +103,15 @@ export default function AutoMealPlanScreen() {
     });
   };
 
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
+
   const startGeneration = async () => {
     Keyboard.dismiss();
+    // Freemium limit check
+    const limitResult = await checkLimit('meal_plan');
+    if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
+
     const cal = Math.max(1000, Math.min(5000, Number(calories) || 2000));
     const prot = Math.max(50, Math.min(400, Number(protein) || 150));
 
@@ -143,6 +152,7 @@ export default function AutoMealPlanScreen() {
 
     setGenResult(result);
     setStep('done');
+    recordUsage('meal_plan');
   };
 
   return (
@@ -376,6 +386,7 @@ export default function AutoMealPlanScreen() {
           </TouchableOpacity>
         </View>
       )}
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
     </View>
   );
 }

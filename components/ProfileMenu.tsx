@@ -6,6 +6,7 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -20,6 +21,8 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import PaywallModal from './PaywallModal';
+import { type LimitCheck } from '../services/subscriptionService';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -78,6 +81,23 @@ export function ProfileMenu() {
   const handleScanGrocery = () => closeMenu(() => router.push('/screens/ScanFridgeScreen'));
   const handleMyPantry = () => closeMenu(() => router.push('/screens/MyPantryScreen'));
   const handleAutoMealPlan = () => closeMenu(() => router.push('/screens/AutoMealPlanScreen'));
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const handleUpgradePro = () => closeMenu(() => {
+    setPaywallVisible(true);
+  });
+  const handleRestorePurchase = () => closeMenu(async () => {
+    try {
+      const { restorePurchases } = require('../services/purchaseService');
+      const result = await restorePurchases();
+      if (result.isPremium) {
+        Alert.alert('Restored!', 'Your Premium subscription has been restored.');
+      } else {
+        Alert.alert('No Subscription Found', 'No active Premium subscription found for this Apple ID.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not restore purchases.');
+    }
+  });
   const handleAddRecipe = () => closeMenu(() => router.push({
     pathname: '/screens/AddRecipeScreen',
     params: { proteinId: '', proteinName: '', proteinEmoji: '', fromMenu: 'true' },
@@ -122,6 +142,13 @@ export function ProfileMenu() {
         { icon: 'restaurant-outline', label: 'Scan Restaurant Menu', onPress: handleScanMenu },
         { icon: 'basket-outline', label: 'My Pantry Items', onPress: handleMyPantry },
         { icon: 'cart-outline', label: 'My Shopping List', onPress: handleGroceryList },
+      ],
+    },
+    {
+      title: 'Premium',
+      items: [
+        { icon: 'star-outline', label: 'Upgrade to Pro', onPress: handleUpgradePro },
+        { icon: 'refresh-outline', label: 'Restore Purchase', onPress: handleRestorePurchase },
       ],
     },
   ];
@@ -192,6 +219,12 @@ export function ProfileMenu() {
           </View>
         </Animated.View>
       </Modal>
+      <PaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        limitCheck={{ allowed: false, used: 0, limit: 0, remaining: 0, premium: false, featureLabel: 'Premium Features', freeLabel: 'free plan' } as LimitCheck}
+        onUpgrade={() => setPaywallVisible(false)}
+      />
     </>
   );
 }

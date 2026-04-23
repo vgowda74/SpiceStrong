@@ -3,6 +3,8 @@ import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeService';
+import { getDeviceId } from '../services/adminService';
+import { initPurchases } from '../services/purchaseService';
 // pruneImageCache disabled — expo-file-system new API causes TurboModule crash
 // import { pruneImageCache } from '../services/imageCacheService';
 
@@ -17,6 +19,11 @@ Notifications.setNotificationHandler({
 
 export default function RootLayout() {
   useEffect(() => {
+    // Log device ID on startup for admin setup
+    getDeviceId();
+    // Initialize RevenueCat for IAP
+    initPurchases();
+
     // Request notification permissions on app start
     (async () => {
       const { status } = await Notifications.getPermissionsAsync();

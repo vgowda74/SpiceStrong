@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -36,6 +37,7 @@ import {
   SLOT_LIMITS,
   type MealSlot,
 } from '../../services/mealPlanService';
+import { isAdmin } from '../../services/adminService';
 // imageCacheService no longer needed — expo-image handles caching
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
@@ -111,6 +113,8 @@ export default function RecipeListScreen() {
 
   const [recipes, setRecipes] = useState<SavedRecipe[]>([]);
   const deletedIdsRef = useRef<Set<string>>(new Set());
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  useEffect(() => { isAdmin().then(setIsAdminUser); }, []);
   const [selectedTierByRecipeId, setSelectedTierByRecipeId] = useState<Record<string, QuantityTier>>({});
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [pantryNames, setPantryNames] = useState<string[]>([]);
@@ -494,8 +498,8 @@ export default function RecipeListScreen() {
       },
     ];
 
-    // Delete — own recipes (non-published) OR any recipe in dev mode
-    if (isOwn && !isApproved) {
+    // Delete — always available for user's own recipes
+    if (isOwn) {
       options.push({
         text: '🗑 Delete',
         style: 'destructive',
@@ -519,10 +523,10 @@ export default function RecipeListScreen() {
       });
     }
 
-    // Dev mode: delete any recipe including curated (removes from Supabase too)
-    if (__DEV__ && isCurated) {
+    // Admin only: delete any recipe including curated (soft-delete from Supabase)
+    if (isAdminUser && isCurated) {
       options.push({
-        text: '💀 Delete from DB (Dev)',
+        text: '💀 Delete Recipe',
         style: 'destructive',
         onPress: () => {
           Alert.alert('Delete from Production DB', `Permanently delete "${item.name}" from Supabase?\n\nThis cannot be undone.`, [
@@ -532,16 +536,42 @@ export default function RecipeListScreen() {
               style: 'destructive',
               onPress: async () => {
                 try {
-                  const { supabase } = require('../../services/supabase');
-                  await supabase.from('recipe_images').delete().eq('recipe_id', item.id);
-                  await supabase.from('recipes').delete().eq('id', item.id);
+                  // Use raw fetch with service role key to bypass RLS
+                  const serviceKey = process.env.EXPO_PUBLIC_SUPABASE_SERVICE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+                  const url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/recipes?id=eq.${item.id}`;
+                  const res = await fetch(url, {
+                    method: 'PATCH',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'apikey': serviceKey!,
+                      'Authorization': `Bearer ${serviceKey}`,
+                      'Prefer': 'return=minimal',
+                    },
+                    body: JSON.stringify({ is_active: false }),
+                  });
+                  if (!res.ok) {
+                    const errText = await res.text().catch(() => '');
+                    throw new Error(errText || `HTTP ${res.status}`);
+                  }
                   deletedIdsRef.current.add(item.id);
                   setRecipes((prev) => prev.filter((r) => r.id !== item.id));
                   await AsyncStorage.setItem('spicestrong_deleted_recipes',
                     JSON.stringify(Array.from(deletedIdsRef.current)));
-                  Alert.alert('Deleted', `"${item.name}" removed from database.`);
+                  // Clear ALL recipe caches to prevent stale data
+                  try {
+                    const allKeys = await AsyncStorage.getAllKeys();
+                    const cacheKeys = allKeys.filter(k => k.startsWith('spicestrong_recipe_cache_'));
+                    if (cacheKeys.length > 0) await AsyncStorage.multiRemove(cacheKeys);
+                  } catch {}
+                  // Force refresh the current list
+                  try {
+                    const { fetchRecipesByProtein } = require('../../services/recipeService');
+                    const { recipes: fresh } = await fetchRecipesByProtein(item.proteinId);
+                    setRecipes(fresh.filter((r: any) => !deletedIdsRef.current.has(r.id)));
+                  } catch {}
+                  Alert.alert('Deleted', `"${item.name}" removed.`);
                 } catch (e: any) {
-                  Alert.alert('Error', e?.message || 'Could not delete from Supabase.');
+                  Alert.alert('Error', e?.message || 'Could not delete.');
                 }
               },
             },

@@ -185,11 +185,12 @@ export async function scanReceiptOrList(
   if (images.length === 0) throw new Error('Could not process any photos');
 
   const systemPrompt = mode === 'receipt'
-    ? `You are a grocery receipt reader for a fitness cooking app. Extract FOOD ITEMS ONLY from the receipt photo.
+    ? `You are a multilingual grocery receipt reader for a fitness cooking app. Extract FOOD ITEMS ONLY from the receipt photo. The receipt may be in ANY language.
 
 RULES:
 - Only include food/drink items — skip non-food items (bags, cleaning supplies, etc.)
-- Normalize names: "BNLS CHKN BRST" → "chicken breast", "ORG EGGS 12CT" → "eggs"
+- ALWAYS translate item names to English regardless of receipt language
+- Normalize names: "BNLS CHKN BRST" → "chicken breast", "ORG EGGS 12CT" → "eggs", "दूध" → "milk", "arroz" → "rice"
 - Extract quantity from the receipt if visible (e.g. "2x", "1kg", "500g")
 - If quantity isn't clear, use "1" as default
 - Categorize each item: PROTEIN, VEGETABLE, FRUIT, DAIRY, GRAIN, CONDIMENT, SPICE, or PANTRY
@@ -202,13 +203,18 @@ Return ONLY this JSON:
   ]
 }
 
-If receipt is unreadable, return: {"ingredients": [], "error": "Could not read receipt"}`
-    : `You are a shopping list reader for a fitness cooking app. Extract items from this handwritten list, printed list, SMS screenshot, or note.
+IMPORTANT: NEVER refuse to read a receipt. Even if blurry or partially unclear:
+- Try your BEST to read every food item — guess if needed
+- Use "low" confidence for items you're unsure about
+- Return whatever you CAN read, even partial results
+- Only return an error if the image contains absolutely NO text at all`
+    : `You are a multilingual shopping list reader for a fitness cooking app. Extract items from this handwritten list, printed list, SMS screenshot, or note. The list may be in ANY language — Hindi, Tamil, Telugu, Kannada, Malayalam, Arabic, Chinese, Spanish, French, or any other language.
 
 RULES:
-- Extract every food item mentioned
-- Normalize names to common English (e.g. "tom" → "tomato", "chx" → "chicken")
-- Extract quantity if written (e.g. "2kg rice", "6 eggs")
+- Extract every food item mentioned regardless of language
+- ALWAYS translate item names to English (e.g. "मुर्गी" → "chicken", "தக்காளி" → "tomato", "양파" → "onion", "cebolla" → "onion", "atta" → "wheat flour", "daal" → "lentils", "chawal" → "rice", "gosht" → "meat")
+- Normalize abbreviations and shorthand (e.g. "tom" → "tomato", "chx" → "chicken", "pnr" → "paneer")
+- Extract quantity if written (e.g. "2kg rice", "6 eggs", "½ kg चिकन" → "500g chicken")
 - If quantity isn't written, use "1" as default
 - Categorize each item: PROTEIN, VEGETABLE, FRUIT, DAIRY, GRAIN, CONDIMENT, SPICE, or PANTRY
 
@@ -219,7 +225,12 @@ Return ONLY this JSON:
   ]
 }
 
-If the image doesn't contain a list, return: {"ingredients": [], "error": "Could not read list"}`;
+IMPORTANT: NEVER refuse to read a list. Even if handwriting is messy or partially unclear:
+- Try your BEST to read every item — guess if needed
+- Use "low" confidence for items you're unsure about
+- Return whatever you CAN read, even if only 2-3 items
+- Only return an error if the image contains absolutely NO text or food items at all (e.g. a photo of a car)
+- Messy handwriting is EXPECTED — do your best, don't give up`;
 
   const content: any[] = [];
   for (const img of images) {
@@ -277,7 +288,10 @@ If the image doesn't contain a list, return: {"ingredients": [], "error": "Could
   }
 
   const parsed = JSON.parse(text.slice(start, endIdx));
-  if (parsed.error) throw new Error(parsed.error);
+  // Only throw if truly no ingredients AND an error message — don't throw if we got partial results
+  if (parsed.error && (!parsed.ingredients || parsed.ingredients.length === 0)) {
+    throw new Error(parsed.error);
+  }
 
   return (parsed.ingredients || []).map((ing: any) => ({
     name: String(ing.name ?? '').toLowerCase().trim(),

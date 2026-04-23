@@ -34,6 +34,9 @@ import {
   type GroceryItem,
 } from '../../services/pantryService';
 import { addPantryItem } from '../../services/pantryService';
+import { getIngredientEmoji } from '../../src/data/ingredientEmojis';
+import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
+import PaywallModal from '../../components/PaywallModal';
 
 const ORANGE = '#E85D26';
 const BG = '#0F0F0F';
@@ -58,9 +61,14 @@ export default function GroceryListScreen() {
   const [infoText, setInfoText] = useState('');
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoItemName, setInfoItemName] = useState('');
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
 
   const handleSmartSummary = async () => {
     if (items.length === 0) return;
+    const limitResult = await checkLimit('nutrition_iq');
+    if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
+
     setSummaryVisible(true);
     setSummaryLoading(true);
     setSummaryText('');
@@ -77,12 +85,13 @@ export default function GroceryListScreen() {
           max_tokens: 600,
           messages: [{ role: 'user', content: `You are a brutally honest fitness shopping advisor. Analyze this grocery list using the Protein Source Quality framework. Be direct — call out bad choices.
 
-PROTEIN QUALITY TIERS (cal per 25g protein):
-- S tier: Whey ~120, egg whites ~120, chicken breast ~130, lean fish ~130, Greek yogurt ~180
-- A tier: Tofu/tempeh ~250, low-fat paneer ~180, chicken thigh ~200-250
-- B tier: Whole eggs ~280, skimmed milk ~250
-- C/D tier: Legumes/nuts/seeds 400-900 cal (good for fiber, bad as primary protein)
-- F tier: Junk/processed food with zero protein value
+PROTEIN TIER SYSTEM:
+- S-Tier (Supreme): chicken breast, turkey, tuna in water, whey isolate, egg whites, tilapia, cod
+- A-Tier (Excellent): lean ground beef 93/7, shrimp/prawns, Greek yogurt, white fish, cottage cheese, tofu, tempeh, paneer
+- B-Tier (Good): whole eggs, salmon, lean pork, lamb, edamame, lentils
+- C-Tier (Average): protein bars, ground beef 80/20, beans, cheese, quinoa
+- D-Tier (Low): peanut butter, nuts, sausage, bacon, granola
+- F-Tier (Skip): hot dogs, fried chicken, nuggets, processed junk
 
 To buy: ${toBuy || 'nothing'}
 Already bought: ${done || 'nothing'}
@@ -100,6 +109,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
       if (res.ok) {
         const data = await res.json();
         setSummaryText(data.content?.[0]?.text || 'Could not generate summary.');
+        recordUsage('nutrition_iq');
       } else {
         const errBody = await res.text().catch(() => '');
         console.error('[SpiceStrong] Smart Summary error:', res.status, errBody);
@@ -303,7 +313,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                   <View style={styles.checkboxInner} />
                 </View>
                 <View style={styles.itemIcon}>
-                  <Text style={styles.itemIconText}>🛒</Text>
+                  <Text style={styles.itemIconText}>{getIngredientEmoji(item.name)}</Text>
                 </View>
                 <View style={styles.itemContent}>
                   <Text style={styles.itemName}>{item.name}</Text>
@@ -336,7 +346,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                   <Text style={styles.checkboxCheck}>✓</Text>
                 </View>
                 <View style={[styles.itemIcon, { opacity: 0.4 }]}>
-                  <Text style={styles.itemIconText}>✅</Text>
+                  <Text style={styles.itemIconText}>{getIngredientEmoji(item.name)}</Text>
                 </View>
                 <View style={styles.itemContent}>
                   <Text style={[styles.itemName, styles.itemNameDone]}>{item.name}</Text>
@@ -451,6 +461,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
         </View>
       </Modal>
 
+      <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
     </View>
   );
 }
@@ -549,15 +560,17 @@ const styles = StyleSheet.create({
   },
   checkboxCheck: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   itemIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
-  itemIconText: { fontSize: 20 },
+  itemIconText: { fontSize: 28 },
   itemContent: { flex: 1 },
   itemName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
   itemNameDone: { color: 'rgba(255,255,255,0.35)', textDecorationLine: 'line-through' },

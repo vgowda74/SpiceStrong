@@ -60,14 +60,30 @@ const FREE_LABEL: Record<Feature, string> = {
   nutrition_iq: '5 Nutrition IQ reports',
 };
 
+// ── Admin bypass — unlimited access for admin devices ──
+const ADMIN_DEVICE_IDS = ['ios_1773504689845_bf8ebqh4'];
+
 // ── Premium Status ──
 
 export async function isPremium(): Promise<boolean> {
+  // Admin devices always get premium
+  try {
+    const deviceId = await AsyncStorage.getItem('spicestrong_device_id');
+    if (deviceId && ADMIN_DEVICE_IDS.includes(deviceId)) return true;
+  } catch {}
+
+  // Check RevenueCat subscription (source of truth for IAP)
+  try {
+    const { checkSubscription } = require('./purchaseService');
+    const rcPremium = await checkSubscription();
+    if (rcPremium) return true;
+  } catch {}
+
+  // Fallback: check local premium status (for testing / manual grants)
   try {
     const data = await AsyncStorage.getItem(PREMIUM_KEY);
     if (!data) return false;
     const parsed = JSON.parse(data);
-    // Check if subscription is still valid
     if (parsed.expiresAt && new Date(parsed.expiresAt) > new Date()) {
       return true;
     }

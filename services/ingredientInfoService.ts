@@ -57,12 +57,13 @@ export async function getIngredientInfo(name: string): Promise<string> {
 
   const prompt = `You are a brutally honest fitness nutritionist. Give the real truth about "${name}" — no sugarcoating. Use emojis for visual appeal.
 
-PROTEIN QUALITY FRAMEWORK (use this to rate protein sources):
-- Superior (S tier): ~120-180 cal per 25g protein — whey, egg whites, chicken breast, lean fish, Greek yogurt
-- High-Efficiency (A tier): ~180-250 cal per 25g — tofu, tempeh, low-fat paneer, chicken thigh
-- Moderate (B tier): ~250-350 cal per 25g — whole eggs, skimmed milk
-- Low-Efficiency (C/D tier): 400-900 cal per 25g — legumes, nuts, seeds (good for fiber/micros, bad as primary protein)
-- No Protein (F tier): Junk food, sugary drinks, processed snacks
+PROTEIN TIER SYSTEM:
+- S-Tier (Supreme): Highest protein, very low fat/calories, highly bioavailable. Examples: chicken breast, turkey breast, tuna in water, whey isolate, egg whites, tilapia, cod.
+- A-Tier (Excellent): Very high quality, slightly less lean. Examples: lean ground beef 93/7, shrimp/prawns, non-fat Greek yogurt, white fish, cottage cheese, tofu, tempeh, paneer.
+- B-Tier (Good): Good protein but more fat or lower density. Examples: whole eggs, salmon, lean pork tenderloin, lamb, edamame, lentils.
+- C-Tier (Average): Protein with significant fats/carbs. Examples: protein bars, ground beef 80/20, beans, cheese, quinoa, hummus.
+- D-Tier (Low): Perceived as protein but primarily fat. Examples: peanut butter, nuts, sausage, bacon, cream cheese, granola.
+- F-Tier (Skip): Low protein, high fat/sugar, avoid. Examples: hot dogs, fried chicken, chicken nuggets, processed meat, junk food.
 
 If this is junk food, processed food, sugary drinks — say so directly. Be blunt about the damage.
 If this is a whole food, be enthusiastic and educational.
