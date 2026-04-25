@@ -235,7 +235,9 @@ async function getCachedRecipes(proteinId: string): Promise<SavedRecipe[] | null
   try {
     const data = await AsyncStorage.getItem(`${CACHE_KEY_PREFIX}${proteinId}`);
     if (!data) return null;
-    return JSON.parse(data) as SavedRecipe[];
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { console.warn('[SpiceStrong] Corrupted recipe cache for', proteinId, '— using fallback'); return null; }
+    return parsed as SavedRecipe[];
   } catch {
     return null;
   }
@@ -257,8 +259,9 @@ async function isCacheStale(proteinId: string): Promise<boolean> {
   try {
     const meta = await AsyncStorage.getItem(`${CACHE_META_PREFIX}${proteinId}`);
     if (!meta) return true;
-    const { lastFetched } = JSON.parse(meta);
-    return Date.now() - lastFetched > CACHE_TTL_MS;
+    let parsed;
+    try { parsed = JSON.parse(meta); } catch { console.warn('[SpiceStrong] Corrupted cache meta for', proteinId, '— treating as stale'); return true; }
+    return Date.now() - parsed.lastFetched > CACHE_TTL_MS;
   } catch {
     return true;
   }
@@ -281,7 +284,9 @@ async function getCachedImageUrls(recipeId: string): Promise<RecipeImageUrls | n
   try {
     const data = await AsyncStorage.getItem(`${IMAGE_CACHE_KEY_PREFIX}${recipeId}`);
     if (!data) return null;
-    return JSON.parse(data) as RecipeImageUrls;
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { console.warn('[SpiceStrong] Corrupted image URL cache for', recipeId, '— using fallback'); return null; }
+    return parsed as RecipeImageUrls;
   } catch {
     return null;
   }
@@ -317,7 +322,9 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
   let deletedIds: Set<string>;
   try {
     const blockData = await AsyncStorage.getItem('spicestrong_deleted_recipes');
-    deletedIds = new Set(blockData ? JSON.parse(blockData) : []);
+    let blockList: string[];
+    try { blockList = blockData ? JSON.parse(blockData) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, using fallback'); blockList = []; }
+    deletedIds = new Set(blockList);
   } catch {
     deletedIds = new Set();
   }
@@ -360,11 +367,10 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
             .order('created_at', { ascending: true });
 
           if (error || !data) {
-            console.error(`[SpiceStrong] Supabase fetch FAILED for ${proteinId}:`, error?.message || 'no data');
+            if (__DEV__) console.warn(`[SpiceStrong] Supabase fetch failed for ${proteinId}:`, error?.message || 'no data');
             return null;
           }
-          console.log(`[SpiceStrong] Supabase fetch OK for ${proteinId}: ${data.length} recipes`);
-          data.forEach((r: any) => console.log(`  [recipe] ${r.name} | source=${r.source}`));
+          if (__DEV__) console.log(`[SpiceStrong] Supabase fetch OK for ${proteinId}: ${data.length} recipes`);
 
           const supabaseRecipes = (data as SupabaseRecipeRow[]).map(mapSupabaseRowToRecipe);
 
@@ -392,7 +398,9 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           let freshDeletedIds: Set<string>;
           try {
             const bd = await AsyncStorage.getItem('spicestrong_deleted_recipes');
-            freshDeletedIds = new Set(bd ? JSON.parse(bd) : []);
+            let bdList: string[];
+            try { bdList = bd ? JSON.parse(bd) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, using fallback'); bdList = []; }
+            freshDeletedIds = new Set(bdList);
           } catch { freshDeletedIds = new Set(); }
 
           const merged = [...patchedSupabase, ...localOnlyAI].filter(r => !freshDeletedIds.has(r.id));
@@ -574,7 +582,8 @@ async function syncRecipeToSupabase(
 async function addToPendingSync(recipeId: string): Promise<void> {
   try {
     const data = await AsyncStorage.getItem(PENDING_SYNC_KEY);
-    const pending: string[] = data ? JSON.parse(data) : [];
+    let pending: string[];
+    try { pending = data ? JSON.parse(data) : []; } catch { console.warn('[SpiceStrong] Corrupted pending sync data, resetting'); pending = []; }
     if (!pending.includes(recipeId)) {
       pending.push(recipeId);
       await AsyncStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pending));
@@ -590,7 +599,8 @@ export async function syncPendingAIRecipes(): Promise<void> {
   try {
     const data = await AsyncStorage.getItem(PENDING_SYNC_KEY);
     if (!data) return;
-    const pending: string[] = JSON.parse(data);
+    let pending: string[];
+    try { pending = JSON.parse(data); } catch { console.warn('[SpiceStrong] Corrupted pending sync data, clearing'); await AsyncStorage.removeItem(PENDING_SYNC_KEY); return; }
     if (pending.length === 0) return;
 
     const isAvailable = await checkRecipeTableAvailable();
@@ -829,7 +839,8 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
     // 1. Remove from local AsyncStorage
     const data = await AsyncStorage.getItem('spicestrong_recipes');
     if (data) {
-      const all = JSON.parse(data) as Array<{ id: string }>;
+      let all: Array<{ id: string }>;
+      try { all = JSON.parse(data); } catch { console.warn('[SpiceStrong] Corrupted local recipes data during delete, skipping local cleanup'); all = []; }
       const updated = all.filter((r) => r.id !== recipeId);
       await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(updated));
     }
@@ -867,7 +878,8 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
     try {
       const blockKey = 'spicestrong_deleted_recipes';
       const existing = await AsyncStorage.getItem(blockKey);
-      const blocked: string[] = existing ? JSON.parse(existing) : [];
+      let blocked: string[];
+      try { blocked = existing ? JSON.parse(existing) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, resetting'); blocked = []; }
       if (!blocked.includes(recipeId)) {
         blocked.push(recipeId);
         await AsyncStorage.setItem(blockKey, JSON.stringify(blocked));
@@ -1038,7 +1050,8 @@ ${flatInstructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
       rawText = rawText.substring(firstBrace, lastBrace + 1);
     }
 
-    const classification = JSON.parse(rawText);
+    let classification;
+    try { classification = JSON.parse(rawText); } catch { console.warn('[SpiceStrong] Corrupted classification response, could not parse JSON'); return false; }
 
     // ─── Step 2: Build the update payload ───
     const updatePayload: Record<string, unknown> = {};

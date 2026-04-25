@@ -3,6 +3,8 @@ import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
+import * as StoreReview from 'expo-store-review';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -191,6 +193,7 @@ const HEADER_BG = '#2A1005';
 const CARD_BG = '#1A0A00';
 const IMAGE_BG = '#3D1A0A';
 const DARK_GREY = '#333333';
+const REVIEW_COUNT_KEY = 'spicestrong_cook_complete_count';
 
 export default function CookingModeScreen() {
   const router = useRouter();
@@ -518,6 +521,22 @@ export default function CookingModeScreen() {
       setCurrentStep((s) => s + 1);
     } else {
       setDone(true);
+      // Trigger App Store review after a delay (runs silently in background)
+      (async () => {
+        try {
+          const countRaw = await AsyncStorage.getItem(REVIEW_COUNT_KEY);
+          let count = countRaw ? parseInt(countRaw, 10) : 0;
+          count += 1;
+          await AsyncStorage.setItem(REVIEW_COUNT_KEY, String(count));
+          if (count === 3 || count === 10 || count === 25) {
+            const available = await StoreReview.isAvailableAsync();
+            if (available) {
+              // Wait 5 seconds — let user enjoy the completion screen and rate the recipe first
+              setTimeout(() => StoreReview.requestReview(), 5000);
+            }
+          }
+        } catch {}
+      })();
     }
   };
 

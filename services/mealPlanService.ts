@@ -83,7 +83,11 @@ export async function getMealPlanForDate(date: string): Promise<MealPlanEntry[]>
   // Fallback: local cache
   try {
     const stored = await AsyncStorage.getItem(localKey(date));
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      let data;
+      try { data = JSON.parse(stored); } catch { console.warn('[SpiceStrong] Corrupted meal plan data for', date, '— using fallback'); data = []; }
+      return data;
+    }
   } catch {}
   return [];
 }
@@ -189,7 +193,8 @@ export async function removeFromMealPlan(entryId: string, date: string): Promise
   try {
     const stored = await AsyncStorage.getItem(localKey(date));
     if (stored) {
-      const entries: MealPlanEntry[] = JSON.parse(stored);
+      let entries: MealPlanEntry[];
+      try { entries = JSON.parse(stored); } catch { console.warn('[SpiceStrong] Corrupted meal plan data for', date, '— skipping local update'); return; }
       await AsyncStorage.setItem(
         localKey(date),
         JSON.stringify(entries.filter((e) => e.id !== entryId))

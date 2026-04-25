@@ -32,7 +32,10 @@ export interface GroceryItem {
 export async function getPantryItems(): Promise<PantryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(PANTRY_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    let data;
+    try { data = JSON.parse(raw); } catch { console.warn('[SpiceStrong] Corrupted pantry data, using fallback'); return []; }
+    return data;
   } catch {
     return [];
   }
@@ -87,7 +90,10 @@ export async function clearPantry(): Promise<void> {
 export async function getGroceryList(): Promise<GroceryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(GROCERY_LIST_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    let data;
+    try { data = JSON.parse(raw); } catch { console.warn('[SpiceStrong] Corrupted grocery list data, using fallback'); return []; }
+    return data;
   } catch {
     return [];
   }

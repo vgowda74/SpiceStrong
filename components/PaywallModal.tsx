@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -175,9 +176,19 @@ export default function PaywallModal({ visible, onClose, limitCheck, onUpgrade }
             </TouchableOpacity>
 
             {/* Fine print */}
+            {/* Required by Apple: subscription info + links */}
             <Text style={styles.finePrint}>
-              Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage subscriptions in your device Settings.
+              SpiceStrong Premium auto-renewable subscription. {selectedPlan === 'yearly' ? 'Yearly plan: $29.99/year.' : 'Monthly plan: $4.99/month.'} Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage subscriptions in Settings &gt; Apple ID &gt; Subscriptions.
             </Text>
+            <View style={styles.legalLinks}>
+              <TouchableOpacity onPress={() => Linking.openURL('https://www.spicestrong.app/terms.html')}>
+                <Text style={styles.legalLinkText}>Terms of Use</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalDot}> · </Text>
+              <TouchableOpacity onPress={() => Linking.openURL('https://www.spicestrong.app/privacy.html')}>
+                <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
         </View>
       </View>
@@ -304,6 +315,23 @@ const styles = StyleSheet.create({
   restoreBtnText: { color: 'rgba(255,255,255,0.40)', fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
   dismissBtn: { paddingVertical: 10, alignItems: 'center' },
   dismissBtnText: { color: 'rgba(255,255,255,0.30)', fontSize: 13, fontWeight: '600' },
+  legalLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  legalLinkText: {
+    color: ORANGE,
+    fontSize: 12,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  legalDot: {
+    color: 'rgba(255,255,255,0.20)',
+    fontSize: 12,
+  },
   finePrint: {
     fontSize: 9,
     color: 'rgba(255,255,255,0.20)',

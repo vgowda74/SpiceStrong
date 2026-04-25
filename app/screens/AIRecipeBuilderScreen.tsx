@@ -1340,7 +1340,7 @@ Return ONLY the JSON, no explanation.`,
         {screenMode === 'import' && !importing && (
           <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { alignItems: 'center', paddingTop: 30 }]} showsVerticalScrollIndicator={false}>
             {importImageUri && (
-              <Image source={{ uri: importImageUri }} style={{ width: 260, height: 260, borderRadius: 20, marginBottom: 20 }} contentFit="cover" />
+              <Image source={{ uri: importImageUri }} style={{ width: 280, height: 380, borderRadius: 20, marginBottom: 20 }} contentFit="contain" />
             )}
             <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
               Ready to import

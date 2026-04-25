@@ -20,7 +20,7 @@ import Purchases, {
 } from 'react-native-purchases';
 
 const RC_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '';
-const ENTITLEMENT_ID = 'premium'; // Must match RevenueCat entitlement name
+const ENTITLEMENT_ID = 'premium'; // Must match RevenueCat entitlement identifier
 const PRODUCT_ID = 'com.spicestrong.premium.yearly';
 
 let initialized = false;

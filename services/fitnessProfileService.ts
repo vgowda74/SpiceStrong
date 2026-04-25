@@ -148,7 +148,10 @@ export function calculateMacroTargets(profile: FitnessProfile): MacroTargets {
 export async function getFitnessProfile(): Promise<FitnessProfile | null> {
   try {
     const raw = await AsyncStorage.getItem(PROFILE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    let data;
+    try { data = JSON.parse(raw); } catch { console.warn('[SpiceStrong] Corrupted fitness profile data, using fallback'); return null; }
+    return data;
   } catch {
     return null;
   }
@@ -177,7 +180,8 @@ export async function saveFitnessProfile(profile: FitnessProfile): Promise<void>
       timestamp: Date.now(),
     };
     const raw = await AsyncStorage.getItem(BODY_STATS_HISTORY_KEY);
-    const history: BodyStatsEntry[] = raw ? JSON.parse(raw) : [];
+    let history: BodyStatsEntry[];
+    try { history = raw ? JSON.parse(raw) : []; } catch { console.warn('[SpiceStrong] Corrupted body stats history, starting fresh'); history = []; }
     // Replace if same date exists, else append
     const existingIdx = history.findIndex((h) => h.date === today);
     if (existingIdx >= 0) history[existingIdx] = entry;
@@ -191,7 +195,10 @@ export async function saveFitnessProfile(profile: FitnessProfile): Promise<void>
 export async function getBodyStatsHistory(): Promise<BodyStatsEntry[]> {
   try {
     const raw = await AsyncStorage.getItem(BODY_STATS_HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    let data;
+    try { data = JSON.parse(raw); } catch { console.warn('[SpiceStrong] Corrupted body stats history data, using fallback'); return []; }
+    return data;
   } catch {
     return [];
   }

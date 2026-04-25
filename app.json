@@ -13,11 +13,19 @@
       "bundleIdentifier": "com.spicestrong.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition to let you describe recipes by voice in the SpiceBuilder."
+        "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition to let you describe recipes by voice in the SpiceBuilder.",
+        "NSCameraUsageDescription": "SpiceStrong uses the camera to scan nutrition labels, barcodes, restaurant menus, grocery receipts, and your fridge to identify ingredients and add items to your pantry.",
+        "NSPhotoLibraryUsageDescription": "SpiceStrong needs access to your photos so you can upload images of nutrition labels, recipes, menus, receipts, and ingredient lists for AI extraction.",
+        "NSPhotoLibraryAddUsageDescription": "SpiceStrong saves recipe photos and progress images to your photo library."
       }
     },
     "android": {
       "package": "com.spicestrong.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

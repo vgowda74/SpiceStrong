@@ -98,7 +98,8 @@ async function callFal(prompt: string, label: string, model: FalModel = 'schnell
         return { url: null, error: `fal.ai ${submitRes.status}` };
       }
 
-      const submitData = await submitRes.json();
+      let submitData;
+      try { submitData = await submitRes.json(); } catch { return { url: null, error: 'Invalid response from fal.ai' }; }
 
       // If response has images directly (synchronous response)
       if (submitData.images?.[0]?.url) {
@@ -129,7 +130,8 @@ async function callFal(prompt: string, label: string, model: FalModel = 'schnell
           continue;
         }
 
-        const pollData = await pollRes.json();
+        let pollData;
+        try { pollData = await pollRes.json(); } catch { continue; }
 
         if (pollData.images?.[0]?.url) {
           console.log(`[SpiceStrong] fal.ai success for "${label}"`);

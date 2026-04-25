@@ -155,7 +155,8 @@ export async function identifyIngredients(
     if (text[i] === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
   }
 
-  const parsed = JSON.parse(text.slice(start, endIdx));
+  let parsed;
+  try { parsed = JSON.parse(text.slice(start, endIdx)); } catch { console.warn('[SpiceStrong] Corrupted fridge scan response, could not parse JSON'); throw new Error('Could not parse ingredients from response'); }
   return (parsed.ingredients || []).map((ing: any) => ({
     name: String(ing.name ?? '').toLowerCase().trim(),
     category: ing.category ?? 'PANTRY',
@@ -287,7 +288,8 @@ IMPORTANT: NEVER refuse to read a list. Even if handwriting is messy or partiall
     if (text[i] === '}') { depth--; if (depth === 0) { endIdx = i + 1; break; } }
   }
 
-  const parsed = JSON.parse(text.slice(start, endIdx));
+  let parsed;
+  try { parsed = JSON.parse(text.slice(start, endIdx)); } catch { console.warn('[SpiceStrong] Corrupted receipt/list scan response, could not parse JSON'); throw new Error('Could not parse items from response'); }
   // Only throw if truly no ingredients AND an error message — don't throw if we got partial results
   if (parsed.error && (!parsed.ingredients || parsed.ingredients.length === 0)) {
     throw new Error(parsed.error);

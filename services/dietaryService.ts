@@ -49,7 +49,11 @@ export async function getDietaryRestrictions(): Promise<DietaryRestrictions> {
   // Fallback: local AsyncStorage
   try {
     const stored = await AsyncStorage.getItem(LOCAL_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      let data;
+      try { data = JSON.parse(stored); } catch { console.warn('[SpiceStrong] Corrupted dietary restrictions data, using fallback'); return { dietaryTags: [], allergenTags: [] }; }
+      return data;
+    }
   } catch {}
 
   return { dietaryTags: [], allergenTags: [] };

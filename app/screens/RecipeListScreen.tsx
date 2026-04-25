@@ -498,24 +498,57 @@ export default function RecipeListScreen() {
       },
     ];
 
-    // Delete — always available for user's own recipes
-    if (isOwn) {
+    // ── Delete logic ──
+    // Admin: can delete ANY recipe (curated via Supabase soft-delete, own via local)
+    // Regular users: can only delete their own recipes (user/ai source)
+    if (isAdminUser || isOwn) {
       options.push({
         text: '🗑 Delete',
         style: 'destructive',
         onPress: () => {
-          Alert.alert('Delete Recipe', `Delete "${item.name}"?`, [
+          Alert.alert('Delete Recipe', `Delete "${item.name}"?${isCurated ? '\n\nThis will remove it for all users.' : ''}`, [
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Delete',
               style: 'destructive',
               onPress: async () => {
-                deletedIdsRef.current.add(item.id);
-                setRecipes((prev) => prev.filter((r) => r.id !== item.id));
                 try {
-                  await AsyncStorage.setItem('spicestrong_deleted_recipes',
-                    JSON.stringify(Array.from(deletedIdsRef.current)));
-                } catch {}
+                  // Curated recipes: soft-delete from Supabase (admin only)
+                  if (isCurated && isAdminUser) {
+                    const serviceKey = process.env.EXPO_PUBLIC_SUPABASE_SERVICE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+                    const url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/recipes?id=eq.${item.id}`;
+                    const res = await fetch(url, {
+                      method: 'PATCH',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': serviceKey!,
+                        'Authorization': `Bearer ${serviceKey}`,
+                        'Prefer': 'return=minimal',
+                      },
+                      body: JSON.stringify({ is_active: false }),
+                    });
+                    if (!res.ok) {
+                      const errText = await res.text().catch(() => '');
+                      throw new Error(errText || `HTTP ${res.status}`);
+                    }
+                  }
+                  // All deletes: add to local blocklist + remove from UI
+                  deletedIdsRef.current.add(item.id);
+                  setRecipes((prev) => prev.filter((r) => r.id !== item.id));
+                  try {
+                    await AsyncStorage.setItem('spicestrong_deleted_recipes',
+                      JSON.stringify(Array.from(deletedIdsRef.current)));
+                  } catch {}
+                  // Clear recipe caches
+                  try {
+                    const allKeys = await AsyncStorage.getAllKeys();
+                    const cacheKeys = allKeys.filter(k => k.startsWith('spicestrong_recipe_cache_'));
+                    if (cacheKeys.length > 0) await AsyncStorage.multiRemove(cacheKeys);
+                  } catch {}
+                  Alert.alert('Deleted', `"${item.name}" removed.`);
+                } catch (e: any) {
+                  Alert.alert('Error', e?.message || 'Could not delete.');
+                }
               },
             },
           ]);
@@ -523,55 +556,25 @@ export default function RecipeListScreen() {
       });
     }
 
-    // Admin only: delete any recipe including curated (soft-delete from Supabase)
-    if (isAdminUser && isCurated) {
+    // ── Publish (admin only) ──
+    // Admin can publish any recipe as curated (visible to all users)
+    if (isAdminUser && isOwn) {
       options.push({
-        text: '💀 Delete Recipe',
-        style: 'destructive',
+        text: '🚀 Publish for Everyone',
         onPress: () => {
-          Alert.alert('Delete from Production DB', `Permanently delete "${item.name}" from Supabase?\n\nThis cannot be undone.`, [
+          Alert.alert('Publish Recipe', `Make "${item.name}" visible to all users?`, [
             { text: 'Cancel', style: 'cancel' },
             {
-              text: 'Delete Forever',
-              style: 'destructive',
+              text: 'Publish',
               onPress: async () => {
                 try {
-                  // Use raw fetch with service role key to bypass RLS
-                  const serviceKey = process.env.EXPO_PUBLIC_SUPABASE_SERVICE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-                  const url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/recipes?id=eq.${item.id}`;
-                  const res = await fetch(url, {
-                    method: 'PATCH',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'apikey': serviceKey!,
-                      'Authorization': `Bearer ${serviceKey}`,
-                      'Prefer': 'return=minimal',
-                    },
-                    body: JSON.stringify({ is_active: false }),
-                  });
-                  if (!res.ok) {
-                    const errText = await res.text().catch(() => '');
-                    throw new Error(errText || `HTTP ${res.status}`);
-                  }
-                  deletedIdsRef.current.add(item.id);
-                  setRecipes((prev) => prev.filter((r) => r.id !== item.id));
-                  await AsyncStorage.setItem('spicestrong_deleted_recipes',
-                    JSON.stringify(Array.from(deletedIdsRef.current)));
-                  // Clear ALL recipe caches to prevent stale data
-                  try {
-                    const allKeys = await AsyncStorage.getAllKeys();
-                    const cacheKeys = allKeys.filter(k => k.startsWith('spicestrong_recipe_cache_'));
-                    if (cacheKeys.length > 0) await AsyncStorage.multiRemove(cacheKeys);
-                  } catch {}
-                  // Force refresh the current list
-                  try {
-                    const { fetchRecipesByProtein } = require('../../services/recipeService');
-                    const { recipes: fresh } = await fetchRecipesByProtein(item.proteinId);
-                    setRecipes(fresh.filter((r: any) => !deletedIdsRef.current.has(r.id)));
-                  } catch {}
-                  Alert.alert('Deleted', `"${item.name}" removed.`);
+                  const { saveAIRecipe, classifyAndEnrichRecipe, uploadRecipeHeroImage } = require('../../services/recipeService');
+                  (item as any).source = 'curated';
+                  await saveAIRecipe(item);
+                  try { await classifyAndEnrichRecipe(item); } catch {}
+                  Alert.alert('Published!', `"${item.name}" is now live for all users.`);
                 } catch (e: any) {
-                  Alert.alert('Error', e?.message || 'Could not delete.');
+                  Alert.alert('Publish Failed', e?.message || 'Could not publish.');
                 }
               },
             },

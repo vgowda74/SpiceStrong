@@ -184,8 +184,7 @@ export default function AddRecipeScreen() {
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 3],
+      allowsEditing: false,
     };
 
     let result;
