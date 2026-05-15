@@ -37,11 +37,12 @@ import { addPantryItem } from '../../services/pantryService';
 import { getIngredientEmoji } from '../../src/data/ingredientEmojis';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
+import { PremiumScreen } from '../../components/PremiumScreen';
+import { getIngredientInfo } from '../../services/ingredientInfoService';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.08)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
 
@@ -61,6 +62,9 @@ export default function GroceryListScreen() {
   const [infoText, setInfoText] = useState('');
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoItemName, setInfoItemName] = useState('');
+  const [editingItemName, setEditingItemName] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editQty, setEditQty] = useState('');
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
 
@@ -129,7 +133,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
     setInfoLoading(true);
     setInfoText('');
     try {
-      const { getIngredientInfo } = require('../../services/ingredientInfoService');
       const text = await getIngredientInfo(name);
       setInfoText(text);
     } catch {
@@ -180,6 +183,26 @@ Keep it under 250 words. Be specific to THEIR items.` }],
     );
   };
 
+  const openEditItem = (item: GroceryItem) => {
+    setEditingItemName(item.name);
+    setEditName(item.name);
+    setEditQty(item.quantity);
+  };
+
+  const saveEditItem = async () => {
+    const originalName = editingItemName;
+    const nextName = editName.trim();
+    if (!originalName || !nextName) return;
+    const updated = items.map((item) =>
+      item.name.toLowerCase() === originalName.toLowerCase()
+        ? { ...item, name: nextName, quantity: editQty.trim() || '1' }
+        : item
+    );
+    await saveGroceryList(updated);
+    setItems(updated);
+    setEditingItemName(null);
+  };
+
   const handleAdd = async () => {
     const name = addName.trim();
     if (!name) return;
@@ -224,10 +247,10 @@ Keep it under 250 words. Be specific to THEIR items.` }],
   const checkedItems = items.filter((i) => i.checked);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <View>
@@ -302,25 +325,25 @@ Keep it under 250 words. Be specific to THEIR items.` }],
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>TO BUY</Text>
             {uncheckedItems.map((item) => (
-              <TouchableOpacity
+              <View
                 key={item.name}
                 style={styles.itemCard}
-                onPress={() => handleToggle(item.name)}
-                onLongPress={() => handleTapItem(item)}
-                activeOpacity={0.7}
               >
-                <View style={styles.checkbox}>
+                <TouchableOpacity style={styles.checkbox} onPress={() => handleToggle(item.name)} activeOpacity={0.7}>
                   <View style={styles.checkboxInner} />
-                </View>
-                <View style={styles.itemIcon}>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.itemIcon} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
                   <Text style={styles.itemIconText}>{getIngredientEmoji(item.name)}</Text>
-                </View>
-                <View style={styles.itemContent}>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.itemContent} onPress={() => openEditItem(item)} onLongPress={() => handleTapItem(item)} activeOpacity={0.7}>
                   <Text style={styles.itemName}>{item.name}</Text>
                   {item.fromRecipe && <Text style={styles.itemRecipe}>{item.fromRecipe}</Text>}
-                </View>
-                <Text style={styles.itemQty}>{item.quantity}</Text>
-              </TouchableOpacity>
+                  <Text style={styles.itemHint}>Tap text to edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => openEditItem(item)} activeOpacity={0.7}>
+                  <Text style={styles.itemQty}>{item.quantity}</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         )}
@@ -335,24 +358,24 @@ Keep it under 250 words. Be specific to THEIR items.` }],
               </TouchableOpacity>
             </View>
             {checkedItems.map((item) => (
-              <TouchableOpacity
+              <View
                 key={item.name}
                 style={[styles.itemCard, styles.itemCardDone]}
-                onPress={() => handleToggle(item.name)}
-                onLongPress={() => handleTapItem(item)}
-                activeOpacity={0.7}
               >
-                <View style={[styles.checkbox, styles.checkboxDone]}>
+                <TouchableOpacity style={[styles.checkbox, styles.checkboxDone]} onPress={() => handleToggle(item.name)} activeOpacity={0.7}>
                   <Text style={styles.checkboxCheck}>✓</Text>
-                </View>
-                <View style={[styles.itemIcon, { opacity: 0.4 }]}>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.itemIcon, { opacity: 0.4 }]} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
                   <Text style={styles.itemIconText}>{getIngredientEmoji(item.name)}</Text>
-                </View>
-                <View style={styles.itemContent}>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.itemContent} onPress={() => openEditItem(item)} onLongPress={() => handleTapItem(item)} activeOpacity={0.7}>
                   <Text style={[styles.itemName, styles.itemNameDone]}>{item.name}</Text>
-                </View>
-                <Text style={[styles.itemQty, styles.itemQtyDone]}>{item.quantity}</Text>
-              </TouchableOpacity>
+                  <Text style={[styles.itemHint, styles.itemQtyDone]}>Tap text to edit</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => openEditItem(item)} activeOpacity={0.7}>
+                  <Text style={[styles.itemQty, styles.itemQtyDone]}>{item.quantity}</Text>
+                </TouchableOpacity>
+              </View>
             ))}
           </View>
         )}
@@ -461,13 +484,52 @@ Keep it under 250 words. Be specific to THEIR items.` }],
         </View>
       </Modal>
 
+      {/* Edit Item Modal */}
+      <Modal visible={!!editingItemName} transparent animationType="slide" onRequestClose={() => setEditingItemName(null)}>
+        <View style={[styles.modalOverlay, styles.editModalOverlay]}>
+          <View style={[styles.modalCard, styles.editModalCard]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Grocery Item</Text>
+              <TouchableOpacity onPress={() => setEditingItemName(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={styles.modalClose}>×</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.editModalBody}>
+              <TextInput
+                style={styles.editInput}
+                value={editName}
+                onChangeText={setEditName}
+                autoFocus
+                placeholder="Item name"
+                placeholderTextColor="rgba(255,255,255,0.28)"
+              />
+              <TextInput
+                style={styles.editInput}
+                value={editQty}
+                onChangeText={setEditQty}
+                placeholder="Quantity"
+                placeholderTextColor="rgba(255,255,255,0.28)"
+              />
+              <View style={styles.editActions}>
+                <TouchableOpacity style={styles.editCancelBtn} onPress={() => setEditingItemName(null)} activeOpacity={0.8}>
+                  <Text style={styles.editCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.editSaveBtn} onPress={saveEditItem} activeOpacity={0.8}>
+                  <Text style={styles.editSaveText}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -477,7 +539,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
   headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 2 },
   shareBtn: {
@@ -575,6 +651,7 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
   itemNameDone: { color: 'rgba(255,255,255,0.35)', textDecorationLine: 'line-through' },
   itemRecipe: { fontSize: 11, color: 'rgba(255,255,255,0.30)', marginTop: 2 },
+  itemHint: { fontSize: 10, color: 'rgba(255,255,255,0.26)', marginTop: 2 },
   itemQty: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.50)', marginLeft: 8 },
   itemQtyDone: { color: 'rgba(255,255,255,0.25)' },
 
@@ -584,7 +661,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: BG,
+    backgroundColor: 'rgba(13,11,9,0.92)',
     borderTopWidth: 1,
     borderTopColor: BORDER,
     paddingHorizontal: 16,
@@ -703,4 +780,45 @@ const styles = StyleSheet.create({
   modalLoadingText: { fontSize: 14, color: 'rgba(255,255,255,0.45)' },
   modalScroll: { paddingHorizontal: 20, paddingTop: 16 },
   modalBody: { fontSize: 15, color: 'rgba(255,255,255,0.85)', lineHeight: 24 },
+  editModalBody: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, gap: 12 },
+  editModalOverlay: {
+    justifyContent: 'flex-start',
+    paddingTop: 88,
+    paddingHorizontal: 16,
+  },
+  editModalCard: {
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    paddingBottom: 0,
+    maxHeight: undefined,
+  },
+  editInput: {
+    backgroundColor: SURFACE,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: '#FFFFFF',
+    fontSize: 15,
+  },
+  editActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  editCancelBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  editSaveBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: GREEN,
+  },
+  editCancelText: { color: 'rgba(255,255,255,0.72)', fontSize: 14, fontWeight: '700' },
+  editSaveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
 });

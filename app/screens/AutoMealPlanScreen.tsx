@@ -30,11 +30,11 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { type MealSlot } from '../../services/mealPlanService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.10)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
   android: 'PlayfairDisplay_700Bold',
@@ -156,10 +156,10 @@ export default function AutoMealPlanScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.headerBackBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Auto Meal Plan</Text>
@@ -345,7 +345,7 @@ export default function AutoMealPlanScreen() {
                 <Text style={styles.backBtnText}>← Back</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.generateBtn} onPress={startGeneration} activeOpacity={0.8}>
-                <LinearGradient colors={['#F07030', '#C84A10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.generateBtnGradient}>
+                <LinearGradient colors={['#A94724', '#742B17']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.generateBtnGradient}>
                   <Text style={styles.generateBtnText}>Generate Plan</Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -387,12 +387,12 @@ export default function AutoMealPlanScreen() {
         </View>
       )}
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -402,7 +402,21 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  headerBackBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: PLAYFAIR },
 
   scroll: { paddingHorizontal: 20, paddingTop: 24 },
@@ -471,7 +485,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
   },
-  servingsPillActive: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.15)' },
+  servingsPillActive: { borderColor: ORANGE, backgroundColor: 'rgba(143,58,31,0.15)' },
   servingsPillText: { fontSize: 18, fontWeight: '800', color: 'rgba(255,255,255,0.40)' },
   servingsPillTextActive: { color: ORANGE },
 
@@ -521,7 +535,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 14,
   },
-  optionRowActive: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.08)' },
+  optionRowActive: { borderColor: ORANGE, backgroundColor: 'rgba(143,58,31,0.08)' },
   optionTextBlock: { flex: 1 },
   optionLabel: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   optionDesc: { fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 2 },
@@ -563,7 +577,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
   },
-  presetBtnActive: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.12)' },
+  presetBtnActive: { borderColor: ORANGE, backgroundColor: 'rgba(143,58,31,0.12)' },
   presetBtnText: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.60)' },
   presetBtnTextActive: { color: ORANGE },
   presetBtnSub: { fontSize: 10, color: 'rgba(255,255,255,0.30)', marginTop: 2 },
@@ -581,7 +595,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 14,
   },
-  slotCardSelected: { borderColor: ORANGE, backgroundColor: 'rgba(232,93,38,0.10)' },
+  slotCardSelected: { borderColor: ORANGE, backgroundColor: 'rgba(143,58,31,0.10)' },
   slotEmoji: { fontSize: 28 },
   slotTextBlock: { flex: 1 },
   slotLabel: { fontSize: 16, fontWeight: '700', color: 'rgba(255,255,255,0.70)' },
@@ -600,10 +614,10 @@ const styles = StyleSheet.create({
   slotCheckMark: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 
   summaryCard: {
-    backgroundColor: 'rgba(232,93,38,0.08)',
+    backgroundColor: 'rgba(143,58,31,0.08)',
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.25)',
+    borderColor: 'rgba(143,58,31,0.25)',
     padding: 16,
     marginTop: 10,
     alignItems: 'center',
@@ -620,7 +634,7 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: BG,
+    backgroundColor: 'rgba(13,11,9,0.92)',
     borderTopWidth: 1,
     borderTopColor: BORDER,
   },

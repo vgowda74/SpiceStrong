@@ -16,7 +16,9 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { NON_VEG_PROTEIN_IDS } from '../../src/utils/dietPreference';
 import { Ionicons } from '@expo/vector-icons';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
 // ── Types ──
 
@@ -41,10 +43,9 @@ interface FilterState {
 
 // ── Constants ──
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
+const ORANGE = '#8F3A1F';
 const CARD_BG = 'rgba(255,255,255,0.06)';
-const BORDER = 'rgba(255,255,255,0.12)';
+const BORDER = 'rgba(248,241,232,0.12)';
 
 // Fitness goal → auto-fill macro ranges
 const GOAL_MACROS: Record<string, { protein: string; carbs: string; fat: string }> = {
@@ -100,7 +101,7 @@ const MEAT_TYPES: Record<string, string[]> = {
 };
 
 // Non-veg protein IDs
-const NON_VEG_PROTEINS = ['chicken', 'fish', 'lamb', 'goat', 'beef', 'pork', 'prawns', 'eggs'];
+const NON_VEG_PROTEINS: readonly string[] = NON_VEG_PROTEIN_IDS;
 
 // Advanced tab options
 // Must match exact values from classification pipeline
@@ -449,8 +450,9 @@ export default function RecipeFilterScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <PremiumScreen>
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" />
 
       {/* Header */}
       <View style={styles.header}>
@@ -491,7 +493,8 @@ export default function RecipeFilterScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </PremiumScreen>
   );
 }
 
@@ -500,7 +503,7 @@ export default function RecipeFilterScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BG,
+    backgroundColor: 'transparent',
   },
 
   // Header
@@ -511,14 +514,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
   },
   headerTitle: {
     fontSize: 18,
@@ -594,7 +604,7 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
   },
   chipActive: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
+    backgroundColor: 'rgba(143,58,31,0.2)',
     borderColor: ORANGE,
   },
   chipText: {
@@ -636,7 +646,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: BORDER,
-    backgroundColor: BG,
+    backgroundColor: 'rgba(13,11,9,0.92)',
   },
   clearBtn: {
     paddingVertical: 12,

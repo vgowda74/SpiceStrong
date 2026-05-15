@@ -31,11 +31,11 @@ import {
 import { getRecipeImageUrls } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.10)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const CARD_W = Dimensions.get('window').width - 48;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
@@ -77,7 +77,7 @@ export default function FridgeRecipeResultsScreen() {
             const ai = await loadRecipeImages(m.recipe.id);
             if (ai?.dishImage) { imgMap[m.recipe.id] = { uri: ai.dishImage }; continue; }
           } catch {}
-          const builtin = getRecipeCardImage(m.recipe);
+          const builtin = getRecipeCardImage(m.recipe.id);
           if (builtin) imgMap[m.recipe.id] = builtin;
         }
         setImages(imgMap);
@@ -98,10 +98,10 @@ export default function FridgeRecipeResultsScreen() {
   const goodMatchCount = grouped.ready.length + grouped.almost.length;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Recipe Matches</Text>
@@ -229,12 +229,12 @@ export default function FridgeRecipeResultsScreen() {
           )}
         </ScrollView>
       )}
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   loadingText: { fontSize: 14, color: 'rgba(255,255,255,0.55)' },
 
@@ -245,9 +245,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: PLAYFAIR },
 
   scroll: { paddingHorizontal: 20, paddingTop: 20 },
@@ -317,7 +331,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.30)',
+    borderColor: 'rgba(143,58,31,0.30)',
   },
   aiChefGradient: {
     padding: 24,

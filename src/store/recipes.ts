@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { filterRecipesForPreference, getDietPreference } from '../utils/dietPreference';
 
 export const QUANTITY_TIERS = ['2-3 servings', '4-6 servings'] as const;
 export type QuantityTier = (typeof QUANTITY_TIERS)[number];
@@ -76,6 +77,7 @@ export interface SavedRecipe {
   timeMinutes?: number;
   /** Review result from Claude review engine (for user-submitted recipes). */
   reviewResult?: {
+    approved?: boolean;
     score: number;
     issues: string[];
     suggestions: string[];
@@ -221,9 +223,10 @@ export async function getAllRecipesForProtein(proteinId: string): Promise<SavedR
     return recipes;
   } catch {
     // Fallback to local-only if recipeService fails to load
+    const dietPreference = await getDietPreference();
     const saved = await getRecipes();
-    const savedForProtein = saved.filter((r) => r.proteinId === proteinId);
-    const builtIn = getBuiltInRecipesForProtein(proteinId);
+    const savedForProtein = filterRecipesForPreference(saved.filter((r) => r.proteinId === proteinId), dietPreference);
+    const builtIn = filterRecipesForPreference(getBuiltInRecipesForProtein(proteinId), dietPreference);
     const ids = new Set(builtIn.map((r) => r.id));
     const userOnly = savedForProtein.filter((r) => !ids.has(r.id));
     return [...builtIn, ...userOnly];
@@ -253,10 +256,12 @@ export async function getRecipeById(recipeId: string): Promise<SavedRecipe | nul
     return await fetchRecipeById(recipeId);
   } catch {
     // Fallback to local-only
+    const dietPreference = await getDietPreference();
     const builtIn = getBuiltInRecipeById(recipeId);
-    if (builtIn) return builtIn;
+    if (builtIn) return filterRecipesForPreference([builtIn], dietPreference)[0] ?? null;
     const saved = await getRecipes();
-    return saved.find((r) => r.id === recipeId) ?? null;
+    const found = saved.find((r) => r.id === recipeId);
+    return found ? filterRecipesForPreference([found], dietPreference)[0] ?? null : null;
   }
 }
 

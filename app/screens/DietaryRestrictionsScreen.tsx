@@ -4,7 +4,7 @@
  * Settings are saved to Supabase (via dietaryService) and applied globally.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -21,13 +21,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   getDietaryRestrictions,
   saveDietaryRestrictions,
-  type DietaryRestrictions,
 } from '../../services/dietaryService';
+import { PremiumScreen } from '../../components/PremiumScreen';
+import { getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.10)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
   android: 'PlayfairDisplay_700Bold',
@@ -57,6 +57,11 @@ const ALLERGEN_OPTIONS = [
   { key: 'Paleo',        emoji: '🍖' },
   { key: 'Whole30',      emoji: '🥕' },
 ];
+
+function getHiddenAllergenTags(preference: DietPreference | null): string[] {
+  if (preference === 'veg') return ['Vegetarian', 'Egg free', 'Shellfish free'];
+  return ['Vegetarian'];
+}
 
 function Chip({
   label,
@@ -95,16 +100,24 @@ export default function DietaryRestrictionsScreen() {
 
   const [dietaryTags, setDietaryTags] = useState<string[]>([]);
   const [allergenTags, setAllergenTags] = useState<string[]>([]);
+  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    getDietaryRestrictions().then((r) => {
+    Promise.all([getDietaryRestrictions(), getDietPreference()]).then(([r, preference]) => {
+      setDietPreferenceState(preference);
       setDietaryTags(r.dietaryTags);
-      setAllergenTags(r.allergenTags);
+      setAllergenTags(r.allergenTags.filter((tag) => !getHiddenAllergenTags(preference).includes(tag)));
       setLoading(false);
     });
   }, []);
+
+  const hiddenAllergenTags = useMemo(() => getHiddenAllergenTags(dietPreference), [dietPreference]);
+  const visibleAllergenOptions = useMemo(
+    () => ALLERGEN_OPTIONS.filter((option) => !hiddenAllergenTags.includes(option.key)),
+    [hiddenAllergenTags],
+  );
 
   const toggle = useCallback((list: string[], setList: (v: string[]) => void, key: string) => {
     setList(list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
@@ -112,7 +125,10 @@ export default function DietaryRestrictionsScreen() {
 
   const handleSave = async () => {
     setSaving(true);
-    await saveDietaryRestrictions({ dietaryTags, allergenTags });
+    await saveDietaryRestrictions({
+      dietaryTags,
+      allergenTags: allergenTags.filter((tag) => !hiddenAllergenTags.includes(tag)),
+    });
     setSaving(false);
     router.back();
   };
@@ -122,13 +138,14 @@ export default function DietaryRestrictionsScreen() {
     setAllergenTags([]);
   };
 
-  const totalSelected = dietaryTags.length + allergenTags.length;
+  const visibleAllergenTags = allergenTags.filter((tag) => !hiddenAllergenTags.includes(tag));
+  const totalSelected = dietaryTags.length + visibleAllergenTags.length;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Dietary Restrictions</Text>
@@ -168,12 +185,12 @@ export default function DietaryRestrictionsScreen() {
 
           <Text style={[styles.sectionLabel, { marginTop: 24 }]}>ALLERGENS & LIFESTYLE</Text>
           <Text style={styles.sectionHint}>Only recipes that are free from your selected items will appear.</Text>
-          {ALLERGEN_OPTIONS.map((o) => (
+          {visibleAllergenOptions.map((o) => (
             <Chip
               key={o.key}
               label={o.key}
               emoji={o.emoji}
-              selected={allergenTags.includes(o.key)}
+              selected={visibleAllergenTags.includes(o.key)}
               onPress={() => toggle(allergenTags, setAllergenTags, o.key)}
             />
           ))}
@@ -184,7 +201,7 @@ export default function DietaryRestrictionsScreen() {
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <Pressable onPress={handleSave} disabled={saving} style={styles.saveWrapper}>
           <LinearGradient
-            colors={['#F07030', '#C84A10']}
+            colors={['#A94724', '#742B17']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.saveBtn}
@@ -199,12 +216,12 @@ export default function DietaryRestrictionsScreen() {
           </LinearGradient>
         </Pressable>
       </View>
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
@@ -214,9 +231,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: {
     fontSize: 17,
     fontWeight: '700',
@@ -263,7 +294,7 @@ const styles = StyleSheet.create({
   },
   chipSelected: {
     borderColor: ORANGE,
-    backgroundColor: 'rgba(232,93,38,0.12)',
+    backgroundColor: 'rgba(143,58,31,0.12)',
   },
   chipEmoji: { fontSize: 22 },
   chipTextBlock: { flex: 1 },
@@ -292,7 +323,7 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: BG,
+    backgroundColor: 'rgba(13,11,9,0.92)',
     borderTopWidth: 1,
     borderTopColor: BORDER,
   },

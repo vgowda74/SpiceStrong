@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { setDietPreference, type DietPreference } from '../src/utils/dietPreference';
 
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
@@ -40,6 +41,7 @@ export default function Index() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [termsChecked, setTermsChecked] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [selectedPreference, setSelectedPreference] = useState<DietPreference | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(DISCLAIMER_KEY).then((val) => {
@@ -47,7 +49,9 @@ export default function Index() {
     });
   }, []);
 
-  const handleGetStarted = () => {
+  const handleDietSelect = async (preference: DietPreference) => {
+    setSelectedPreference(preference);
+    await setDietPreference(preference);
     if (disclaimerAccepted) {
       router.push('/screens/ProteinSelectionScreen');
     } else {
@@ -57,6 +61,7 @@ export default function Index() {
 
   const handleAccept = async () => {
     await AsyncStorage.setItem(DISCLAIMER_KEY, 'true');
+    await setDietPreference(selectedPreference ?? 'nonveg');
     setDisclaimerAccepted(true);
     setShowDisclaimer(false);
     router.push('/screens/ProteinSelectionScreen');
@@ -150,15 +155,28 @@ export default function Index() {
         <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
           <Pressable
             style={styles.buttonWrapper}
-            onPress={handleGetStarted}
+            onPress={() => handleDietSelect('veg')}
           >
             <LinearGradient
-              colors={['#F07030', '#C84A10']}
+              colors={['#2F8A45', '#155A2B']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={styles.button}
             >
-              <Text style={styles.buttonText}>Get Started →</Text>
+              <Text style={styles.buttonText}>Vegetarian</Text>
+            </LinearGradient>
+          </Pressable>
+          <Pressable
+            style={styles.buttonWrapper}
+            onPress={() => handleDietSelect('nonveg')}
+          >
+            <LinearGradient
+              colors={['#A94724', '#742B17']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.button}
+            >
+              <Text style={styles.buttonText}>Non-Vegetarian</Text>
             </LinearGradient>
           </Pressable>
         </View>
@@ -210,14 +228,14 @@ export default function Index() {
                   I have read and agree to the{' '}
                   <Text
                     style={styles.linkText}
-                    onPress={() => Linking.openURL('https://spicestrong.com/terms')}
+                    onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}
                   >
                     Terms of Service
                   </Text>
                   {' '}and{' '}
                   <Text
                     style={styles.linkText}
-                    onPress={() => Linking.openURL('https://spicestrong.com/privacy')}
+                    onPress={() => Linking.openURL('https://www.spicestrong.app/privacy.html')}
                   >
                     Privacy Policy
                   </Text>
@@ -233,7 +251,7 @@ export default function Index() {
               activeOpacity={0.85}
             >
               <LinearGradient
-                colors={termsChecked ? ['#F07030', '#C84A10'] : ['#555', '#444']}
+                colors={termsChecked ? ['#A94724', '#742B17'] : ['#555', '#444']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={styles.acceptBtnGradient}
@@ -276,7 +294,7 @@ const styles = StyleSheet.create({
   titleSpice: {
     fontFamily: PLAYFAIR,
     fontSize: 54,
-    color: '#E85D26',
+    color: '#8F3A1F',
   },
   titleStrong: {
     fontFamily: PLAYFAIR,
@@ -294,10 +312,10 @@ const styles = StyleSheet.create({
 
   // Story card
   storyCard: {
-    backgroundColor: 'rgba(232,93,38,0.14)',
+    backgroundColor: 'rgba(143,58,31,0.14)',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.30)',
+    borderColor: 'rgba(143,58,31,0.30)',
     padding: 20,
     marginBottom: 28,
   },
@@ -310,7 +328,7 @@ const styles = StyleSheet.create({
     lineHeight: 30,
   },
   storyHighlight: {
-    color: '#E85D26',
+    color: '#8F3A1F',
     fontFamily: PLAYFAIR,
   },
   storyBody: {
@@ -393,17 +411,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   soonBadge: {
-    backgroundColor: 'rgba(232,93,38,0.25)',
+    backgroundColor: 'rgba(143,58,31,0.25)',
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.5)',
+    borderColor: 'rgba(143,58,31,0.5)',
   },
   soonText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#E85D26',
+    color: '#8F3A1F',
     letterSpacing: 1,
   },
 
@@ -416,9 +434,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 16,
     backgroundColor: 'rgba(0,0,0,0.5)',
+    gap: 10,
   },
   buttonWrapper: {
-    shadowColor: '#E85D26',
+    shadowColor: '#8F3A1F',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.5,
     shadowRadius: 16,
@@ -464,7 +483,7 @@ const styles = StyleSheet.create({
   disclaimerHeading: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#E85D26',
+    color: '#8F3A1F',
     marginTop: 16,
     marginBottom: 6,
   },
@@ -491,8 +510,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   checkboxChecked: {
-    backgroundColor: '#E85D26',
-    borderColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
+    borderColor: '#8F3A1F',
   },
   checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   checkboxLabel: {
@@ -502,7 +521,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   linkText: {
-    color: '#E85D26',
+    color: '#8F3A1F',
     textDecorationLine: 'underline' as const,
     fontWeight: '700',
   },

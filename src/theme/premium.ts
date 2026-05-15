@@ -1,0 +1,30 @@
+export const Premium = {
+  color: {
+    ink: '#0D0B09',
+    ink2: '#15120F',
+    surface: '#1D1814',
+    surface2: '#2A211B',
+    cream: '#F8F1E8',
+    creamMuted: '#D8C8B8',
+    muted: '#9D8D7D',
+    line: 'rgba(248,241,232,0.12)',
+    lineStrong: 'rgba(248,241,232,0.22)',
+    spice: '#8F3A1F',
+    spiceSoft: '#A94724',
+    herb: '#6F8F55',
+    brass: '#B98A47',
+    shadow: 'rgba(0,0,0,0.42)',
+  },
+  radius: {
+    sm: 10,
+    md: 14,
+    lg: 18,
+    xl: 24,
+  },
+  type: {
+    title: 34,
+    section: 12,
+    body: 15,
+    small: 12,
+  },
+};

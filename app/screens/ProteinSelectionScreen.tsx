@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -34,7 +34,9 @@ const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   whey: require('../../assets/images/Protein/ProteinPowder.jpg'),
 };
 import { PROTEINS } from '../../src/theme';
+import { filterProteinsForPreference, getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
 import { ProfileMenu } from '../../components/ProfileMenu';
+import { Premium } from '../../src/theme/premium';
 
 const screenWidth = Dimensions.get('window').width;
 const CARD_WIDTH = (screenWidth - 56) / 2;
@@ -48,8 +50,8 @@ const ENABLED_PROTEINS: string[] = [];
 
 const HEADER_BG = '#2A1005';
 const BODY_BG = '#FAF7F2';
-const SEARCH_BG = '#3D1A0A';
-const ORANGE = '#E85D26';
+const SEARCH_BG = 'rgba(248,241,232,0.08)';
+const ORANGE = Premium.color.spice;
 
 
 function filterMatches(filter: Filter, category: 'NON-VEG' | 'VEG'): boolean {
@@ -113,14 +115,19 @@ export default function ProteinSelectionScreen() {
   const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
   const [search, setSearch] = useState('');
+  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>('veg');
+
+  useEffect(() => {
+    getDietPreference().then(setDietPreferenceState);
+  }, []);
 
   const filtered = useMemo(() => {
-    return PROTEINS.filter((p) => {
+    return filterProteinsForPreference(PROTEINS, dietPreference).filter((p) => {
       const matchesFilter = filterMatches(activeFilter, p.category);
       const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
       return matchesFilter && matchesSearch;
     });
-  }, [activeFilter, search]);
+  }, [activeFilter, dietPreference, search]);
 
   const nonVeg = filtered.filter((p) => p.category === 'NON-VEG');
   const veg = filtered.filter((p) => p.category === 'VEG');
@@ -142,7 +149,7 @@ export default function ProteinSelectionScreen() {
         pointerEvents="none"
         style={{
           ...StyleSheet.absoluteFillObject,
-          backgroundColor: 'rgba(0,0,0,0.45)',
+          backgroundColor: 'rgba(13,11,9,0.72)',
         }}
       />
       <View style={styles.container}>
@@ -178,6 +185,7 @@ export default function ProteinSelectionScreen() {
             nestedScrollEnabled={true}
           >
             {FILTERS.map((f) => (
+              dietPreference === 'veg' && f !== 'Vegetarian' ? null : (
               <TouchableOpacity
                 key={f}
                 style={[styles.filterBtn, activeFilter === f && styles.filterActive]}
@@ -187,6 +195,7 @@ export default function ProteinSelectionScreen() {
                   {f}
                 </Text>
               </TouchableOpacity>
+              )
             ))}
           </ScrollView>
 
@@ -257,32 +266,36 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'transparent',
     paddingTop: 90,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 22,
   },
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginBottom: 16,
+    marginBottom: 18,
   },
   headingLine1: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: '800',
+    color: Premium.color.cream,
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+    flex: 1,
   },
   headingLine2: {
     color: ORANGE,
   },
   search: {
     backgroundColor: SEARCH_BG,
-    borderRadius: 12,
+    borderRadius: Premium.radius.md,
+    borderWidth: 1,
+    borderColor: Premium.color.line,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: '#E5E7EB',
+    color: Premium.color.cream,
     fontSize: 16,
   },
   body: {
@@ -290,7 +303,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 16,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   filtersScroll: {
     marginBottom: 16,
@@ -303,27 +316,27 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   filterBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: Premium.radius.md,
+    backgroundColor: 'rgba(248,241,232,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: Premium.color.line,
     flexShrink: 0,
     flex: 1,
     alignItems: 'center',
   },
   filterActive: {
-    backgroundColor: ORANGE,
-    borderColor: ORANGE,
+    backgroundColor: Premium.color.cream,
+    borderColor: Premium.color.cream,
   },
   filterText: {
-    color: '#FFFFFF',
+    color: Premium.color.creamMuted,
     fontSize: 15,
     fontWeight: '600',
   },
   filterTextActive: {
-    color: '#FFFFFF',
+    color: Premium.color.ink,
     fontWeight: '700',
   },
   scanFridgeCard: {
@@ -331,9 +344,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.30)',
+    borderColor: 'rgba(143,58,31,0.30)',
     ...Platform.select({
-      ios: { shadowColor: '#E85D26', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#8F3A1F', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 4 },
     }),
   },
@@ -351,8 +364,8 @@ const styles = StyleSheet.create({
   scanFridgeArrow: { fontSize: 24, fontWeight: '700', color: ORANGE },
   sectionHeader: {
     fontSize: 11,
-    letterSpacing: 3,
-    color: '#6B7280',
+    letterSpacing: 2.4,
+    color: Premium.color.brass,
     marginBottom: 14,
     textTransform: 'uppercase',
   },
@@ -367,20 +380,18 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    backgroundColor: '#1A0A00',
-    borderRadius: 16,
+    backgroundColor: Premium.color.surface,
+    borderRadius: Premium.radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 3, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    elevation: 5,
     overflow: 'hidden',
-    borderBottomWidth: 4,
-    borderRightWidth: 2,
-    borderBottomColor: '#2D1A0E',
-    borderRightColor: '#2D1A0E',
+    borderWidth: 1,
+    borderColor: Premium.color.lineStrong,
   },
   cardFullImage: {
     ...StyleSheet.absoluteFillObject,
@@ -392,20 +403,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: '50%',
+    height: '58%',
   },
   proteinNameOverlay: {
     position: 'absolute',
     bottom: 12,
     left: 8,
     right: 8,
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    color: Premium.color.cream,
     textAlign: 'center',
     ...Platform.select({
       ios: {
-        textShadowColor: 'rgba(0,0,0,0.5)',
+        textShadowColor: 'rgba(0,0,0,0.55)',
         textShadowOffset: { width: 0, height: 1 },
         textShadowRadius: 3,
       },
@@ -419,7 +430,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
-    shadowColor: '#E85D26',
+    shadowColor: '#8F3A1F',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -437,11 +448,11 @@ const styles = StyleSheet.create({
   },
   proteinGrams: {
     fontSize: 12,
-    color: '#E85D26',
+    color: '#8F3A1F',
     textAlign: 'center',
   },
   categoryBadge: {
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 20,
     paddingVertical: 4,
     paddingHorizontal: 10,
@@ -478,7 +489,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 24,
     right: 24,
-    backgroundColor: ORANGE,
+    backgroundColor: Premium.color.spice,
     borderRadius: 30,
     width: 60,
     height: 60,

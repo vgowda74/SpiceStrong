@@ -23,11 +23,12 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getDietaryRestrictions } from '../../services/dietaryService';
+import { PremiumScreen } from '../../components/PremiumScreen';
+import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.08)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const YELLOW = '#F59E0B';
 const RED = '#EF4444';
@@ -93,6 +94,10 @@ export default function ScanMenuScreen() {
       const dietaryContext = dietary.allergenTags.length > 0
         ? `User's dietary restrictions: ${dietary.allergenTags.join(', ')}.`
         : '';
+      const dietPreference = await getDietPreference();
+      const foodPreferenceContext = dietPreference === 'veg'
+        ? 'The user selected Vegetarian mode. Do not list meat, eggs, fish, prawns, shrimp, seafood, or any other non-vegetarian dishes. Only return vegetarian items; if no vegetarian item is visible, return an empty items array and a vegetarian-safe bestChoice message.'
+        : '';
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -108,6 +113,7 @@ export default function ScanMenuScreen() {
           system: `You are a fitness nutrition expert analyzing a restaurant menu. For each menu item visible, estimate macros and rate it for a high-protein fitness diet.
 
 ${dietaryContext}
+${foodPreferenceContext}
 
 Return ONLY this JSON:
 {
@@ -165,12 +171,14 @@ Estimate portions as typically served at restaurants (larger than home portions)
       }
 
       setRestaurantName(parsed.restaurantName || 'Restaurant Menu');
-      setBestChoice(parsed.bestChoice || '');
+      setBestChoice(dietPreference === 'veg' && hasNonVegText(parsed.bestChoice || '') ? '' : parsed.bestChoice || '');
 
-      const items: MenuItem[] = (parsed.items || []).map((item: any) => ({
-        ...item,
-        proteinDensity: item.estimatedCalories > 0 ? (item.estimatedProteinG / item.estimatedCalories) * 100 : 0,
-      }));
+      const items: MenuItem[] = (parsed.items || [])
+        .filter((item: any) => dietPreference !== 'veg' || !hasNonVegText(`${item.name ?? ''} ${item.description ?? ''}`))
+        .map((item: any) => ({
+          ...item,
+          proteinDensity: item.estimatedCalories > 0 ? (item.estimatedProteinG / item.estimatedCalories) * 100 : 0,
+        }));
 
       // Sort: excellent first, then good, poor, avoid
       const ratingOrder = { excellent: 0, good: 1, poor: 2, avoid: 3 };
@@ -192,9 +200,9 @@ Estimate portions as typically served at restaurants (larger than home portions)
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Scan Menu</Text>
@@ -308,17 +316,31 @@ Estimate portions as typically served at restaurants (larger than home portions)
           </>
         )}
       </ScrollView>
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: BORDER,
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
   scroll: { paddingHorizontal: 20, paddingTop: 20 },
 
@@ -363,7 +385,7 @@ const styles = StyleSheet.create({
   ratingText: { fontSize: 11, fontWeight: '800' },
   itemDesc: { fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 },
   itemMacros: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-  itemMacroCal: { fontSize: 12, fontWeight: '700', color: '#FFFFFF', backgroundColor: 'rgba(232,93,38,0.20)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  itemMacroCal: { fontSize: 12, fontWeight: '700', color: '#FFFFFF', backgroundColor: 'rgba(143,58,31,0.20)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   itemMacro: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
   itemDensity: { fontSize: 12, fontWeight: '700', marginBottom: 6 },
   itemRec: { fontSize: 13, color: 'rgba(255,255,255,0.65)', lineHeight: 19, marginBottom: 6 },

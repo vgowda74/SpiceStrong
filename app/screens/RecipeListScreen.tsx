@@ -27,7 +27,7 @@ import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../com
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, getCompletionStats, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
 import { type NutritionInfo, BUILTIN_RECIPES } from '../../src/data/builtInRecipes';
-import { getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
+import { adminDeactivateRecipe, adminPublishRecipe, getCachedRecipeImageUrls, getRecipeImageUrls, deleteAIRecipe } from '../../services/recipeService';
 import { getDietaryRestrictions, applyDietaryFilter } from '../../services/dietaryService';
 import { getPantryIngredientNames } from '../../services/pantryService';
 import {
@@ -37,7 +37,6 @@ import {
   SLOT_LIMITS,
   type MealSlot,
 } from '../../services/mealPlanService';
-import { isAdmin } from '../../services/adminService';
 // imageCacheService no longer needed — expo-image handles caching
 
 const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
@@ -62,21 +61,39 @@ const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
   milk: require('../../assets/images/Protein/Dairy.jpg'),
   whey: require('../../assets/images/Protein/ProteinPowder.jpg'),
 };
+
+function imageSourceToUri(source: ImageSourcePropType | undefined): string | null {
+  if (!source || typeof source === 'number') return null;
+  if (Array.isArray(source)) {
+    const first = source.find((item) => item && typeof item !== 'number' && typeof item.uri === 'string');
+    return first && typeof first !== 'number' ? first.uri ?? null : null;
+  }
+  return typeof source.uri === 'string' ? source.uri : null;
+}
+
+function prefetchImageSources(sources: Array<ImageSourcePropType | undefined>): void {
+  const uris = Array.from(new Set(sources.map(imageSourceToUri).filter((uri): uri is string => Boolean(uri))));
+  uris.slice(0, 8).forEach((uri) => {
+    Image.prefetch(uri, { cachePolicy: 'disk' }).catch(() => {});
+  });
+}
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { ProfileMenu } from '../../components/ProfileMenu';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
-import { submitRecipeForReview } from '../../services/recipeReviewService';
 import { saveRecipe as saveLocalRecipe } from '../../src/store/recipes';
+import { Premium } from '../../src/theme/premium';
+import { isAdmin } from '../../services/adminService';
+import { getDietPreference, isNonVegProteinId } from '../../src/utils/dietPreference';
 // AsyncStorage no longer needed — deleteAIRecipe handles all cleanup
 
-const HEADER_ORANGE = '#E85D26';
-const DARK_PILL = '#1A0A00';
+const HEADER_ORANGE = Premium.color.spice;
+const DARK_PILL = Premium.color.ink;
 const LIGHT_BG = '#FAF7F2';
-const CARD_WHITE = '#FFFFFF';
-const CREAM_LABEL = 'rgba(255,255,255,0.72)';
+const CARD_WHITE = Premium.color.cream;
+const CREAM_LABEL = Premium.color.creamMuted;
 const WARM_CREAM = '#FDF8F3';
-const TAB_INACTIVE = 'rgba(255,255,255,0.2)';
-const TAB_ACTIVE_BG = '#1A0A00';
+const TAB_INACTIVE = 'rgba(248,241,232,0.08)';
+const TAB_ACTIVE_BG = Premium.color.cream;
 
 type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites';
 
@@ -115,6 +132,13 @@ export default function RecipeListScreen() {
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const [isAdminUser, setIsAdminUser] = useState(false);
   useEffect(() => { isAdmin().then(setIsAdminUser); }, []);
+  useEffect(() => {
+    getDietPreference().then((preference) => {
+      if (preference === 'veg' && isNonVegProteinId(proteinId)) {
+        router.replace('/screens/ProteinSelectionScreen');
+      }
+    });
+  }, [proteinId, router]);
   const [selectedTierByRecipeId, setSelectedTierByRecipeId] = useState<Record<string, QuantityTier>>({});
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [pantryNames, setPantryNames] = useState<string[]>([]);
@@ -294,15 +318,15 @@ export default function RecipeListScreen() {
         // Load recipe images with type-aware fallback chains:
         // Native recipes (curated): Supabase Storage → built-in static → emoji
         // AI recipes (user-generated): AI-generated → Supabase Storage → emoji
-        const loadDishImages = async (allRecipes: SavedRecipe[]) => {
+        const loadDishImages = async (allRecipes: SavedRecipe[], allowNetwork = false) => {
           const dishImgs: Record<string, string> = {};
           const heroImgs: Record<string, string> = {};
 
           // Helper: try loading Supabase hero image URL (expo-image caches automatically)
-          const trySupabaseHero = async (id: string) => {
+          const trySupabaseHero = async (id: string, network: boolean) => {
             try {
-              const urls = await getRecipeImageUrls(id);
-              if (urls.heroUrl) {
+              const urls = network ? await getRecipeImageUrls(id) : await getCachedRecipeImageUrls(id);
+              if (urls?.heroUrl) {
                 heroImgs[id] = urls.heroUrl;
               }
             } catch { /* skip */ }
@@ -310,7 +334,7 @@ export default function RecipeListScreen() {
 
           // Native/curated recipes: Supabase Storage → built-in static → emoji
           const nativeRecipes = allRecipes.filter((r) => builtInIds.has(r.id) || r.id.startsWith('spicestrong-') || r.id.startsWith('curated-'));
-          await Promise.all(nativeRecipes.map((r) => trySupabaseHero(r.id)));
+          await Promise.all(nativeRecipes.map((r) => trySupabaseHero(r.id, allowNetwork)));
 
           // AI recipes: AI-generated → Supabase Storage → emoji
           const aiRecipes = allRecipes.filter((r) => !builtInIds.has(r.id) && !r.id.startsWith('spicestrong-') && !r.id.startsWith('curated-'));
@@ -319,7 +343,7 @@ export default function RecipeListScreen() {
             if (imgs?.dishImage) {
               dishImgs[r.id] = imgs.dishImage;
             } else {
-              await trySupabaseHero(r.id);
+              await trySupabaseHero(r.id, allowNetwork);
             }
           }));
 
@@ -451,8 +475,6 @@ export default function RecipeListScreen() {
     const isCurated = item.source === 'curated' || item.id.startsWith('spicestrong-') || item.id.startsWith('curated-');
     const isOwn = item.source === 'user' || item.source === 'ai';
 
-    const isApproved = item.reviewResult?.approved === true;
-
     const isFav = favourites.includes(item.id);
 
     const options: { text: string; onPress?: () => void; style?: 'destructive' | 'cancel' }[] = [
@@ -506,31 +528,17 @@ export default function RecipeListScreen() {
         text: '🗑 Delete',
         style: 'destructive',
         onPress: () => {
-          Alert.alert('Delete Recipe', `Delete "${item.name}"?${isCurated ? '\n\nThis will remove it for all users.' : ''}`, [
+          Alert.alert('Delete Recipe', `Delete "${item.name}"?`, [
             { text: 'Cancel', style: 'cancel' },
             {
               text: 'Delete',
               style: 'destructive',
               onPress: async () => {
                 try {
-                  // Curated recipes: soft-delete from Supabase (admin only)
-                  if (isCurated && isAdminUser) {
-                    const serviceKey = process.env.EXPO_PUBLIC_SUPABASE_SERVICE_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-                    const url = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/rest/v1/recipes?id=eq.${item.id}`;
-                    const res = await fetch(url, {
-                      method: 'PATCH',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': serviceKey!,
-                        'Authorization': `Bearer ${serviceKey}`,
-                        'Prefer': 'return=minimal',
-                      },
-                      body: JSON.stringify({ is_active: false }),
-                    });
-                    if (!res.ok) {
-                      const errText = await res.text().catch(() => '');
-                      throw new Error(errText || `HTTP ${res.status}`);
-                    }
+                  if (isAdminUser) {
+                    await adminDeactivateRecipe(item.id, item.proteinId);
+                  } else {
+                    await deleteAIRecipe(item.id, item.proteinId);
                   }
                   // All deletes: add to local blocklist + remove from UI
                   deletedIdsRef.current.add(item.id);
@@ -556,11 +564,10 @@ export default function RecipeListScreen() {
       });
     }
 
-    // ── Publish (admin only) ──
-    // Admin can publish any recipe as curated (visible to all users)
-    if (isAdminUser && isOwn) {
+
+    if (isAdminUser && !isCurated) {
       options.push({
-        text: '🚀 Publish for Everyone',
+        text: 'Publish for Everyone',
         onPress: () => {
           Alert.alert('Publish Recipe', `Make "${item.name}" visible to all users?`, [
             { text: 'Cancel', style: 'cancel' },
@@ -568,13 +575,20 @@ export default function RecipeListScreen() {
               text: 'Publish',
               onPress: async () => {
                 try {
-                  const { saveAIRecipe, classifyAndEnrichRecipe, uploadRecipeHeroImage } = require('../../services/recipeService');
-                  (item as any).source = 'curated';
-                  await saveAIRecipe(item);
-                  try { await classifyAndEnrichRecipe(item); } catch {}
-                  Alert.alert('Published!', `"${item.name}" is now live for all users.`);
+                  await adminPublishRecipe(item);
+                  setRecipes((prev) => prev.map((recipe) => recipe.id === item.id ? { ...recipe, source: 'curated', status: 'ready' } : recipe));
+                  Alert.alert('Published', `"${item.name}" is now live for all users.`);
                 } catch (e: any) {
-                  Alert.alert('Publish Failed', e?.message || 'Could not publish.');
+                  const message = String(e?.message || '');
+                  const needsAdminSetup = message.includes('Admin database function is missing')
+                    || message.includes('PGRST202')
+                    || message.includes('spicestrong_admin_update_recipe');
+                  Alert.alert(
+                    needsAdminSetup ? 'Admin Setup Needed' : 'Publish Failed',
+                    needsAdminSetup
+                      ? 'Supabase is missing the admin publish/delete function. Run supabase/admin-device-policies.sql in the Supabase SQL Editor, then try again.'
+                      : message || 'Could not publish.',
+                  );
                 }
               },
             },
@@ -602,7 +616,8 @@ export default function RecipeListScreen() {
     // AI recipes: AI-generated → Supabase Storage → emoji
     const cardImage = isNativeRecipe
       ? (supabaseHeroUri ? { uri: supabaseHeroUri } : builtInImage)
-      : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : null);
+      : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : undefined);
+    const cardIndex = listData.findIndex((recipe) => recipe.id === item.id);
     // All nutrition displayed as PER SERVING using getCompletionStats
     const stats = getCompletionStats(item, '2-3 servings');
     // Pipeline per-serving values (from Edamam via classification pipeline) — already per-serving
@@ -649,7 +664,9 @@ export default function RecipeListScreen() {
         cookCount={item.communityCookCount || cookCounts[item.id] || 0}
         emoji={item.proteinEmoji ?? '🍽️'}
         imageSource={cardImage}
+        imagePriority={cardIndex >= 0 && cardIndex < 4 ? 'high' : 'normal'}
         isFavorite={favourites.includes(item.id)}
+        onFavoriteToggle={(e) => handleToggleFavourite(item.id, e)}
         onPress={() =>
           router.push({
             pathname: '/screens/RecipeOverviewScreen',
@@ -806,6 +823,22 @@ export default function RecipeListScreen() {
     filterCookingMethod, filterCuisine,
     filterCalorieRange, filterMealPrep]);
 
+  const visibleCardImages = useMemo(() => {
+    return listData.slice(0, 8).map((item) => {
+      const builtInImage = getRecipeCardImage(item.id);
+      const aiDishUri = aiDishImages[item.id];
+      const supabaseHeroUri = supabaseHeroImages[item.id];
+      const isNativeRecipe = builtInIds.has(item.id) || item.id.startsWith('spicestrong-') || item.id.startsWith('curated-');
+      return isNativeRecipe
+        ? (supabaseHeroUri ? { uri: supabaseHeroUri } : builtInImage)
+        : (aiDishUri ? { uri: aiDishUri } : supabaseHeroUri ? { uri: supabaseHeroUri } : undefined);
+    });
+  }, [listData, aiDishImages, supabaseHeroImages]);
+
+  useEffect(() => {
+    prefetchImageSources(visibleCardImages);
+  }, [visibleCardImages]);
+
   return (
     <ImageBackground
       source={require('../../assets/images/splash-bg.jpg')}
@@ -814,7 +847,7 @@ export default function RecipeListScreen() {
     >
       <View style={{
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: 'rgba(13,11,9,0.76)',
       }} />
       <View style={styles.container}>
       <View style={styles.screenContent}>
@@ -911,25 +944,33 @@ export default function RecipeListScreen() {
 
         {/* Pantry filter checkbox */}
         {pantryNames.length > 0 && (
-          <TouchableOpacity
-            style={[styles.pantryCheckRow, pantryFilterOn && styles.pantryCheckRowOn]}
-            onPress={() => setPantryFilterOn(!pantryFilterOn)}
-            activeOpacity={0.75}
-          >
-            {/* Vegetable emoji background */}
-            <Text style={styles.pantryBgText}>🥬🥕🍅🥦🌽🫑🧅🥑</Text>
-            <View style={styles.pantryCheckContent}>
-              <View style={[styles.pantryCheckBox, pantryFilterOn && styles.pantryCheckBoxOn]}>
-                {pantryFilterOn && <Text style={styles.pantryCheckMark}>✓</Text>}
+          <View style={styles.pantryCoachWrap}>
+            <TouchableOpacity
+              style={[styles.pantryCheckRow, pantryFilterOn && styles.pantryCheckRowOn]}
+              onPress={() => setPantryFilterOn(!pantryFilterOn)}
+              activeOpacity={0.75}
+            >
+              {/* Vegetable emoji background */}
+              <Text style={styles.pantryBgText}>🥬🥕🍅🥦🌽🫑🧅🥑</Text>
+              <View style={styles.pantryCheckContent}>
+                <View style={[styles.pantryCheckBox, pantryFilterOn && styles.pantryCheckBoxOn]}>
+                  {pantryFilterOn && <Text style={styles.pantryCheckMark}>✓</Text>}
+                </View>
+                <View style={styles.pantryCheckTextBlock}>
+                  <Text style={[styles.pantryCheckLabel, pantryFilterOn && styles.pantryCheckLabelOn]}>
+                    Cook with my pantry only
+                  </Text>
+                  <Text style={styles.pantryItemCount}>{pantryNames.length} items in your pantry</Text>
+                </View>
               </View>
-              <View style={styles.pantryCheckTextBlock}>
-                <Text style={[styles.pantryCheckLabel, pantryFilterOn && styles.pantryCheckLabelOn]}>
-                  Cook with my pantry only
-                </Text>
-                <Text style={styles.pantryItemCount}>{pantryNames.length} items in your pantry</Text>
+            </TouchableOpacity>
+            <View style={styles.mealPlanHintBox}>
+              <View style={styles.mealPlanHintIcon}>
+                <Text style={styles.mealPlanHintIconText}>📅</Text>
               </View>
+              <Text style={styles.mealPlanHintText}>Long press any recipe{'\n'}to add to your meal plan</Text>
             </View>
-          </TouchableOpacity>
+          </View>
         )}
 
         {/* Filter modal removed — now using full-screen RecipeFilterScreen */}
@@ -940,6 +981,10 @@ export default function RecipeListScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === 'android'}
         ListEmptyComponent={
           !hasLoaded ? (
             <View style={styles.skeletonWrap}>
@@ -1102,20 +1147,38 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   screenContent: { flex: 1 },
   headerOrange: {
-    backgroundColor: 'rgba(180,60,10,0.75)',
+    backgroundColor: 'transparent',
   },
   header: {
     backgroundColor: 'transparent',
-    paddingTop: 56,
-    paddingHorizontal: 20,
-    paddingBottom: 10,
+    paddingTop: 60,
+    paddingHorizontal: 24,
+    paddingBottom: 12,
     zIndex: 1,
   },
-  backBtn: { position: 'absolute', top: 52, left: 20, zIndex: 2 },
+  backBtn: {
+    position: 'absolute',
+    top: 54,
+    left: 20,
+    zIndex: 2,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
   backText: {
     color: CARD_WHITE,
-    fontSize: 30,
-    fontWeight: '700',
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '900',
     ...Platform.select({ ios: { textShadowColor: 'rgba(0,0,0,0.2)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 } }),
   },
   headerTitle: {
@@ -1130,22 +1193,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
-    marginBottom: 8,
+    gap: 14,
+    marginBottom: 10,
   },
   headerProteinIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
+    width: 68,
+    height: 68,
+    borderRadius: 18,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Premium.color.lineStrong,
     ...Platform.select({
       ios: {
-        shadowColor: '#FF8C00',
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 0 },
+        shadowColor: '#000',
+        shadowOpacity: 0.24,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 8 },
       },
-      android: { elevation: 8 },
+      android: { elevation: 4 },
     }),
   },
   headerProteinIconShine: {
@@ -1160,7 +1225,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.25)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: Premium.color.line,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1171,18 +1236,21 @@ const styles = StyleSheet.create({
   },
   headerEmoji: { fontSize: 40 },
   headerProteinName: {
-    fontSize: 32,
+    fontSize: 34,
     color: CARD_WHITE,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
     ...Platform.select({ ios: { textShadowColor: 'rgba(0,0,0,0.15)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 } }),
   },
   headerSubtitle: {
-    fontSize: 20,
+    fontSize: 14,
     color: CREAM_LABEL,
     textAlign: 'center',
     marginBottom: 4,
-    letterSpacing: 0.3,
+    letterSpacing: 1.3,
+    textTransform: 'uppercase',
+    fontWeight: '700',
   },
   statsRow: {
     flexDirection: 'row',
@@ -1199,18 +1267,20 @@ const styles = StyleSheet.create({
   },
   statLabel: { color: CREAM_LABEL, fontSize: 10, marginTop: 3, letterSpacing: 1, fontWeight: '600' },
 
-  tabsWrap: { backgroundColor: 'transparent', paddingVertical: 14 },
+  tabsWrap: { backgroundColor: 'transparent', paddingVertical: 12 },
   tabsContent: { flexDirection: 'row', gap: 10 },
   // SpiceBuilder hero card
   spiceBuilderCard: {
     marginHorizontal: 16,
     marginBottom: 10,
     marginTop: 4,
-    borderRadius: 16,
+    borderRadius: Premium.radius.lg,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Premium.color.lineStrong,
     ...Platform.select({
-      ios: { shadowColor: '#E85D26', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
-      android: { elevation: 6 },
+      ios: { shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
+      android: { elevation: 4 },
     }),
   },
   spiceBuilderGradient: {
@@ -1238,42 +1308,34 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: 'rgba(232, 93, 38, 0.15)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderRadius: Premium.radius.lg,
     height: 70,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(232, 93, 38, 0.4)',
+    borderColor: Premium.color.line,
   },
   actionCardEmoji: { fontSize: 28, marginBottom: 4 },
   actionCardIcon: { width: 36, height: 36, borderRadius: 18, marginBottom: 4 },
-  actionCardTitle: { color: '#E85D26', fontWeight: '800', fontSize: 15, textAlign: 'center' },
-  actionCardSub: { color: 'rgba(255,255,255,0.6)', fontWeight: '600', fontSize: 12, textAlign: 'center', marginTop: 2 },
+  actionCardTitle: { color: Premium.color.cream, fontWeight: '800', fontSize: 15, textAlign: 'center' },
+  actionCardSub: { color: Premium.color.muted, fontWeight: '600', fontSize: 12, textAlign: 'center', marginTop: 2 },
   tabPill: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 28,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: Premium.radius.md,
     backgroundColor: TAB_INACTIVE,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    borderTopColor: 'rgba(255,255,255,0.5)',
-    borderLeftColor: 'rgba(255,255,255,0.4)',
-    borderBottomColor: 'rgba(255,255,255,0.15)',
-    borderRightColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: Premium.color.line,
   },
   tabPillActive: {
     backgroundColor: TAB_ACTIVE_BG,
-    borderColor: 'rgba(232,93,38,0.5)',
-    borderTopColor: 'rgba(255,255,255,0.4)',
-    borderLeftColor: 'rgba(255,255,255,0.3)',
-    borderBottomColor: 'rgba(232,93,38,0.3)',
-    borderRightColor: 'rgba(232,93,38,0.4)',
+    borderColor: Premium.color.cream,
   },
-  tabPillText: { fontSize: 14, color: 'rgba(255,255,255,0.8)', fontWeight: '600' },
-  tabPillTextActive: { color: '#FFFFFF', fontWeight: '700' },
+  tabPillText: { fontSize: 14, color: Premium.color.creamMuted, fontWeight: '600' },
+  tabPillTextActive: { color: Premium.color.ink, fontWeight: '800' },
   pantryCheckRow: {
     marginHorizontal: 16,
     marginTop: 10,
@@ -1331,21 +1393,53 @@ const styles = StyleSheet.create({
   pantryCheckLabel: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
   pantryCheckLabelOn: { color: '#FFFFFF' },
   pantryItemCount: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.70)', marginTop: 2 },
+  pantryCoachWrap: { marginBottom: 4 },
+  mealPlanHintBox: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mealPlanHintIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(143,58,31,0.32)',
+    borderWidth: 1,
+    borderColor: 'rgba(143,58,31,0.45)',
+  },
+  mealPlanHintIconText: { fontSize: 18 },
+  mealPlanHintText: {
+    flex: 1,
+    color: 'rgba(248,241,232,0.92)',
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
 
   // Advanced filter icon button
   filterIconBtn: {
     width: 42,
     height: 42,
-    borderRadius: 12,
-    backgroundColor: '#1A0A00',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: Premium.radius.md,
+    backgroundColor: TAB_INACTIVE,
+    borderWidth: 1,
+    borderColor: Premium.color.line,
     alignItems: 'center',
     justifyContent: 'center',
   },
   filterIconBtnActive: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
-    borderColor: 'rgba(232,93,38,0.5)',
+    backgroundColor: 'rgba(248,241,232,0.14)',
+    borderColor: Premium.color.lineStrong,
   },
   filterSliderIcon: {
     width: 20,
@@ -1376,7 +1470,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 10,
     width: 18,
     height: 18,
@@ -1392,17 +1486,17 @@ const styles = StyleSheet.create({
   // Filter modal
   /* Old filter modal styles removed — using full-screen RecipeFilterScreen */
 
-  list: { paddingHorizontal: 0, paddingVertical: 12, paddingBottom: 80 },
+  list: { paddingHorizontal: 0, paddingVertical: 10, paddingBottom: 88 },
   actionRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   editBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(232,93,38,0.3)',
+    backgroundColor: 'rgba(143,58,31,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.5)',
+    borderColor: 'rgba(143,58,31,0.5)',
   },
   editBtnText: { fontSize: 14 },
   deleteBtn: {
@@ -1420,9 +1514,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(232,93,38,0.85)',
+    backgroundColor: 'rgba(143,58,31,0.85)',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.5)',
+    borderColor: 'rgba(143,58,31,0.5)',
   },
   publishBtnLive: {
     backgroundColor: 'rgba(34,197,94,0.15)',
@@ -1433,8 +1527,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.15)',
   },
   publishBtnRejected: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
-    borderColor: 'rgba(232,93,38,0.5)',
+    backgroundColor: 'rgba(143,58,31,0.2)',
+    borderColor: 'rgba(143,58,31,0.5)',
   },
   publishBtnText: {
     fontSize: 12,
@@ -1452,7 +1546,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.5)',
   },
   publishBtnTextRejected: {
-    color: '#E85D26',
+    color: '#8F3A1F',
   },
 
   // Meal plan modal
@@ -1490,7 +1584,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingHorizontal: 8,
   },
-  mpNavArrow: { fontSize: 28, color: '#E85D26', fontWeight: '700', lineHeight: 32 },
+  mpNavArrow: { fontSize: 28, color: '#8F3A1F', fontWeight: '700', lineHeight: 32 },
   mpMonthLabel: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
   mpDayHeaders: { flexDirection: 'row', marginBottom: 4 },
   mpDayHeader: {
@@ -1508,8 +1602,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  mpDayCellToday: { borderRadius: 100, borderWidth: 1.5, borderColor: '#E85D26' },
-  mpDayCellSelected: { borderRadius: 100, backgroundColor: '#E85D26' },
+  mpDayCellToday: { borderRadius: 100, borderWidth: 1.5, borderColor: '#8F3A1F' },
+  mpDayCellSelected: { borderRadius: 100, backgroundColor: '#8F3A1F' },
   mpDayCellPast: { opacity: 0.30 },
   mpDayNum: { fontSize: 14, fontWeight: '600', color: '#FFFFFF' },
   mpDayNumSelected: { color: '#FFFFFF', fontWeight: '800' },
@@ -1534,25 +1628,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
   },
-  mpSlotSelected: { borderColor: '#E85D26', backgroundColor: 'rgba(232,93,38,0.15)' },
+  mpSlotSelected: { borderColor: '#8F3A1F', backgroundColor: 'rgba(143,58,31,0.15)' },
   mpSlotFull: { opacity: 0.40 },
   mpSlotDimmed: { opacity: 0.45 },
   mpSlotLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   mpSlotText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
-  mpSlotTextSelected: { color: '#E85D26' },
+  mpSlotTextSelected: { color: '#8F3A1F' },
   mpSlotTextFull: { color: 'rgba(255,255,255,0.5)' },
   mpSlotCount: { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontWeight: '600' },
   mpSlotBadge: {
-    backgroundColor: 'rgba(232,93,38,0.20)',
+    backgroundColor: 'rgba(143,58,31,0.20)',
     borderRadius: 6,
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.40)',
+    borderColor: 'rgba(143,58,31,0.40)',
   },
-  mpSlotBadgeText: { fontSize: 10, fontWeight: '800', color: '#E85D26', letterSpacing: 0.3 },
+  mpSlotBadgeText: { fontSize: 10, fontWeight: '800', color: '#8F3A1F', letterSpacing: 0.3 },
   mpConfirmBtn: {
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 14,
     paddingVertical: 15,
     alignItems: 'center',

@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { File, Directory, Paths } from 'expo-file-system';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   addToMealPlan,
@@ -45,6 +46,7 @@ import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { analyzeMultipleImagesWithEdamam, isEdamamVisionAvailable } from '../../services/edamamVisionService';
 import { analyzeNutrition } from '../../services/nutritionService';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
@@ -64,6 +66,47 @@ function detectMediaType(base64: string): string {
   if (base64.startsWith('R0lGOD')) return 'image/gif';
   if (base64.startsWith('UklGR')) return 'image/webp';
   return 'image/jpeg';
+}
+
+async function hydrateMealPhotos(photos: { uri: string; base64: string }[]) {
+  const hydrated = await Promise.all(photos.map(async (photo) => {
+    if (photo.base64 && photo.base64.length > 100) return photo;
+    try {
+      const result = await manipulateAsync(
+        photo.uri.split('?')[0],
+        [{ resize: { width: 1024 } }],
+        { compress: 0.55, format: SaveFormat.JPEG, base64: true },
+      );
+      return { ...photo, base64: result.base64 ?? '' };
+    } catch {
+      return photo;
+    }
+  }));
+  return hydrated.filter((p) => p.base64 && p.base64.length > 100);
+}
+
+async function persistMealPhotoUris(photos: { uri: string; base64: string }[], prefix: string): Promise<string[]> {
+  const dir = new Directory(Paths.document, 'meal_photos');
+  try {
+    if (!dir.exists) dir.create();
+  } catch {}
+
+  const saved: string[] = [];
+  for (let i = 0; i < photos.length; i++) {
+    let uri = photos[i].uri.split('?')[0];
+    if (uri.includes('/meal_photos/')) {
+      saved.push(uri);
+      continue;
+    }
+    try {
+      const dest = new File(dir, `${prefix}_${Date.now()}_${i}.jpg`);
+      if (dest.exists) dest.delete();
+      new File(uri).move(dest);
+      uri = dest.uri;
+    } catch {}
+    saved.push(uri);
+  }
+  return saved;
 }
 
 /**
@@ -216,10 +259,9 @@ async function analyzeFoodPhoto(base64: string, recipeName: string): Promise<{ c
   };
 }
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.10)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
   android: 'PlayfairDisplay_700Bold',
@@ -242,6 +284,7 @@ function getFirstDayOfWeek(year: number, month: number): number {
 interface EnrichedEntry extends MealPlanEntry {
   recipe: SavedRecipe | null;
   imageUri: string | null;
+  photoUris?: string[];
   builtinImage: any | null; // require() source for built-in recipes
   calories: number;
   proteinG: number;
@@ -272,7 +315,7 @@ async function resolveImage(recipeId: string, recipe: SavedRecipe | null): Promi
     if (ai?.dishImage) return ai.dishImage;
   } catch {}
   if (recipe) {
-    const builtin = getRecipeCardImage(recipe);
+    const builtin = getRecipeCardImage(recipe.id);
     if (builtin) return null; // built-in returns require() — handle below
   }
   return null;
@@ -300,10 +343,18 @@ export default function MealPlanScreen() {
   const [manualCarbs, setManualCarbs] = useState('');
   const [manualFat, setManualFat] = useState('');
 
-  const openCorrectMacros = (entry: EnrichedEntry) => {
+  const openCorrectMacros = async (entry: EnrichedEntry) => {
     setCorrectEntry(entry);
     setCorrectedMacros(null);
-    setCorrectionPhotos([]);
+    let savedPhotoUris = entry.photoUris ?? (entry.imageUri ? [entry.imageUri] : []);
+    try {
+      const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
+      if (overrideStr) {
+        const override: MacroOverride = JSON.parse(overrideStr);
+        savedPhotoUris = override.photoUris ?? (override.photoUri ? [override.photoUri] : savedPhotoUris);
+      }
+    } catch {}
+    setCorrectionPhotos(savedPhotoUris.slice(0, MAX_MEAL_PHOTOS).map((uri) => ({ uri, base64: '' })));
     setCorrecting(false);
     setManualMode(false);
     setManualCal(''); setManualProtein(''); setManualCarbs(''); setManualFat('');
@@ -362,7 +413,7 @@ export default function MealPlanScreen() {
     if (correctionPhotos.length === 0) return;
     setCorrecting(true);
     try {
-      const validPhotos = correctionPhotos.filter((p) => p.base64 && p.base64.length > 100);
+      const validPhotos = await hydrateMealPhotos(correctionPhotos);
       if (validPhotos.length === 0) throw new Error('No valid photos to analyze');
       console.log(`[SpiceStrong] Hybrid analysis: ${validPhotos.length} photos`);
 
@@ -530,12 +581,13 @@ RULES:
       carbsG: Math.round(Number(manualCarbs) || 0),
       fatG: Math.round(Number(manualFat) || 0),
     };
-    const override: MacroOverride = { ...macros, photoUri: '' };
+    const existingPhotoUris = correctEntry.photoUris ?? (correctEntry.imageUri ? [correctEntry.imageUri] : []);
+    const override: MacroOverride = { ...macros, photoUri: existingPhotoUris[0] ?? '', photoUris: existingPhotoUris };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
     setEnriched((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
-          ? { ...e, ...macros }
+          ? { ...e, ...macros, imageUri: existingPhotoUris[0] ?? e.imageUri, photoUris: existingPhotoUris }
           : e
       )
     );
@@ -545,24 +597,15 @@ RULES:
   const applyCorrection = async () => {
     if (!correctEntry || !correctedMacros || correctionPhotos.length === 0) return;
 
-    // Save first photo permanently for hero image
-    let heroUri = correctionPhotos[0].uri.split('?')[0]; // strip cache buster
-    try {
-      const dir = new Directory(Paths.document, 'meal_photos');
-      if (!dir.exists) dir.create();
-      const filename = `meal_${correctEntry.id}_${Date.now()}.jpg`;
-      const dest = new File(dir, filename);
-      if (dest.exists) dest.delete();
-      new File(heroUri).move(dest);
-      heroUri = dest.uri;
-    } catch {}
+    const photoUris = await persistMealPhotoUris(correctionPhotos, `meal_${correctEntry.id}`);
+    const heroUri = photoUris[0] ?? '';
 
-    const override: MacroOverride = { ...correctedMacros, photoUri: heroUri };
+    const override: MacroOverride = { ...correctedMacros, photoUri: heroUri, photoUris };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
     setEnriched((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
-          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: heroUri }
+          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: heroUri, photoUris }
           : e
       )
     );
@@ -600,17 +643,28 @@ RULES:
   const [quickAddName, setQuickAddName] = useState('');
   const [quickAddPhoto, setQuickAddPhoto] = useState<string | null>(null);
   const [quickAddBase64, setQuickAddBase64] = useState<string>('');
+  const [quickAddPhotos, setQuickAddPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [quickAddScanning, setQuickAddScanning] = useState(false);
+  const [quickAddManualMode, setQuickAddManualMode] = useState(false);
+  const [quickAddEstimated, setQuickAddEstimated] = useState(false);
   const [quickAddMacros, setQuickAddMacros] = useState<{ calories: string; proteinG: string; carbsG: string; fatG: string }>({ calories: '', proteinG: '', carbsG: '', fatG: '' });
+  const [browseHelpVisible, setBrowseHelpVisible] = useState(false);
 
   const openQuickAdd = (slot: MealSlot) => {
     setQuickAddSlot(slot);
     setQuickAddName('');
     setQuickAddPhoto(null);
     setQuickAddBase64('');
+    setQuickAddPhotos([]);
     setQuickAddScanning(false);
+    setQuickAddManualMode(false);
+    setQuickAddEstimated(false);
     setQuickAddMacros({ calories: '', proteinG: '', carbsG: '', fatG: '' });
     setQuickAddOpen(true);
+  };
+
+  const openBrowseRecipeHelp = () => {
+    setBrowseHelpVisible(true);
   };
 
   const closeQuickAdd = () => {
@@ -619,6 +673,10 @@ RULES:
   };
 
   const pickQuickAddPhoto = async (useCamera: boolean) => {
+    if (quickAddPhotos.length >= MAX_MEAL_PHOTOS) {
+      Alert.alert('Maximum Photos', `You can add up to ${MAX_MEAL_PHOTOS} photos. Remove one to add another.`);
+      return;
+    }
     const opts: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
       quality: 0.5,
@@ -641,20 +699,10 @@ RULES:
     let b64 = asset.base64 ?? '';
     if (b64.includes(',')) b64 = b64.split(',')[1];
 
-    // Save to permanent location
-    let permanentUri = asset.uri;
-    try {
-      const dir = new Directory(Paths.document, 'meal_photos');
-      if (!dir.exists) dir.create();
-      const fname = `quick_${Date.now()}.jpg`;
-      const dest = new File(dir, fname);
-      if (dest.exists) dest.delete();
-      new File(asset.uri).move(dest);
-      permanentUri = dest.uri;
-    } catch {}
-
-    setQuickAddPhoto(permanentUri);
+    setQuickAddEstimated(false);
+    setQuickAddPhoto(`${asset.uri}?t=${Date.now()}`);
     setQuickAddBase64(b64);
+    setQuickAddPhotos((prev) => [...prev, { uri: `${asset.uri}?t=${Date.now()}`, base64: b64 }]);
 
     // Auto-scan if we have base64
     if (b64 && b64.length > 100) {
@@ -667,12 +715,47 @@ RULES:
           carbsG: String(macros.carbsG),
           fatG: String(macros.fatG),
         });
+        setQuickAddEstimated(true);
       } catch (err: any) {
         console.warn('[SpiceStrong] Quick add scan failed:', err);
         // Silent — user can enter manually
       } finally {
         setQuickAddScanning(false);
       }
+    }
+  };
+
+  const removeQuickAddPhoto = (idx: number) => {
+    setQuickAddEstimated(false);
+    setQuickAddPhotos((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const analyzeQuickAddPhotos = async () => {
+    if (quickAddPhotos.length === 0) return;
+    setQuickAddScanning(true);
+    try {
+      const validPhotos = await hydrateMealPhotos(quickAddPhotos);
+      if (validPhotos.length === 0) throw new Error('No valid photos to analyze');
+      const totals = { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
+      for (const photo of validPhotos) {
+        const macros = await analyzeFoodPhoto(photo.base64, quickAddName || 'meal');
+        totals.calories += macros.calories;
+        totals.proteinG += macros.proteinG;
+        totals.carbsG += macros.carbsG;
+        totals.fatG += macros.fatG;
+      }
+      setQuickAddMacros({
+        calories: String(totals.calories),
+        proteinG: String(totals.proteinG),
+        carbsG: String(totals.carbsG),
+        fatG: String(totals.fatG),
+      });
+      setQuickAddEstimated(true);
+    } catch (err: any) {
+      console.warn('[SpiceStrong] Quick add scan failed:', err);
+      Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again or enter manually.`);
+    } finally {
+      setQuickAddScanning(false);
     }
   };
 
@@ -701,7 +784,8 @@ RULES:
     }
 
     // Save macros + photo as override
-    const override: MacroOverride = { ...macros, photoUri: quickAddPhoto ?? '' };
+    const photoUris = await persistMealPhotoUris(quickAddPhotos, `quick_${Date.now()}`);
+    const override: MacroOverride = { ...macros, photoUri: photoUris[0] ?? '', photoUris };
     // Need the actual entry ID from the service — use the same ID format
     const entries = await getMealPlanForDate(currentDate);
     const newEntry = entries.find((e) => e.recipeName === name && e.slot === quickAddSlot);
@@ -726,6 +810,7 @@ RULES:
         // Quick-add meals — no recipe, macros from override only
         if (isQuickAdd) {
           let imageUri: string | null = null;
+          let photoUris: string[] = [];
           let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
           try {
             const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
@@ -733,15 +818,17 @@ RULES:
               const o: MacroOverride = JSON.parse(overrideStr);
               calories = o.calories; proteinG = o.proteinG; carbsG = o.carbsG; fatG = o.fatG;
               if (o.photoUri) imageUri = o.photoUri;
+              photoUris = o.photoUris ?? (o.photoUri ? [o.photoUri] : []);
             }
           } catch {}
-          return { ...entry, recipe: null, imageUri, builtinImage: null, calories, proteinG, carbsG, fatG, isQuickAdd: true };
+          return { ...entry, recipe: null, imageUri, photoUris, builtinImage: null, calories, proteinG, carbsG, fatG, isQuickAdd: true };
         }
 
         // Autoplan placeholders — target macros stored in aiNutrition on local recipe
         if (isAutoplan) {
           const recipe = await getRecipeById(entry.recipeId);
           let imageUri = await resolveImage(entry.recipeId, recipe);
+          let photoUris: string[] = imageUri ? [imageUri] : [];
           let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
           if (recipe) {
             // If recipe has been fully generated (status=ready), use getCompletionStats
@@ -774,14 +861,16 @@ RULES:
               const o: MacroOverride = JSON.parse(overrideStr);
               calories = o.calories; proteinG = o.proteinG; carbsG = o.carbsG; fatG = o.fatG;
               if (o.photoUri) imageUri = o.photoUri;
+              photoUris = o.photoUris ?? (o.photoUri ? [o.photoUri] : []);
             }
           } catch {}
-          return { ...entry, recipe, imageUri, builtinImage: null, calories, proteinG, carbsG, fatG };
+          return { ...entry, recipe, imageUri, photoUris, builtinImage: null, calories, proteinG, carbsG, fatG };
         }
 
         const recipe = await getRecipeById(entry.recipeId);
         let imageUri = await resolveImage(entry.recipeId, recipe);
-        const builtinImage = recipe ? getRecipeCardImage(recipe) : null;
+        let photoUris: string[] = imageUri ? [imageUri] : [];
+        const builtinImage = recipe ? getRecipeCardImage(recipe.id) : null;
         let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
         if (recipe) {
           // Pipeline values are already per-serving (highest priority)
@@ -805,9 +894,10 @@ RULES:
             const o: MacroOverride = JSON.parse(overrideStr);
             calories = o.calories; proteinG = o.proteinG; carbsG = o.carbsG; fatG = o.fatG;
             if (o.photoUri) imageUri = o.photoUri;
+            photoUris = o.photoUris ?? (o.photoUri ? [o.photoUri] : []);
           }
         } catch {}
-        return { ...entry, recipe, imageUri, builtinImage, calories, proteinG, carbsG, fatG };
+        return { ...entry, recipe, imageUri, photoUris, builtinImage, calories, proteinG, carbsG, fatG };
       })
     );
 
@@ -1006,10 +1096,10 @@ RULES:
   const isToday = currentDate === today;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Meal Calendar</Text>
@@ -1261,7 +1351,7 @@ RULES:
                     style={styles.emptySlot}
                     onPress={() => {
                       Alert.alert('Add to ' + SLOT_LABELS[slot].replace(/^[^\s]+\s/, ''), 'How would you like to add a meal?', [
-                        { text: 'Browse Recipes', onPress: () => router.push('/screens/ProteinSelectionScreen') },
+                        { text: 'Browse Recipes', onPress: openBrowseRecipeHelp },
                         { text: 'Quick Add Meal', onPress: () => openQuickAdd(slot) },
                         { text: 'Cancel', style: 'cancel' },
                       ]);
@@ -1277,6 +1367,36 @@ RULES:
           })}
         </ScrollView>
       )}
+
+      {/* Browse recipe instruction modal */}
+      <Modal visible={browseHelpVisible} transparent animationType="fade" onRequestClose={() => setBrowseHelpVisible(false)} statusBarTranslucent>
+        <Pressable style={styles.browseHelpBackdrop} onPress={() => setBrowseHelpVisible(false)}>
+          <Pressable style={styles.browseHelpSheet} onPress={() => {}}>
+            <View style={styles.browseHelpIcon}>
+              <Text style={styles.browseHelpIconText}>📅</Text>
+            </View>
+            <Text style={styles.browseHelpTitle}>Add Recipes to Meal Plan</Text>
+            <Text style={styles.browseHelpText}>Long press any recipe to add it to your meal plan.</Text>
+            <TouchableOpacity
+              style={styles.browseHelpPrimary}
+              onPress={() => {
+                setBrowseHelpVisible(false);
+                router.push('/screens/ProteinSelectionScreen');
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.browseHelpPrimaryText}>Browse Recipes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.browseHelpSecondary}
+              onPress={() => setBrowseHelpVisible(false)}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.browseHelpSecondaryText}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Quick Add Meal Modal */}
       <Modal visible={quickAddOpen} transparent animationType="fade" onRequestClose={() => { Keyboard.dismiss(); closeQuickAdd(); }} statusBarTranslucent>
@@ -1296,8 +1416,62 @@ RULES:
               returnKeyType="done"
             />
 
+            {!quickAddManualMode && !quickAddEstimated && !quickAddScanning && (
+              <>
+            <Text style={styles.cmPhotoHintText}>Snap each item in your meal</Text>
+            <View style={styles.cmFrameGrid}>
+              {[0, 1, 2, 3].map((idx) => {
+                const photo = quickAddPhotos[idx];
+                return (
+                  <View key={idx} style={styles.cmFrame}>
+                    {photo ? (
+                      <>
+                        <Image source={{ uri: photo.uri }} style={styles.cmFrameImg} contentFit="cover" cachePolicy="none" />
+                        <TouchableOpacity style={styles.cmFrameRemoveLeft} onPress={() => removeQuickAddPhoto(idx)}>
+                          <Text style={styles.cmFrameRemoveText}>x</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.cmFrameEmpty}
+                        onPress={() => Alert.alert('Add Photo', 'How would you like to add?', [
+                          { text: 'Camera', onPress: () => pickQuickAddPhoto(true) },
+                          { text: 'Gallery', onPress: () => pickQuickAddPhoto(false) },
+                          { text: 'Cancel', style: 'cancel' },
+                        ])}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.cmFrameEmptyIcon}>+</Text>
+                        <Text style={styles.cmFrameEmptyLabel}>Photo {idx + 1}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+            {quickAddPhotos.length > 0 && (
+              <TouchableOpacity style={styles.cmAnalyzeBtn} onPress={analyzeQuickAddPhotos} activeOpacity={0.8}>
+                <Text style={styles.cmAnalyzeBtnText}>{quickAddScanning ? 'Analyzing...' : `Analyze Meal (${quickAddPhotos.length} photo${quickAddPhotos.length > 1 ? 's' : ''})`}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.cmManualBtn} onPress={() => setQuickAddManualMode(true)} activeOpacity={0.8}>
+              <Text style={styles.cmManualBtnText}>Enter Manually</Text>
+            </TouchableOpacity>
+              </>
+            )}
+
+            {quickAddScanning && (
+              <View style={styles.cmAnalyzing}>
+                <ActivityIndicator color={ORANGE} size="small" />
+                <Text style={styles.cmAnalyzingText}>Analyzing {quickAddPhotos.length} photo{quickAddPhotos.length > 1 ? 's' : ''}...</Text>
+              </View>
+            )}
+
+            {(quickAddManualMode || quickAddEstimated) && !quickAddScanning && (
+              <>
+
             {/* Photo section */}
-            {!quickAddPhoto ? (
+            {false ? (
               <View style={styles.cmBtnRow}>
                 <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(true)} activeOpacity={0.75}>
                   <Text style={styles.cmPhotoBtnText}>📷 Camera</Text>
@@ -1308,7 +1482,7 @@ RULES:
               </View>
             ) : (
               <View style={styles.qaPhotoRow}>
-                <Image source={{ uri: quickAddPhoto }} style={styles.qaPhotoThumb} contentFit="cover" />
+                <Image source={{ uri: quickAddPhoto ?? '' }} style={styles.qaPhotoThumb} contentFit="cover" />
                 <TouchableOpacity onPress={() => { setQuickAddPhoto(null); setQuickAddBase64(''); }} activeOpacity={0.7}>
                   <Text style={styles.qaPhotoChange}>Change</Text>
                 </TouchableOpacity>
@@ -1373,6 +1547,8 @@ RULES:
             <TouchableOpacity style={styles.cmApplyBtn} onPress={saveQuickAdd} activeOpacity={0.8}>
               <Text style={styles.cmApplyBtnText}>Add to Meal Plan</Text>
             </TouchableOpacity>
+              </>
+            )}
           </Pressable>
         </Pressable>
         </KeyboardAvoidingView>
@@ -1444,7 +1620,7 @@ RULES:
                         {photo ? (
                           <>
                             <Image source={{ uri: photo.uri }} style={styles.cmFrameImg} contentFit="cover" cachePolicy="none" />
-                            <TouchableOpacity style={styles.cmFrameRemove} onPress={() => removeMealPhoto(idx)}>
+                            <TouchableOpacity style={styles.cmFrameRemoveLeft} onPress={() => removeMealPhoto(idx)}>
                               <Text style={styles.cmFrameRemoveText}>✕</Text>
                             </TouchableOpacity>
                           </>
@@ -1533,12 +1709,12 @@ RULES:
         </Pressable>
         </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
@@ -1548,18 +1724,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: PLAYFAIR },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   autoPlanBtn: {
-    backgroundColor: 'rgba(232,93,38,0.15)',
+    backgroundColor: 'rgba(143,58,31,0.15)',
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.35)',
+    borderColor: 'rgba(143,58,31,0.35)',
   },
   autoPlanBtnText: { fontSize: 12, fontWeight: '700', color: ORANGE },
   todayBtn: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.40)' },
@@ -1572,7 +1762,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
   navArrow: { fontSize: 34, color: ORANGE, fontWeight: '700', lineHeight: 38 },
   dayCenter: { alignItems: 'center', gap: 6 },
@@ -1580,14 +1770,68 @@ const styles = StyleSheet.create({
   dayLabel: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
   calendarHint: { fontSize: 12, color: ORANGE, marginTop: 2 },
   todayPill: {
-    backgroundColor: 'rgba(232,93,38,0.20)',
+    backgroundColor: 'rgba(143,58,31,0.20)',
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.45)',
+    borderColor: 'rgba(143,58,31,0.45)',
   },
   todayPillText: { fontSize: 10, fontWeight: '800', color: ORANGE, letterSpacing: 1 },
+
+  browseHelpBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  browseHelpSheet: {
+    width: '100%',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.16)',
+    backgroundColor: 'rgba(29,24,20,0.96)',
+    padding: 24,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.48, shadowRadius: 24, shadowOffset: { width: 0, height: 14 } },
+      android: { elevation: 16 },
+    }),
+  },
+  browseHelpIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(143,58,31,0.30)',
+    borderWidth: 1,
+    borderColor: 'rgba(143,58,31,0.55)',
+    marginBottom: 14,
+  },
+  browseHelpIconText: { fontSize: 30 },
+  browseHelpTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 8, fontFamily: PLAYFAIR },
+  browseHelpText: { color: 'rgba(248,241,232,0.76)', fontSize: 15, fontWeight: '700', lineHeight: 22, textAlign: 'center', marginBottom: 22 },
+  browseHelpPrimary: {
+    width: '100%',
+    borderRadius: 14,
+    backgroundColor: ORANGE,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  browseHelpPrimaryText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  browseHelpSecondary: {
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
+    backgroundColor: 'rgba(248,241,232,0.06)',
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  browseHelpSecondaryText: { color: 'rgba(248,241,232,0.72)', fontSize: 15, fontWeight: '800' },
 
   // Calendar picker modal
   calBackdrop: {
@@ -1664,9 +1908,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     paddingVertical: 12,
     borderRadius: 14,
-    backgroundColor: 'rgba(232,93,38,0.15)',
+    backgroundColor: 'rgba(143,58,31,0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.35)',
+    borderColor: 'rgba(143,58,31,0.35)',
     alignItems: 'center',
   },
   calTodayBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
@@ -1752,7 +1996,7 @@ const styles = StyleSheet.create({
     backgroundColor: SURFACE,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: 'rgba(232,93,38,0.25)',
+    borderColor: 'rgba(143,58,31,0.25)',
     borderStyle: 'dashed',
     paddingVertical: 28,
     alignItems: 'center',
@@ -1829,7 +2073,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardMacroPillProtein: {
-    backgroundColor: 'rgba(232,93,38,0.55)',
+    backgroundColor: 'rgba(143,58,31,0.55)',
   },
   removeBtn: {
     width: 28,
@@ -1861,12 +2105,12 @@ const styles = StyleSheet.create({
   },
   cardBottomActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   updateBtnOverlay: {
-    backgroundColor: 'rgba(232,93,38,0.25)',
+    backgroundColor: 'rgba(143,58,31,0.25)',
     borderRadius: 10,
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.50)',
+    borderColor: 'rgba(143,58,31,0.50)',
   },
   updateBtnOverlayText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   tapToGenerate: { fontSize: 11, fontWeight: '600', color: ORANGE, fontStyle: 'italic' },
@@ -1921,12 +2165,12 @@ const styles = StyleSheet.create({
   cmBtnRow: { flexDirection: 'row', gap: 10 },
   cmPhotoBtn: {
     flex: 1,
-    backgroundColor: 'rgba(232,93,38,0.20)',
+    backgroundColor: 'rgba(143,58,31,0.20)',
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.40)',
+    borderColor: 'rgba(143,58,31,0.40)',
   },
   cmPhotoBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
   cmAnalyzing: { alignItems: 'center', gap: 10, paddingVertical: 20 },
@@ -1964,6 +2208,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   qaPhotoRow: {
+    display: 'none',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -2010,13 +2255,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  cmFrameRemoveLeft: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cmFrameRemoveText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
   cmFrameEmpty: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(232,93,38,0.25)',
+    borderColor: 'rgba(143,58,31,0.25)',
     borderStyle: 'dashed',
     borderRadius: 13,
     margin: 1,

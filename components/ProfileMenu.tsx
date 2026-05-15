@@ -24,10 +24,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import PaywallModal from './PaywallModal';
 import { type LimitCheck } from '../services/subscriptionService';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.08)';
+const ORANGE = '#8F3A1F';
+const BG = '#0D0B09';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.78;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
@@ -290,8 +290,14 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginHorizontal: 12,
+    marginVertical: 2,
+    borderRadius: 8,
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.08)',
     gap: 16,
   },
   menuLabel: {

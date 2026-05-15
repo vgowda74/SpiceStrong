@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   ImageBackground,
   Linking,
@@ -31,10 +32,11 @@ import {
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { buildSmartShoppingList, groupByCategory, buildSmartShareMessage, openAmazonFresh } from '../../src/utils/shoppingListHelper';
 import { CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
-const ORANGE = '#E85D26';
-const ORANGE_LIGHT = 'rgba(232, 93, 38, 0.35)';
+import { getIngredientInfo } from '../../services/ingredientInfoService';
+const ORANGE = '#8F3A1F';
+const ORANGE_LIGHT = 'rgba(143, 58, 31, 0.35)';
 const CARD_BG = 'rgba(255,255,255,0.08)';
-const CARD_BG_CHECKED = 'rgba(232, 93, 38, 0.12)';
+const CARD_BG_CHECKED = 'rgba(143, 58, 31, 0.12)';
 const BORDER_COLOR = 'rgba(255,255,255,0.08)';
 
 /** Map ingredient names to emojis for visual display. */
@@ -146,8 +148,8 @@ function getIngredientEmoji(name: string): string {
 
 /** Categorize ingredients for display tags */
 const INGREDIENT_CATEGORIES: [RegExp, { label: string; color: string }][] = [
-  [/chicken|lamb|mutton|goat|pork|fish|salmon|tuna|cod|prawn|shrimp|beef|turkey/i, { label: 'PROTEIN', color: '#E85D26' }],
-  [/paneer|tofu|egg|whey|protein powder/i, { label: 'PROTEIN', color: '#E85D26' }],
+  [/chicken|lamb|mutton|goat|pork|fish|salmon|tuna|cod|prawn|shrimp|beef|turkey/i, { label: 'PROTEIN', color: '#8F3A1F' }],
+  [/paneer|tofu|egg|whey|protein powder/i, { label: 'PROTEIN', color: '#8F3A1F' }],
   [/yogurt|curd|cream|butter|ghee|milk|cheese/i, { label: 'DAIRY', color: '#FFA726' }],
   [/oil|olive oil|coconut oil/i, { label: 'OIL', color: '#8D6E63' }],
   [/salt/i, { label: 'ESSENTIAL', color: '#78909C' }],
@@ -193,6 +195,10 @@ export default function IngredientChecklistScreen() {
   const [showCartSheet, setShowCartSheet] = useState(false);
   const [sheetTab, setSheetTab] = useState<'recipe' | 'smart'>('smart');
   const [showPantry, setShowPantry] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false);
+  const [infoText, setInfoText] = useState('');
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoItemName, setInfoItemName] = useState('');
   const cartSheetAnim = useRef(new Animated.Value(0)).current;
   const cartBounce = useRef(new Animated.Value(1)).current;
 
@@ -224,6 +230,21 @@ export default function IngredientChecklistScreen() {
       ]).start();
       return updated;
     });
+  };
+
+  const handleIngredientInfo = async (name: string) => {
+    setInfoItemName(name);
+    setInfoVisible(true);
+    setInfoLoading(true);
+    setInfoText('');
+    try {
+      const text = await getIngredientInfo(name);
+      setInfoText(text);
+    } catch {
+      setInfoText('Could not load info. Please try again.');
+    } finally {
+      setInfoLoading(false);
+    }
   };
 
   const clearCart = () => {
@@ -281,7 +302,7 @@ export default function IngredientChecklistScreen() {
   const overlay = (
     <View style={{
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.35)',
+      backgroundColor: 'rgba(13,11,9,0.76)',
     }} />
   );
 
@@ -414,17 +435,15 @@ export default function IngredientChecklistScreen() {
     const cartKey = `${item.name}|||${item.quantity}`;
     const inCart = !!cartItems[cartKey];
     return (
-      <TouchableOpacity
+      <View
         style={[styles.ingredientCard, isChecked && styles.ingredientCardChecked]}
-        onPress={() => toggleChecked(item.flatIndex)}
-        activeOpacity={0.7}
       >
         {/* Radio button on the left */}
-        <View style={[styles.radioBtn, isChecked && styles.radioBtnChecked]}>
+        <TouchableOpacity style={[styles.radioBtn, isChecked && styles.radioBtnChecked]} onPress={() => toggleChecked(item.flatIndex)} activeOpacity={0.7}>
           {isChecked ? <View style={styles.radioBtnInner} /> : null}
-        </View>
+        </TouchableOpacity>
         {/* Ingredient image: AI image > static image > emoji fallback */}
-        <View style={[styles.ingredientIcon, isChecked && styles.ingredientIconChecked]}>
+        <TouchableOpacity style={[styles.ingredientIcon, isChecked && styles.ingredientIconChecked]} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
           {aiImgUrl ? (
             <Image source={{ uri: aiImgUrl }} style={styles.ingredientIconImage} />
           ) : ingredientImg ? (
@@ -432,9 +451,9 @@ export default function IngredientChecklistScreen() {
           ) : (
             <Text style={styles.ingredientIconEmoji}>{emoji}</Text>
           )}
-        </View>
+        </TouchableOpacity>
         {/* Name, quantity & category tag */}
-        <View style={styles.ingredientInfo}>
+        <TouchableOpacity style={styles.ingredientInfo} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
           <Text style={[styles.ingredientName, isChecked && styles.ingredientNameChecked]} numberOfLines={1}>
             {item.name}
           </Text>
@@ -447,7 +466,7 @@ export default function IngredientChecklistScreen() {
               <Text style={[styles.categoryText, { color: category.color }]}>{category.label}</Text>
             </View>
           )}
-        </View>
+        </TouchableOpacity>
         {/* Cart button */}
         <TouchableOpacity
           style={[styles.cartIconBtn, inCart && styles.cartIconBtnActive]}
@@ -464,7 +483,7 @@ export default function IngredientChecklistScreen() {
           )}
           <Text style={[styles.cartIconLabel, inCart && styles.cartIconLabelActive]}>{inCart ? 'Added' : 'Add'}</Text>
         </TouchableOpacity>
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -763,6 +782,29 @@ export default function IngredientChecklistScreen() {
           </Animated.View>
         </Pressable>
       </Modal>
+
+      <Modal visible={infoVisible} transparent animationType="slide" onRequestClose={() => setInfoVisible(false)}>
+        <View style={styles.infoOverlay}>
+          <View style={styles.infoCard}>
+            <View style={styles.infoHeader}>
+              <Text style={styles.infoTitle}>Learn About {infoItemName}</Text>
+              <TouchableOpacity onPress={() => setInfoVisible(false)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={styles.infoClose}>×</Text>
+              </TouchableOpacity>
+            </View>
+            {infoLoading ? (
+              <View style={styles.infoLoading}>
+                <ActivityIndicator color={ORANGE} size="large" />
+                <Text style={styles.infoLoadingText}>Looking up {infoItemName}...</Text>
+              </View>
+            ) : (
+              <RNScrollView style={styles.infoScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.infoBody}>{infoText}</Text>
+              </RNScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ImageBackground>
   );
 }
@@ -803,12 +845,18 @@ const styles = StyleSheet.create({
     left: 16,
     top: 52,
     zIndex: 10,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(13,11,9,0.54)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
   },
   backText: {
     color: '#FFFFFF',
@@ -820,7 +868,7 @@ const styles = StyleSheet.create({
     paddingLeft: 64,
     paddingRight: 20,
     paddingTop: 52,
-    paddingBottom: 4,
+    paddingBottom: 10,
   },
   // Controls — full width
   controlsSection: {
@@ -829,14 +877,16 @@ const styles = StyleSheet.create({
   },
   recipeName: {
     color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 4,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 6,
+    letterSpacing: 0,
   },
   recipeSubtitle: {
-    color: 'rgba(255,255,255,0.55)',
+    color: 'rgba(248,241,232,0.68)',
     fontSize: 14,
-    marginBottom: 14,
+    fontWeight: '600',
+    marginBottom: 12,
   },
   // Serving header
   servingHeader: {
@@ -864,14 +914,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderRadius: 25,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
     alignItems: 'center',
   },
   tierOptionSelected: {
-    backgroundColor: ORANGE,
-    borderColor: ORANGE,
+    backgroundColor: '#F8F1E8',
+    borderColor: '#F8F1E8',
   },
   tierOptionText: {
     fontSize: 15,
@@ -879,7 +929,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tierOptionTextSelected: {
-    color: '#FFFFFF',
+    color: '#2A1005',
   },
   // Single-serving
   singleServingNote: {
@@ -912,7 +962,7 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(248,241,232,0.58)',
   },
   progressPct: {
     fontSize: 13,
@@ -920,9 +970,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   progressBarBg: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,241,232,0.1)',
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -945,7 +995,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(248,241,232,0.52)',
     letterSpacing: 1.5,
     marginRight: 12,
   },
@@ -972,7 +1022,7 @@ const styles = StyleSheet.create({
   sectionLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(248,241,232,0.12)',
   },
   // List
   listContent: {
@@ -982,28 +1032,30 @@ const styles = StyleSheet.create({
   ingredientCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(80, 40, 20, 0.55)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 8,
     marginHorizontal: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.4)',
+    borderColor: 'rgba(248,241,232,0.14)',
   },
   ingredientCardChecked: {
-    backgroundColor: 'rgba(232, 93, 38, 0.18)',
-    borderColor: 'rgba(232, 93, 38, 0.35)',
+    backgroundColor: 'rgba(143,58,31,0.22)',
+    borderColor: 'rgba(143,58,31,0.42)',
   },
   // Radio button on the left
   radioBtn: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(248,241,232,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.24)',
   },
   radioBtnChecked: {
     backgroundColor: ORANGE,
@@ -1018,11 +1070,12 @@ const styles = StyleSheet.create({
   ingredientIcon: {
     width: 52,
     height: 52,
-    borderRadius: 10,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
     overflow: 'hidden',
+    backgroundColor: 'rgba(0,0,0,0.22)',
   },
   ingredientIconChecked: {
     opacity: 0.4,
@@ -1030,7 +1083,7 @@ const styles = StyleSheet.create({
   ingredientIconImage: {
     width: 52,
     height: 52,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   ingredientIconEmoji: {
     fontSize: 24,
@@ -1052,7 +1105,7 @@ const styles = StyleSheet.create({
   },
   ingredientSubtitle: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.55)',
+    color: 'rgba(248,241,232,0.6)',
     fontWeight: '500',
   },
   ingredientSubtitleChecked: {
@@ -1096,7 +1149,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 23,
-    backgroundColor: '#4CAF50',
+    backgroundColor: 'rgba(34,140,60,0.70)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -1123,7 +1176,7 @@ const styles = StyleSheet.create({
   selectAllText: {
     fontSize: 12,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.5)',
+    color: 'rgba(248,241,232,0.55)',
     marginRight: 8,
   },
   // Bottom sheet
@@ -1296,9 +1349,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     paddingBottom: 36,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(13,11,9,0.92)',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderTopColor: 'rgba(248,241,232,0.10)',
   },
   footerRow: {
     flexDirection: 'row',
@@ -1364,17 +1417,70 @@ const styles = StyleSheet.create({
   },
   startBtn: {
     backgroundColor: ORANGE,
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 16,
     alignItems: 'center',
   },
   startBtnPartial: {
-    backgroundColor: 'rgba(232, 93, 38, 0.55)',
+    backgroundColor: 'rgba(143, 58, 31, 0.55)',
     marginTop: 10,
   },
   startBtnText: {
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: 'bold',
+  },
+  infoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    justifyContent: 'flex-end',
+  },
+  infoCard: {
+    backgroundColor: '#1E1E1E',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '75%',
+    paddingBottom: 36,
+  },
+  infoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(248,241,232,0.10)',
+  },
+  infoTitle: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    marginRight: 12,
+  },
+  infoClose: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  infoLoading: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    gap: 14,
+  },
+  infoLoadingText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  infoScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  infoBody: {
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 15,
+    lineHeight: 24,
   },
 });
