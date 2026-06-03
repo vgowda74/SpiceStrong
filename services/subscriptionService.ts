@@ -20,6 +20,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEVICE_ID_KEY, isAdminDeviceId } from './adminService';
 
 const PREMIUM_KEY = 'spicestrong_premium_status';
 const USAGE_PREFIX = 'spicestrong_usage_';
@@ -61,15 +62,14 @@ const FREE_LABEL: Record<Feature, string> = {
 };
 
 // ── Admin bypass — unlimited access for admin devices ──
-const ADMIN_DEVICE_IDS = ['ios_1773504689845_bf8ebqh4'];
 
 // ── Premium Status ──
 
 export async function isPremium(): Promise<boolean> {
   // Admin devices always get premium
   try {
-    const deviceId = await AsyncStorage.getItem('spicestrong_device_id');
-    if (deviceId && ADMIN_DEVICE_IDS.includes(deviceId)) return true;
+    const deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
+    if (isAdminDeviceId(deviceId)) return true;
   } catch {}
 
   // Check RevenueCat subscription (source of truth for IAP)

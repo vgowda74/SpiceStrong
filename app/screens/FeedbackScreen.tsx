@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 
 const FEEDBACK_KEY = 'spicestrong_feedback';
-const ORANGE = '#E85D26';
+const ORANGE = '#8F3A1F';
 const PHONE_NUMBER = '4252468867';
 
 type SMSAnswers = {
@@ -249,8 +249,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
-  backBtn: { padding: 4, marginRight: 8 },
-  backText: { color: '#FFFFFF', fontSize: 24 },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  backText: { color: '#FFFFFF', fontSize: 28, lineHeight: 30, fontWeight: '900' },
   title: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingBottom: 48 },

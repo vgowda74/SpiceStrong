@@ -26,6 +26,13 @@ import {
   getBuiltInRecipeById,
 } from '../src/data/builtInRecipes';
 import { generateRecipeFingerprint } from '../src/utils/recipeFingerprint';
+import {
+  filterRecipesForPreference,
+  getDietPreference,
+  isNonVegProteinId,
+} from '../src/utils/dietPreference';
+import { getDeviceId as getAdminDeviceId, isAdmin } from './adminService';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 
 // ─── Cache Constants ───
 const CACHE_KEY_PREFIX = 'spicestrong_recipe_cache_';
@@ -292,6 +299,10 @@ async function getCachedImageUrls(recipeId: string): Promise<RecipeImageUrls | n
   }
 }
 
+export async function getCachedRecipeImageUrls(recipeId: string): Promise<RecipeImageUrls | null> {
+  return getCachedImageUrls(recipeId);
+}
+
 function extractImageUrls(images: SupabaseImageRow[] | undefined): RecipeImageUrls {
   const result: RecipeImageUrls = { heroUrl: null, stepUrls: {} };
   if (!images) return result;
@@ -318,6 +329,11 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
   recipes: SavedRecipe[];
   refresh: Promise<SavedRecipe[] | null>;
 }> {
+  const dietPreference = await getDietPreference();
+  if (dietPreference === 'veg' && isNonVegProteinId(proteinId)) {
+    return { recipes: [], refresh: Promise.resolve([]) };
+  }
+
   // 0. Load persistent deleted blocklist
   let deletedIds: Set<string>;
   try {
@@ -333,8 +349,11 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
   // 1. Get cached recipes (or built-in + local fallback)
   const cached = await getCachedRecipes(proteinId);
   const localRecipes = await getLocalRecipes();
-  const localForProtein = localRecipes.filter((r) => r.proteinId === proteinId);
-  const builtIn = getBuiltInRecipesForProtein(proteinId);
+  const localForProtein = filterRecipesForPreference(
+    localRecipes.filter((r) => r.proteinId === proteinId),
+    dietPreference,
+  );
+  const builtIn = filterRecipesForPreference(getBuiltInRecipesForProtein(proteinId), dietPreference);
 
   // Merge: cached Supabase recipes + local-only AI recipes
   let immediate: SavedRecipe[];
@@ -357,14 +376,20 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           if (!isAvailable) return null;
 
           const deviceId = await getDeviceId();
-          // Only fetch curated recipes + this device's own AI/user recipes
-          const { data, error } = await supabase
+          const admin = await isAdmin();
+          let query = supabase
             .from('recipes')
             .select('*, recipe_images(*)')
             .eq('protein_id', proteinId)
             .eq('is_active', true)
-            .or(`source.eq.curated,device_id.eq.${deviceId}`)
             .order('created_at', { ascending: true });
+
+          if (!admin) {
+            // Regular devices only fetch public curated recipes plus their own private AI/user recipes.
+            query = query.or(`source.eq.curated,device_id.eq.${deviceId}`);
+          }
+
+          const { data, error } = await query;
 
           if (error || !data) {
             if (__DEV__) console.warn(`[SpiceStrong] Supabase fetch failed for ${proteinId}:`, error?.message || 'no data');
@@ -372,7 +397,10 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           }
           if (__DEV__) console.log(`[SpiceStrong] Supabase fetch OK for ${proteinId}: ${data.length} recipes`);
 
-          const supabaseRecipes = (data as SupabaseRecipeRow[]).map(mapSupabaseRowToRecipe);
+          const supabaseRecipes = filterRecipesForPreference(
+            (data as SupabaseRecipeRow[]).map(mapSupabaseRowToRecipe),
+            dietPreference,
+          );
 
           // Cache image URLs for each recipe
           for (const row of data as SupabaseRecipeRow[]) {
@@ -383,7 +411,10 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           // Merge with local-only AI recipes (re-read to pick up any deletes since load)
           const supabaseIds = new Set(supabaseRecipes.map((r) => r.id));
           const freshLocal = await getLocalRecipes();
-          const freshLocalForProtein = freshLocal.filter((r) => r.proteinId === proteinId);
+          const freshLocalForProtein = filterRecipesForPreference(
+            freshLocal.filter((r) => r.proteinId === proteinId),
+            dietPreference,
+          );
           const localOnlyAI = freshLocalForProtein.filter((r) => !supabaseIds.has(r.id));
 
           // Preserve local source field over Supabase (local 'user' source is authoritative)
@@ -421,14 +452,16 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
  * Checks: cache → Supabase → local AsyncStorage → built-in fallback.
  */
 export async function fetchRecipeById(recipeId: string): Promise<SavedRecipe | null> {
+  const dietPreference = await getDietPreference();
+
   // 1. Check built-in first (always available offline)
   const builtIn = getBuiltInRecipeById(recipeId);
-  if (builtIn) return builtIn;
+  if (builtIn) return filterRecipesForPreference([builtIn], dietPreference)[0] ?? null;
 
   // 2. Check local AsyncStorage
   const localRecipes = await getLocalRecipes();
   const local = localRecipes.find((r) => r.id === recipeId);
-  if (local) return local;
+  if (local) return filterRecipesForPreference([local], dietPreference)[0] ?? null;
 
   // 3. Check all caches
   try {
@@ -436,7 +469,7 @@ export async function fetchRecipeById(recipeId: string): Promise<SavedRecipe | n
       const cached = await getCachedRecipes(protein);
       if (cached) {
         const found = cached.find((r) => r.id === recipeId);
-        if (found) return found;
+        if (found) return filterRecipesForPreference([found], dietPreference)[0] ?? null;
       }
     }
   } catch { /* continue */ }
@@ -453,6 +486,7 @@ export async function fetchRecipeById(recipeId: string): Promise<SavedRecipe | n
 
       if (!error && data) {
         const recipe = mapSupabaseRowToRecipe(data as SupabaseRecipeRow);
+        if (filterRecipesForPreference([recipe], dietPreference).length === 0) return null;
         const urls = extractImageUrls((data as SupabaseRecipeRow).recipe_images);
         await cacheImageUrls(recipeId, urls);
         return recipe;
@@ -520,7 +554,7 @@ async function syncRecipeToSupabase(
   const isAvailable = await checkRecipeTableAvailable();
   if (!isAvailable) throw new Error('Supabase not available');
 
-  const deviceId = await getDeviceId();
+  const deviceId = await getAdminDeviceId();
 
   // Generate fingerprint (null if user is overriding a detected duplicate)
   let fingerprint: string | null = null;
@@ -535,6 +569,8 @@ async function syncRecipeToSupabase(
     }
   }
 
+  const clientSafeSource = recipe.source === 'user' ? 'user' : 'ai';
+
   const row: Record<string, unknown> = {
     id: recipe.id,
     name: recipe.name,
@@ -546,9 +582,9 @@ async function syncRecipeToSupabase(
     meal_type: recipe.mealType ?? null,
     ingredients: recipe.ingredients,
     steps: recipe.steps,
-    source: recipe.source === 'curated' ? 'curated' : (recipe.source === 'user' ? 'user' : 'ai'),
+    source: clientSafeSource,
     is_active: true,
-    is_published: recipe.source === 'curated',
+    is_published: false,
     is_pro: false,
     // DB CHECK constraint only allows 'building' or 'ready'
     status: (recipe.status === 'building') ? 'building' : 'ready',
@@ -645,13 +681,19 @@ export async function refreshRecipeCache(): Promise<void> {
     if (!isAvailable) return;
 
     const deviceId = await getDeviceId();
-    // Only fetch curated recipes + this device's own AI/user recipes
-    const { data, error } = await supabase
+    const admin = await isAdmin();
+    let query = supabase
       .from('recipes')
       .select('*, recipe_images(*)')
       .eq('is_active', true)
-      .or(`source.eq.curated,device_id.eq.${deviceId}`)
       .order('created_at', { ascending: true });
+
+    if (!admin) {
+      // Regular devices only fetch public curated recipes plus their own private AI/user recipes.
+      query = query.or(`source.eq.curated,device_id.eq.${deviceId}`);
+    }
+
+    const { data, error } = await query;
 
     if (error || !data) return;
 
@@ -817,6 +859,12 @@ export async function uploadStepImage(
       console.warn(`[SpiceStrong] Step ${stepIndex} image record insert failed:`, imgError.message);
     }
 
+    try {
+      await adminUpsertRecipeImage(recipeId, 'step', publicUrl, stepIndex);
+    } catch (error) {
+      console.warn('[SpiceStrong] Admin step image metadata update failed:', error);
+    }
+
     console.log(`[SpiceStrong] Step ${stepIndex} image uploaded: ${recipeId} -> ${publicUrl}`);
     return publicUrl;
   } catch (e) {
@@ -834,7 +882,11 @@ export async function uploadStepImage(
  *
  * @returns true if deletion succeeded at the local level
  */
-export async function deleteAIRecipe(recipeId: string, proteinId: string): Promise<boolean> {
+export async function deleteAIRecipe(
+  recipeId: string,
+  proteinId: string,
+  skipSupabaseDeactivation = false,
+): Promise<boolean> {
   try {
     // 1. Remove from local AsyncStorage
     const data = await AsyncStorage.getItem('spicestrong_recipes');
@@ -843,6 +895,14 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
       try { all = JSON.parse(data); } catch { console.warn('[SpiceStrong] Corrupted local recipes data during delete, skipping local cleanup'); all = []; }
       const updated = all.filter((r) => r.id !== recipeId);
       await AsyncStorage.setItem('spicestrong_recipes', JSON.stringify(updated));
+    }
+
+    // Also remove from pending sync so a deleted local-only recipe cannot be uploaded later.
+    const pendingData = await AsyncStorage.getItem(PENDING_SYNC_KEY);
+    if (pendingData) {
+      let pending: string[];
+      try { pending = JSON.parse(pendingData); } catch { pending = []; }
+      await AsyncStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pending.filter((id) => id !== recipeId)));
     }
 
     // 2. Remove from per-protein recipe cache
@@ -857,21 +917,23 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
     await AsyncStorage.removeItem(`${CACHE_META_PREFIX}${proteinId}`);
 
     // 4. Deactivate in Supabase (soft delete — set is_active = false)
-    try {
-      const isAvailable = await checkRecipeTableAvailable();
-      if (isAvailable) {
-        const { error, count } = await supabase
-          .from('recipes')
-          .update({ is_active: false })
-          .eq('id', recipeId);
-        if (error) {
-          console.warn(`[SpiceStrong] Supabase deactivation failed (RLS?):`, error.message);
-        } else {
-          console.log(`[SpiceStrong] Recipe deactivated in Supabase: ${recipeId}`);
+    if (!skipSupabaseDeactivation) {
+      try {
+        const isAvailable = await checkRecipeTableAvailable();
+        if (isAvailable) {
+          const { error, count } = await supabase
+            .from('recipes')
+            .update({ is_active: false })
+            .eq('id', recipeId);
+          if (error) {
+            console.warn(`[SpiceStrong] Supabase deactivation failed (RLS?):`, error.message);
+          } else {
+            console.log(`[SpiceStrong] Recipe deactivated in Supabase: ${recipeId}`);
+          }
         }
+      } catch {
+        console.warn(`[SpiceStrong] Could not deactivate recipe in Supabase: ${recipeId}`);
       }
-    } catch {
-      console.warn(`[SpiceStrong] Could not deactivate recipe in Supabase: ${recipeId}`);
     }
 
     // 5. Track deleted ID in persistent blocklist so it never comes back
@@ -894,8 +956,189 @@ export async function deleteAIRecipe(recipeId: string, proteinId: string): Promi
   }
 }
 
+async function adminRecipePatch(recipeId: string, payload: Record<string, unknown>): Promise<void> {
+  const admin = await isAdmin();
+  if (!admin) throw new Error('Admin access required');
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('Supabase is not configured');
+
+  const deviceId = await getAdminDeviceId();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/spicestrong_admin_update_recipe`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({
+      p_recipe_id: recipeId,
+      p_admin_device_id: deviceId,
+      p_payload: payload,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    if (res.status === 404 || body.includes('spicestrong_admin_update_recipe')) {
+      throw new Error('Admin database function is missing. Run supabase/admin-device-policies.sql in Supabase SQL Editor.');
+    }
+    throw new Error(body || `Supabase admin update failed (${res.status})`);
+  }
+
+  const updatedRows = await res.json().catch(() => null);
+  if (Array.isArray(updatedRows) && updatedRows.length === 0) {
+    throw new Error('No matching recipe row was updated. Sync this recipe to Supabase first.');
+  }
+}
+
+function isAdminDatabaseFunctionMissing(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('Admin database function is missing')
+    || message.includes('Admin image database function is missing')
+    || message.includes('spicestrong_admin_update_recipe')
+    || message.includes('spicestrong_admin_upsert_recipe_image')
+    || message.includes('PGRST202');
+}
+
+async function invalidateRecipeCaches(proteinId: string, recipeId?: string): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(`${CACHE_META_PREFIX}${proteinId}`);
+    await AsyncStorage.removeItem(`${CACHE_KEY_PREFIX}${proteinId}`);
+    if (recipeId) await AsyncStorage.removeItem(`${IMAGE_CACHE_KEY_PREFIX}${recipeId}`);
+  } catch {
+    // Cache invalidation is best-effort; backend writes are authoritative.
+  }
+}
+
+async function adminUpsertRecipeImage(
+  recipeId: string,
+  imageType: 'hero' | 'step' | 'ingredient',
+  storageUrl: string,
+  stepIndex: number | null = null,
+): Promise<void> {
+  if (!(await isAdmin())) return;
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('Supabase is not configured');
+
+  const deviceId = await getAdminDeviceId();
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/spicestrong_admin_upsert_recipe_image`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      p_recipe_id: recipeId,
+      p_admin_device_id: deviceId,
+      p_image_type: imageType,
+      p_step_index: stepIndex,
+      p_storage_url: storageUrl,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    if (res.status === 404 || body.includes('spicestrong_admin_upsert_recipe_image')) {
+      throw new Error('Admin image database function is missing. Run supabase/admin-device-policies.sql in Supabase SQL Editor.');
+    }
+    throw new Error(body || `Supabase admin image update failed (${res.status})`);
+  }
+}
+
+export async function adminDeactivateRecipe(recipeId: string, proteinId: string): Promise<void> {
+  // Always remove local AsyncStorage copies/caches too. Some admin-created or
+  // imported recipes may exist only on this device and never reach Supabase.
+  await deleteAIRecipe(recipeId, proteinId, true);
+
+  try {
+    await adminRecipePatch(recipeId, { is_active: false });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('No matching recipe row')) {
+      console.log(`[SpiceStrong] Admin delete: ${recipeId} was local-only`);
+      return;
+    }
+    if (isAdminDatabaseFunctionMissing(error)) {
+      console.warn(`[SpiceStrong] Admin delete hidden locally; Supabase admin RPC is not deployed for ${recipeId}.`);
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function adminPublishRecipe(recipe: SavedRecipe): Promise<void> {
+  const publishPayload = {
+    source: 'curated',
+    is_published: true,
+    is_active: true,
+    status: 'ready',
+    name: recipe.name,
+    protein_id: recipe.proteinId,
+    protein_name: recipe.proteinName,
+    protein_emoji: recipe.proteinEmoji,
+    description: recipe.description ?? null,
+    chef_tip: recipe.chefTip || null,
+    meal_type: recipe.mealType ?? null,
+    ingredients: recipe.ingredients,
+    steps: recipe.steps,
+    ai_nutrition: recipe.aiNutrition ?? null,
+  };
+
+  try {
+    await adminRecipePatch(recipe.id, publishPayload);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes('No matching recipe row')) throw error;
+
+    // Local-only/offline-created recipes need a backend row before the admin RPC can publish them.
+    const syncResult = await syncRecipeToSupabase(recipe, true);
+    if (!syncResult.success) {
+      throw new Error(syncResult.message || 'Could not sync recipe before publishing.');
+    }
+    await adminRecipePatch(recipe.id, publishPayload);
+  }
+
+  await invalidateRecipeCaches(recipe.proteinId);
+}
+
 // ─── Classification System Prompt ───
 // Mirrors scripts/pipeline/classifyRecipe.js — keep in sync
+export async function adminUpdateRecipeSteps(
+  recipeId: string,
+  proteinId: string,
+  steps: CookingStep[],
+): Promise<void> {
+  await adminRecipePatch(recipeId, { steps });
+
+  try {
+    await AsyncStorage.removeItem(`${CACHE_META_PREFIX}${proteinId}`);
+    const cached = await getCachedRecipes(proteinId);
+    if (cached) {
+      await setCachedRecipes(
+        proteinId,
+        cached.map((recipe) => recipe.id === recipeId ? { ...recipe, steps } : recipe),
+      );
+    }
+  } catch {
+    // Cache refresh is best-effort; the database update above is authoritative.
+  }
+}
+
+export async function setCachedRecipeStepImageUrl(
+  recipeId: string,
+  stepIndex: number,
+  url: string,
+): Promise<void> {
+  const cached = await getCachedImageUrls(recipeId);
+  await cacheImageUrls(recipeId, {
+    heroUrl: cached?.heroUrl ?? null,
+    stepUrls: {
+      ...(cached?.stepUrls ?? {}),
+      [stepIndex]: url,
+    },
+  });
+}
+
 const CLASSIFICATION_SYSTEM_PROMPT = `You are a recipe classification engine for SpiceStrong, a high-protein cooking app.
 
 Given a recipe name, ingredients list, and cooking instructions, you must classify the recipe across 10 dimensions.
@@ -947,6 +1190,7 @@ ALLOWED VALUES for each field:
 
 7. allergen_tags (pick ALL that apply — "free-from" labels):
    "Gluten free", "Dairy free", "Nut free", "Egg free", "Soy free", "Shellfish free", "Vegetarian", "Vegan", "Paleo", "Whole30"
+   IMPORTANT: Seafood is NON-VEGETARIAN. Fish, prawns, shrimp, crab, lobster, shellfish, chicken, meat, and eggs must NEVER be tagged "Vegetarian" or "Vegan".
 
 8. cooking_method (pick exactly ONE):
    "Grilled", "Baked", "Stovetop", "Air fryer", "Slow cooker", "Instant pot", "Steamed", "Stir-fried", "Raw / No cook", "Smoked", "Broiled", "Pan-seared"
@@ -1177,6 +1421,12 @@ export async function uploadRecipeStepImage(
     });
     if (imgError && !imgError.message?.includes('duplicate')) {
       console.warn(`[SpiceStrong] Step ${stepIndex} image record insert failed:`, imgError.message);
+    }
+
+    try {
+      await adminUpsertRecipeImage(recipeId, 'step', publicUrl, stepIndex);
+    } catch (error) {
+      console.warn('[SpiceStrong] Admin step image metadata update failed:', error);
     }
 
     console.log(`[SpiceStrong] Step ${stepIndex} image uploaded: ${recipeId} -> ${publicUrl}`);

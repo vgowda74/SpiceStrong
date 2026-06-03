@@ -17,6 +17,7 @@ import { getCompletionStats, type SavedRecipe } from '../src/store/recipes';
 import { BUILTIN_RECIPES } from '../src/data/builtInRecipes';
 import { generateAllRecipeImages, saveRecipeImages } from './imageGenerationService';
 import { saveAIRecipe } from './recipeService';
+import { filterRecipesForPreference, getAllowedProteinIds, getDietPreference } from '../src/utils/dietPreference';
 
 // ═══════════════════════════════════════
 // TYPES
@@ -117,22 +118,19 @@ function scoreRecipeForSlot(
 // LIBRARY RECIPE FETCHING
 // ═══════════════════════════════════════
 
-const ALL_PROTEIN_IDS = [
-  'chicken', 'eggs', 'paneer', 'lamb', 'goat', 'fish', 'prawns',
-  'pork', 'tofu', 'soy', 'beans', 'milk', 'whey', 'beef',
-];
-
 async function getAllRecipes(): Promise<SavedRecipe[]> {
   const all: SavedRecipe[] = [];
   const seen = new Set<string>();
+  const dietPreference = await getDietPreference();
+  const allowedProteinIds = getAllowedProteinIds(dietPreference);
 
   // Built-in first (instant)
-  for (const r of BUILTIN_RECIPES) {
+  for (const r of filterRecipesForPreference(BUILTIN_RECIPES, dietPreference)) {
     if (!seen.has(r.id)) { all.push(r); seen.add(r.id); }
   }
 
   // Fetch from Supabase for all proteins
-  const fetches = ALL_PROTEIN_IDS.map(async (pid) => {
+  const fetches = allowedProteinIds.map(async (pid) => {
     try {
       const { recipes } = await fetchRecipesByProtein(pid);
       return recipes;
@@ -153,7 +151,14 @@ async function getAllRecipes(): Promise<SavedRecipe[]> {
 // PLACEHOLDER RECIPE FOR AI GENERATION
 // ═══════════════════════════════════════
 
-function createPlaceholderRecipe(slot: MealSlot, targetCal: number, targetProtein: number, targetCarbs: number, targetFat: number): SavedRecipe {
+function createPlaceholderRecipe(
+  slot: MealSlot,
+  targetCal: number,
+  targetProtein: number,
+  targetCarbs: number,
+  targetFat: number,
+  dietPreference: Awaited<ReturnType<typeof getDietPreference>>,
+): SavedRecipe {
   const slotNames: Record<MealSlot, string> = {
     breakfast: 'High-Protein Breakfast',
     lunch_dinner: 'High-Protein Meal',
@@ -165,7 +170,7 @@ function createPlaceholderRecipe(slot: MealSlot, targetCal: number, targetProtei
   return {
     id,
     name: slotNames[slot],
-    proteinId: 'chicken',
+    proteinId: dietPreference === 'veg' ? 'paneer' : 'chicken',
     proteinName: 'Auto Plan',
     proteinEmoji: '🍽',
     description: `Auto-planned meal (~${targetCal} cal, ~${targetProtein}g protein). Tap to generate full recipe.`,
@@ -206,6 +211,7 @@ export async function generateAutoMealPlan(
       getDietaryRestrictions(),
       getPantryIngredientNames(),
     ]);
+    const dietPreference = await getDietPreference();
 
     // Apply dietary filter
     const eligible = applyDietaryFilter(allRecipes, dietary);
@@ -290,7 +296,7 @@ export async function generateAutoMealPlan(
           }
         } else {
           // Create placeholder — hero image only, full recipe generated on tap
-          const placeholder = createPlaceholderRecipe(slot, targetCal, targetProtein, targetCarbs, targetFat);
+          const placeholder = createPlaceholderRecipe(slot, targetCal, targetProtein, targetCarbs, targetFat, dietPreference);
 
           try {
             // Generate hero image only

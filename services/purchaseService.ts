@@ -12,7 +12,7 @@
  * 3. Set EXPO_PUBLIC_REVENUECAT_KEY in .env
  */
 
-import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import Purchases, {
   type CustomerInfo,
   type PurchasesPackage,
@@ -21,15 +21,25 @@ import Purchases, {
 
 const RC_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '';
 const ENTITLEMENT_ID = 'premium'; // Must match RevenueCat entitlement identifier
-const PRODUCT_ID = 'com.spicestrong.premium.yearly';
-
 let initialized = false;
+let unavailableReason: string | null = null;
+
+function isRunningInExpoGo(): boolean {
+  return Constants.appOwnership === 'expo';
+}
 
 /**
  * Initialize RevenueCat. Call once on app startup.
  */
 export async function initPurchases(): Promise<void> {
+  if (isRunningInExpoGo()) {
+    unavailableReason = 'RevenueCat native purchases are disabled in Expo Go. Use a development build for IAP testing.';
+    if (__DEV__) console.log(`[SpiceStrong] ${unavailableReason}`);
+    return;
+  }
+
   if (initialized || !RC_API_KEY) {
+    if (!RC_API_KEY) unavailableReason = 'RevenueCat key not set - IAP disabled';
     if (!RC_API_KEY) console.warn('[SpiceStrong] RevenueCat key not set — IAP disabled');
     return;
   }
@@ -39,6 +49,7 @@ export async function initPurchases(): Promise<void> {
     initialized = true;
     console.log('[SpiceStrong] RevenueCat initialized');
   } catch (e) {
+    unavailableReason = e instanceof Error ? e.message : 'RevenueCat init failed';
     console.error('[SpiceStrong] RevenueCat init failed:', e);
   }
 }
@@ -47,6 +58,7 @@ export async function initPurchases(): Promise<void> {
  * Check if the current user has an active premium subscription.
  */
 export async function checkSubscription(): Promise<boolean> {
+  if (isRunningInExpoGo()) return false;
   if (!initialized) return false;
   try {
     const info: CustomerInfo = await Purchases.getCustomerInfo();
@@ -63,6 +75,7 @@ export async function checkSubscription(): Promise<boolean> {
  * Get available packages (offerings) for display in the paywall.
  */
 export async function getOfferings(): Promise<PurchasesPackage | null> {
+  if (isRunningInExpoGo()) return null;
   if (!initialized) return null;
   try {
     const offerings = await Purchases.getOfferings();
@@ -83,6 +96,7 @@ export async function getOfferings(): Promise<PurchasesPackage | null> {
  * Get all available packages (annual + monthly).
  */
 export async function getAllOfferings(): Promise<{ annual: PurchasesPackage | null; monthly: PurchasesPackage | null }> {
+  if (isRunningInExpoGo()) return { annual: null, monthly: null };
   if (!initialized) return { annual: null, monthly: null };
   try {
     const offerings = await Purchases.getOfferings();
@@ -104,7 +118,8 @@ export async function getAllOfferings(): Promise<{ annual: PurchasesPackage | nu
  * Returns true if purchase succeeded.
  */
 export async function purchasePremium(plan: 'yearly' | 'monthly' = 'yearly'): Promise<{ success: boolean; error?: string }> {
-  if (!initialized) return { success: false, error: 'Store not available' };
+  if (isRunningInExpoGo()) return { success: false, error: unavailableReason ?? 'Store not available in Expo Go' };
+  if (!initialized) return { success: false, error: unavailableReason ?? 'Store not available' };
   try {
     const { annual, monthly } = await getAllOfferings();
     const pkg = plan === 'monthly' ? (monthly ?? annual) : (annual ?? monthly);
@@ -131,6 +146,7 @@ export async function purchasePremium(plan: 'yearly' | 'monthly' = 'yearly'): Pr
  * Restore previous purchases (e.g., after reinstall or new device).
  */
 export async function restorePurchases(): Promise<{ success: boolean; isPremium: boolean }> {
+  if (isRunningInExpoGo()) return { success: false, isPremium: false };
   if (!initialized) return { success: false, isPremium: false };
   try {
     const info: CustomerInfo = await Purchases.restorePurchases();

@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Audio } from 'expo-av';
+import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
@@ -36,6 +37,8 @@ import { getRecipeStepImage, getRecipeCardImage } from '../../src/data/recipeIma
 import { getIngredientImage } from '../../src/data/ingredientImages';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { getRecipeImageUrls } from '../../services/recipeService';
+import { isAdmin } from '../../services/adminService';
+import { fixRecipeStepAsAdmin, type AdminRecipeFixMode } from '../../services/adminRecipeFixService';
 // imageCacheService no longer needed — expo-image handles caching
 
 
@@ -61,12 +64,12 @@ function getIngredientsForStep(recipe: SavedRecipe, stepIndex: number): string[]
   if (stepIndex === 0) {
     const protein = flat.find((n) => n.toLowerCase().includes(recipe.proteinName?.toLowerCase() ?? ''));
     const marinade = flat.filter((n) => /yogurt|marinade|lemon|oil/.test(n.toLowerCase()));
-    return [protein, ...marinade].filter(Boolean).slice(0, 3);
+    return [protein, ...marinade].filter((name): name is string => Boolean(name)).slice(0, 3);
   }
   if (stepIndex === 1) {
     const oil = flat.find((n) => /oil|butter|ghee/.test(n.toLowerCase()));
     const aromatics = flat.filter((n) => /onion|garlic|ginger|tomato/.test(n.toLowerCase()));
-    return [oil, ...aromatics].filter(Boolean).slice(0, 3);
+    return [oil, ...aromatics].filter((name): name is string => Boolean(name)).slice(0, 3);
   }
   if (stepIndex === 2) {
     const spices = flat.filter((n) => /spice|masala|chili|turmeric|cumin|garam|pepper|salt/.test(n.toLowerCase()));
@@ -181,19 +184,20 @@ function CompletionConfetti() {
 
 const DARK_BG = '#1A0A00';
 const DARK_CARD_BORDER = '#2D1A0E';
-const ORANGE_ACCENT = '#E85D26';
+const ORANGE_ACCENT = '#8F3A1F';
 const STAR_GREY = '#888888';
 const STAR_YELLOW = '#FFD700';
 const SERIF_FONT = Platform.OS === 'ios' ? 'Georgia' : 'serif';
 
 
 const TIMER_MAX_MINUTES = 30;
-const ORANGE = '#E85D26';
+const ORANGE = '#8F3A1F';
 const HEADER_BG = '#2A1005';
 const CARD_BG = '#1A0A00';
 const IMAGE_BG = '#3D1A0A';
 const DARK_GREY = '#333333';
 const REVIEW_COUNT_KEY = 'spicestrong_cook_complete_count';
+const NOTIFICATIONS_AVAILABLE = Constants.appOwnership !== 'expo';
 
 export default function CookingModeScreen() {
   const router = useRouter();
@@ -208,11 +212,19 @@ export default function CookingModeScreen() {
   const [recipe, setRecipe] = useState<SavedRecipe | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [ingredientsModalVisible, setIngredientsModalVisible] = useState(false);
+  const [isAdminUser, setIsAdminUser] = useState(false);
+  const [adminFixVisible, setAdminFixVisible] = useState(false);
+  const [adminFixIssue, setAdminFixIssue] = useState('');
+  const [adminFixMode, setAdminFixMode] = useState<AdminRecipeFixMode>('both');
+  const [adminFixSubmitting, setAdminFixSubmitting] = useState(false);
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [initialTimerSeconds, setInitialTimerSeconds] = useState(0);
   const [done, setDone] = useState(false);
-  const [starRating, setStarRating] = useState(5);
+  const [appRating, setAppRating] = useState(5);
+  const [appReviewRequested, setAppReviewRequested] = useState(false);
+  const [recipeRating, setRecipeRating] = useState(5);
+  const [showRecipeRating, setShowRecipeRating] = useState(false);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
@@ -310,10 +322,14 @@ export default function CookingModeScreen() {
   }, [recipeId]);
 
   useEffect(() => {
+    isAdmin().then(setIsAdminUser).catch(() => setIsAdminUser(false));
+  }, []);
+
+  useEffect(() => {
     if (!recipeId || !done) return;
     getRatings().then((map) => {
       const r = map[recipeId];
-      if (r != null && r >= 1) setStarRating(r);
+      if (r != null && r >= 1) setRecipeRating(r);
     });
   }, [recipeId, done]);
 
@@ -359,6 +375,7 @@ export default function CookingModeScreen() {
 
   // Cancel any scheduled notification
   const cancelTimerNotification = async () => {
+    if (!NOTIFICATIONS_AVAILABLE) return;
     if (notificationIdRef.current) {
       await Notifications.cancelScheduledNotificationAsync(notificationIdRef.current).catch(() => null);
       notificationIdRef.current = null;
@@ -420,7 +437,7 @@ export default function CookingModeScreen() {
   const overlay = (
     <View style={{
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.55)',
+      backgroundColor: 'rgba(13,11,9,0.76)',
     }} />
   );
 
@@ -452,6 +469,7 @@ export default function CookingModeScreen() {
   };
 
   const scheduleTimerNotification = async (seconds: number) => {
+    if (!NOTIFICATIONS_AVAILABLE) return;
     try {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') return;
@@ -517,24 +535,16 @@ export default function CookingModeScreen() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setTimerRunning(false);
     setIngredientsModalVisible(false);
+    setAdminFixVisible(false);
     if (currentStep < totalSteps - 1) {
       setCurrentStep((s) => s + 1);
     } else {
-      setDone(true);
-      // Trigger App Store review after a delay (runs silently in background)
-      (async () => {
+      setDone(true);      (async () => {
         try {
           const countRaw = await AsyncStorage.getItem(REVIEW_COUNT_KEY);
           let count = countRaw ? parseInt(countRaw, 10) : 0;
           count += 1;
           await AsyncStorage.setItem(REVIEW_COUNT_KEY, String(count));
-          if (count === 3 || count === 10 || count === 25) {
-            const available = await StoreReview.isAvailableAsync();
-            if (available) {
-              // Wait 5 seconds — let user enjoy the completion screen and rate the recipe first
-              setTimeout(() => StoreReview.requestReview(), 5000);
-            }
-          }
         } catch {}
       })();
     }
@@ -545,6 +555,7 @@ export default function CookingModeScreen() {
     if (intervalRef.current) clearInterval(intervalRef.current);
     setTimerRunning(false);
     setIngredientsModalVisible(false);
+    setAdminFixVisible(false);
     if (currentStep > 0) setCurrentStep(currentStep - 1);
   };
 
@@ -570,6 +581,47 @@ export default function CookingModeScreen() {
     Animated.timing(timerCompleteSlide, { toValue: 300, duration: 200, useNativeDriver: true }).start(() => {
       setShowTimerCompleteAlert(false);
     });
+  };
+
+  const openAdminFix = () => {
+    if (!isAdminUser || !recipe || !step) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setAdminFixIssue('');
+    setAdminFixMode('both');
+    setAdminFixVisible(true);
+  };
+
+  const submitAdminFix = async () => {
+    if (!recipe || !step || adminFixSubmitting) return;
+    try {
+      setAdminFixSubmitting(true);
+      const result = await fixRecipeStepAsAdmin(recipe, currentStep, adminFixIssue, adminFixMode);
+      setRecipe(result.recipe);
+      if (result.localImageUri) {
+        setAiImages((prev) => ({
+          dishImage: prev?.dishImage ?? null,
+          ingredientImages: prev?.ingredientImages ?? {},
+          stepImages: {
+            ...(prev?.stepImages ?? {}),
+            [String(currentStep)]: result.localImageUri ?? null,
+          },
+        }));
+      }
+      if (result.publicImageUrl) {
+        setSupabaseStepImages((prev) => ({
+          ...prev,
+          [String(currentStep)]: result.publicImageUrl!,
+        }));
+      }
+      setAdminFixVisible(false);
+      setAdminFixIssue('');
+      Alert.alert('Recipe step updated', 'The corrected step has been saved and uploaded.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Alert.alert('Could not fix step', message);
+    } finally {
+      setAdminFixSubmitting(false);
+    }
   };
 
   const displayName = recipe.name.toUpperCase();
@@ -619,13 +671,29 @@ export default function CookingModeScreen() {
         } catch (__) {}
       }
     };
-    const handleSendFeedback = () => {
-      router.push({
-        pathname: '/screens/FeedbackScreen',
-        params: { recipeId: recipe.id, recipeName: recipe.name, starRating: String(starRating) },
-      });
+    const handleRateApp = async (stars: number) => {
+      setAppRating(stars);
+      if (appReviewRequested) return;
+      setAppReviewRequested(true);
+      try {
+        const available = await StoreReview.isAvailableAsync();
+        if (available) {
+          await StoreReview.requestReview();
+        } else {
+          Alert.alert('Thank you!', 'Your rating helps us keep improving SpiceStrong.');
+        }
+      } catch {
+        Alert.alert('Thank you!', 'Your rating helps us keep improving SpiceStrong.');
+      }
     };
-    const RATING_LABELS: Record<number, string> = {
+    const APP_RATING_LABELS: Record<number, string> = {
+      1: 'Thanks for the honesty',
+      2: 'We can do better',
+      3: 'Thanks for cooking with us',
+      4: 'Glad it helped!',
+      5: 'Love to hear it!',
+    };
+    const RECIPE_RATING_LABELS: Record<number, string> = {
       1: 'Needs work',
       2: 'It was okay',
       3: 'Pretty good!',
@@ -638,7 +706,7 @@ export default function CookingModeScreen() {
         style={{ flex: 1 }}
         resizeMode="cover"
       >
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(26,10,0,0.88)' }]} />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(13,11,9,0.76)' }]} />
         <CompletionConfetti />
         <View style={styles.completionRoot}>
         <ScrollView
@@ -735,7 +803,7 @@ export default function CookingModeScreen() {
             )}
           </TouchableOpacity>
 
-          <Text style={styles.rateLabel}>Rate this recipe</Text>
+          <Text style={styles.rateLabel}>Rate this app</Text>
           <View style={styles.starRow}>
             {[1, 2, 3, 4, 5].map((i) => (
               <TouchableOpacity
@@ -744,27 +812,58 @@ export default function CookingModeScreen() {
                   if (Platform.OS === 'ios' || Platform.OS === 'android') {
                     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                   }
-                  setStarRating(i);
-                  if (recipe?.id) {
-                    setRating(recipe.id, i);
-                    submitCommunityRating(recipe.id, i).catch(() => {});
-                  }
+                  handleRateApp(i);
                 }}
                 style={styles.starTouch}
                 activeOpacity={0.8}
               >
-                <Text style={[styles.star, i <= starRating ? styles.starSelected : styles.starUnselected]}>
-                  {i <= starRating ? '★' : '☆'}
+                <Text style={[styles.star, i <= appRating ? styles.starSelected : styles.starUnselected]}>
+                  {i <= appRating ? '\u2605' : '\u2606'}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={styles.ratingLabelText}>{RATING_LABELS[starRating] ?? ''}</Text>
+          <Text style={styles.ratingLabelText}>
+            {appReviewRequested ? 'Thanks for rating SpiceStrong!' : APP_RATING_LABELS[appRating] ?? ''}
+          </Text>
+          <TouchableOpacity
+            style={[styles.appReviewSubmitBtn, appReviewRequested && styles.appReviewSubmitBtnDisabled]}
+            onPress={() => handleRateApp(appRating)}
+            activeOpacity={0.85}
+            disabled={appReviewRequested}
+          >
+            <Text style={styles.appReviewSubmitBtnText}>
+              {appReviewRequested ? 'Review Prompt Opened' : 'Submit Review'}
+            </Text>
+          </TouchableOpacity>
 
-          {/* Community Review Section */}
-          {!reviewSubmitted ? (
+          {showRecipeRating && !reviewSubmitted ? (
             <View style={styles.reviewSection}>
-              <Text style={styles.reviewSectionTitle}>💬 Share your experience</Text>
+              <Text style={styles.reviewSectionTitle}>Rate this recipe</Text>
+              <View style={styles.recipeStarRow}>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => {
+                      if (Platform.OS === 'ios' || Platform.OS === 'android') {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                      }
+                      setRecipeRating(i);
+                      if (recipe?.id) {
+                        setRating(recipe.id, i);
+                        submitCommunityRating(recipe.id, i).catch(() => {});
+                      }
+                    }}
+                    style={styles.recipeStarTouch}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.recipeStar, i <= recipeRating ? styles.starSelected : styles.starUnselected]}>
+                      {i <= recipeRating ? '\u2605' : '\u2606'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.recipeRatingLabelText}>{RECIPE_RATING_LABELS[recipeRating] ?? ''}</Text>
               <TextInput
                 style={styles.reviewInput}
                 placeholder="Tell others what you thought... (optional)"
@@ -783,7 +882,7 @@ export default function CookingModeScreen() {
                   setReviewSubmitting(true);
                   try {
                     if (recipe?.id) {
-                      await submitReview(recipe.id, starRating, reviewComment || RATING_LABELS[starRating] || 'Great recipe!');
+                      await submitReview(recipe.id, recipeRating, reviewComment || RECIPE_RATING_LABELS[recipeRating] || 'Great recipe!');
                     }
                     setReviewSubmitted(true);
                   } catch {
@@ -796,21 +895,20 @@ export default function CookingModeScreen() {
                 disabled={reviewSubmitting}
               >
                 <Text style={styles.reviewSubmitBtnText}>
-                  {reviewSubmitting ? '⏳ Submitting...' : '📤 Submit Review'}
+                  {reviewSubmitting ? 'Submitting...' : 'Submit Recipe Rating'}
                 </Text>
               </TouchableOpacity>
             </View>
-          ) : (
+          ) : reviewSubmitted ? (
             <View style={styles.reviewSubmittedBox}>
-              <Text style={styles.reviewSubmittedText}>✅ Thanks for your review!</Text>
+              <Text style={styles.reviewSubmittedText}>Thanks for rating this recipe!</Text>
             </View>
-          )}
-
+          ) : null}
           <TouchableOpacity style={styles.btnCookAnother} onPress={handleCookAnother} activeOpacity={0.8}>
             <Text style={styles.btnCookAnotherText}>🏠 Cook Another</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.btnOutline} onPress={handleSendFeedback} activeOpacity={0.8}>
-            <Text style={styles.btnOutlineText}>✉️ Send Feedback</Text>
+          <TouchableOpacity style={styles.btnOutline} onPress={() => { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); setShowRecipeRating((value) => !value); }} activeOpacity={0.8}>
+            <Text style={styles.btnOutlineText}>{'\u2605'} Rate this recipe</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.btnOutline} onPress={handleSaveFavourites} activeOpacity={0.8}>
             <Text style={styles.btnOutlineText}>❤️ Save to Favourites</Text>
@@ -924,11 +1022,19 @@ export default function CookingModeScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Step label & title */}
-        <Text style={styles.stepLabel}>STEP {stepNum} of {totalSteps}</Text>
-        <Text style={styles.stepTitle}>{step.title}</Text>
+        <Pressable
+          onLongPress={isAdminUser ? openAdminFix : undefined}
+          delayLongPress={450}
+        >
+          <Text style={styles.stepLabel}>STEP {stepNum} of {totalSteps}</Text>
+          <Text style={styles.stepTitle}>{step.title}</Text>
 
-        {/* Step description */}
-        <Text style={styles.stepDescription}>{step.description}</Text>
+          {/* Step description */}
+          <Text style={styles.stepDescription}>{step.description}</Text>
+          {isAdminUser ? (
+            <Text style={styles.adminFixHint}>Admin: long press step or image to correct</Text>
+          ) : null}
+        </Pressable>
 
         {/* Ingredients for this step — opens modal */}
         {stepIngredients.length > 0 && (
@@ -985,10 +1091,80 @@ export default function CookingModeScreen() {
           </Pressable>
         </Modal>
 
+        <Modal
+          visible={adminFixVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => !adminFixSubmitting && setAdminFixVisible(false)}
+        >
+          <KeyboardAvoidingView
+            style={styles.ingredientModalBackdrop}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={() => !adminFixSubmitting && setAdminFixVisible(false)}
+            />
+            <View style={styles.adminFixContent}>
+              <View style={styles.ingredientModalHandle} />
+              <Text style={styles.adminFixTitle}>Correct step {stepNum}</Text>
+              <Text style={styles.adminFixSubtitle}>{step.title}</Text>
+              <View style={styles.adminFixModes}>
+                {(['instructions', 'image', 'both'] as AdminRecipeFixMode[]).map((mode) => (
+                  <TouchableOpacity
+                    key={mode}
+                    style={[styles.adminFixModeButton, adminFixMode === mode && styles.adminFixModeButtonActive]}
+                    onPress={() => setAdminFixMode(mode)}
+                    disabled={adminFixSubmitting}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.adminFixModeText, adminFixMode === mode && styles.adminFixModeTextActive]}>
+                      {mode === 'instructions' ? 'Instructions' : mode === 'image' ? 'Image' : 'Both'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={styles.adminFixInput}
+                value={adminFixIssue}
+                onChangeText={setAdminFixIssue}
+                placeholder="What is incorrect on this step?"
+                placeholderTextColor="rgba(255,255,255,0.35)"
+                multiline
+                editable={!adminFixSubmitting}
+              />
+              <View style={styles.adminFixActions}>
+                <TouchableOpacity
+                  style={styles.adminFixCancel}
+                  onPress={() => setAdminFixVisible(false)}
+                  disabled={adminFixSubmitting}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.adminFixCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.adminFixSubmit, (adminFixSubmitting || !adminFixIssue.trim()) && styles.adminFixSubmitDisabled]}
+                  onPress={submitAdminFix}
+                  disabled={adminFixSubmitting || !adminFixIssue.trim()}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.adminFixSubmitText}>
+                    {adminFixSubmitting ? 'Fixing...' : 'Fix & upload'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
         {/* Step image fallback:
             Native recipes: Supabase Storage → built-in static → emoji
             AI recipes: AI-generated → Supabase Storage → emoji */}
-        <View style={styles.imageAreaWrapper}>
+        <Pressable
+          style={styles.imageAreaWrapper}
+          onLongPress={isAdminUser ? openAdminFix : undefined}
+          delayLongPress={450}
+        >
           {recipe.id.startsWith('spicestrong-') ? (
             // Native recipe: Supabase Storage → built-in static → emoji
             supabaseStepImages[String(currentStep)] ? (
@@ -1040,7 +1216,7 @@ export default function CookingModeScreen() {
               </View>
             )
           )}
-        </View>
+        </Pressable>
 
         {/* Chef's Tip — cream card */}
         {showTipBox && (
@@ -1122,15 +1298,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 56,
-    paddingBottom: 8,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingBottom: 12,
+    backgroundColor: 'transparent',
   },
-  headerBack: { padding: 4, width: 32 },
-  headerBackText: { color: '#FFFFFF', fontSize: 24 },
+  headerBack: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  headerBackText: { color: '#FFFFFF', fontSize: 28, lineHeight: 30, fontWeight: '900' },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '800',
     flex: 1,
     textAlign: 'center',
     marginHorizontal: 8,
@@ -1143,14 +1332,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 4,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    paddingTop: 4,
+    paddingBottom: 12,
+    backgroundColor: 'transparent',
   },
   progressSegmentBg: {
     flex: 1,
-    height: 4,
-    backgroundColor: DARK_GREY,
-    borderRadius: 2,
+    height: 5,
+    backgroundColor: 'rgba(248,241,232,0.12)',
+    borderRadius: 999,
     overflow: 'hidden',
   },
   progressSegmentFill: {
@@ -1158,7 +1348,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 40, paddingTop: 16 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 40, paddingTop: 14 },
   stepLabel: {
     color: ORANGE,
     fontSize: 14,
@@ -1168,7 +1358,7 @@ const styles = StyleSheet.create({
   },
   stepTitle: {
     color: '#FFFFFF',
-    fontSize: 30,
+    fontSize: 29,
     fontWeight: 'bold',
     marginBottom: 14,
     lineHeight: 36,
@@ -1181,7 +1371,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   imageAreaCompact: {
-    backgroundColor: IMAGE_BG,
+    backgroundColor: 'rgba(248,241,232,0.08)',
     borderRadius: 8,
     height: 40,
     alignItems: 'center',
@@ -1192,26 +1382,35 @@ const styles = StyleSheet.create({
   stepImage: {
     width: '100%',
     height: 260,
-    borderRadius: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
   },
   stepEmoji: { fontSize: 80 },
   stepEmojiCompact: { fontSize: 20 },
   stepDescription: {
-    color: '#E8D8C8',
+    color: 'rgba(248,241,232,0.86)',
     fontSize: 17,
     lineHeight: 28,
     marginBottom: 14,
+  },
+  adminFixHint: {
+    color: 'rgba(143,58,31,0.85)',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 14,
+    letterSpacing: 0.3,
   },
   // Ingredient pills — compact horizontal row
   ingredientsToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(248,241,232,0.14)',
     marginBottom: 14,
   },
   ingredientsToggleIcon: {
@@ -1219,7 +1418,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   ingredientsToggleText: {
-    color: 'rgba(255,255,255,0.75)',
+    color: 'rgba(248,241,232,0.75)',
     fontSize: 13,
     fontWeight: '600',
     flex: 1,
@@ -1237,8 +1436,8 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   ingredientModalContent: {
-    backgroundColor: '#2A1810',
-    borderRadius: 20,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 18,
     padding: 24,
     width: '100%',
     maxWidth: 340,
@@ -1286,8 +1485,8 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   ingredientModalClose: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(248,241,232,0.10)',
+    borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 18,
@@ -1298,9 +1497,102 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // Chef's Tip — cream/beige card like reference
+  adminFixContent: {
+    backgroundColor: '#20110B',
+    borderRadius: 18,
+    padding: 22,
+    width: '100%',
+    maxWidth: 380,
+    borderWidth: 1,
+    borderColor: 'rgba(143,58,31,0.28)',
+  },
+  adminFixTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  adminFixSubtitle: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  adminFixModes: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  adminFixModeButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  adminFixModeButtonActive: {
+    backgroundColor: 'rgba(143,58,31,0.22)',
+    borderColor: ORANGE,
+  },
+  adminFixModeText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  adminFixModeTextActive: {
+    color: '#FFFFFF',
+  },
+  adminFixInput: {
+    minHeight: 116,
+    borderRadius: 14,
+    padding: 14,
+    color: '#FFFFFF',
+    fontSize: 15,
+    lineHeight: 21,
+    textAlignVertical: 'top',
+    backgroundColor: 'rgba(0,0,0,0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  adminFixActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  adminFixCancel: {
+    flex: 0.38,
+    borderRadius: 13,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  adminFixCancelText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  adminFixSubmit: {
+    flex: 0.62,
+    borderRadius: 13,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: ORANGE,
+  },
+  adminFixSubmitDisabled: {
+    opacity: 0.55,
+  },
+  adminFixSubmitText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
   tipCard: {
     backgroundColor: '#FFF8ED',
-    borderRadius: 14,
+    borderRadius: 8,
     padding: 16,
     marginBottom: 20,
   },
@@ -1324,10 +1616,10 @@ const styles = StyleSheet.create({
   timerDisplayGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2A1005',
-    borderWidth: 2,
-    borderColor: ORANGE,
-    borderRadius: 14,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(143,58,31,0.65)',
+    borderRadius: 8,
     paddingHorizontal: 4,
     paddingVertical: 8,
   },
@@ -1351,7 +1643,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   timerHint: {
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(248,241,232,0.45)',
     fontSize: 12,
     textAlign: 'center',
     marginTop: 6,
@@ -1372,7 +1664,7 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   timerCompleteCard: {
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 20,
     padding: 20,
   },
@@ -1399,30 +1691,30 @@ const styles = StyleSheet.create({
   timerStartBtn: {
     flex: 1,
     backgroundColor: ORANGE,
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   timerStartBtnDisabled: { backgroundColor: DARK_GREY, opacity: 0.6 },
   timerStartBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
-  navRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 28, backgroundColor: 'rgba(15,15,15,0.95)', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
+  navRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 28, backgroundColor: 'rgba(13,11,9,0.92)', borderTopWidth: 1, borderTopColor: 'rgba(248,241,232,0.10)' },
   navPrevBtn: {
     flex: 0.4,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderRadius: 8,
     paddingVertical: 16,
     paddingHorizontal: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(248,241,232,0.14)',
   },
   navBtnDisabled: { opacity: 0.3 },
   navPrevBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
   navNextBtn: {
     flex: 0.6,
     backgroundColor: ORANGE,
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 16,
     paddingHorizontal: 24,
     alignItems: 'center',
@@ -1574,7 +1866,25 @@ const styles = StyleSheet.create({
   star: { fontSize: 40 },
   starSelected: { color: STAR_YELLOW },
   starUnselected: { color: 'rgba(255,255,255,0.3)' },
-  ratingLabelText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center', marginBottom: 20 },
+  ratingLabelText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, textAlign: 'center', marginBottom: 12 },
+  appReviewSubmitBtn: {
+    backgroundColor: ORANGE_ACCENT,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    alignItems: 'center',
+    marginBottom: 20,
+    ...Platform.select({
+      ios: { shadowColor: ORANGE_ACCENT, shadowOpacity: 0.32, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 5 },
+    }),
+  },
+  appReviewSubmitBtnDisabled: { opacity: 0.55 },
+  appReviewSubmitBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  recipeStarRow: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 8 },
+  recipeStarTouch: { padding: 3 },
+  recipeStar: { fontSize: 34 },
+  recipeRatingLabelText: { color: 'rgba(255,255,255,0.76)', fontSize: 13, textAlign: 'center', marginBottom: 14 },
 
   // Review section
   reviewSection: {
@@ -1612,7 +1922,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   reviewSubmitBtn: {
-    backgroundColor: 'rgba(232,93,38,0.9)',
+    backgroundColor: 'rgba(143,58,31,0.9)',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1627,22 +1937,24 @@ const styles = StyleSheet.create({
   },
   reviewSubmittedBox: {
     width: '100%',
-    backgroundColor: 'rgba(232,93,38,0.15)',
+    backgroundColor: 'rgba(143,58,31,0.15)',
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.25)',
+    borderColor: 'rgba(143,58,31,0.25)',
   },
   reviewSubmittedText: {
-    color: '#E85D26',
+    color: '#8F3A1F',
     fontSize: 16,
     fontWeight: '700',
   },
 
   btnCookAnother: {
-    backgroundColor: ORANGE_ACCENT,
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: DARK_CARD_BORDER,
     borderRadius: 14,
     paddingVertical: 18,
     width: '100%',

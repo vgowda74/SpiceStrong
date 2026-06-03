@@ -7,11 +7,10 @@ import React from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.08)';
-const ORANGE = '#E85D26';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
 
 const SERVICES = [
@@ -25,9 +24,9 @@ export default function OrderGroceryScreen() {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Order Groceries</Text>
@@ -51,12 +50,12 @@ export default function OrderGroceryScreen() {
 
         <Text style={styles.note}>We'll notify you when ordering is available in your area.</Text>
       </View>
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -64,9 +63,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
   content: { flex: 1, alignItems: 'center', paddingTop: 50, paddingHorizontal: 30 },
   emoji: { fontSize: 64, marginBottom: 16 },

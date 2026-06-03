@@ -1,58 +1,71 @@
 import { Stack } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeService';
 import { getDeviceId } from '../services/adminService';
 import { initPurchases } from '../services/purchaseService';
+import { trackAppOpen } from '../services/analyticsService';
 // pruneImageCache disabled — expo-file-system new API causes TurboModule crash
 // import { pruneImageCache } from '../services/imageCacheService';
 
+const isExpoGo = Constants.appOwnership === 'expo';
+
 // Tell the OS to show notifications even when the app is foregrounded
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (!isExpoGo) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 export default function RootLayout() {
   useEffect(() => {
     // Log device ID on startup for admin setup
     getDeviceId();
+    trackAppOpen().catch(() => {});
     // Initialize RevenueCat for IAP
     initPurchases();
 
-    // Request notification permissions on app start
-    (async () => {
-      const { status } = await Notifications.getPermissionsAsync();
-      if (status !== 'granted') {
-        await Notifications.requestPermissionsAsync();
-      }
-      // Android needs a notification channel
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('timer', {
-          name: 'Cooking Timer',
-          importance: Notifications.AndroidImportance.MAX,
-          sound: 'default',
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#E85D26',
-        });
-        await Notifications.setNotificationChannelAsync('recipe', {
-          name: 'Recipe Updates',
-          importance: Notifications.AndroidImportance.HIGH,
-          sound: 'default',
-          lightColor: '#E85D26',
-        });
-        await Notifications.setNotificationChannelAsync('recipe-review', {
-          name: 'Recipe Reviews',
-          importance: Notifications.AndroidImportance.HIGH,
-          sound: 'default',
-          lightColor: '#E85D26',
-        });
-      }
-    })();
+    if (!isExpoGo) {
+      // Request notification permissions on app start
+      (async () => {
+        const { status } = await Notifications.getPermissionsAsync();
+        if (status !== 'granted') {
+          await Notifications.requestPermissionsAsync();
+        }
+        // Android needs a notification channel
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('timer', {
+            name: 'Cooking Timer',
+            importance: Notifications.AndroidImportance.MAX,
+            sound: 'default',
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#8F3A1F',
+          });
+          await Notifications.setNotificationChannelAsync('recipe', {
+            name: 'Recipe Updates',
+            importance: Notifications.AndroidImportance.HIGH,
+            sound: 'default',
+            lightColor: '#8F3A1F',
+          });
+          await Notifications.setNotificationChannelAsync('recipe-review', {
+            name: 'Recipe Reviews',
+            importance: Notifications.AndroidImportance.HIGH,
+            sound: 'default',
+            lightColor: '#8F3A1F',
+          });
+        }
+      })();
+    } else if (__DEV__) {
+      console.log('[SpiceStrong] Notifications skipped in Expo Go. Use a development build to test notifications.');
+    }
 
     // Background recipe sync & cache management
     refreshRecipeCache().catch(() => {});

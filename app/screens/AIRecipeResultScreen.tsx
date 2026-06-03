@@ -23,7 +23,7 @@ import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 
-const ORANGE = '#E85D26';
+const ORANGE = '#8F3A1F';
 const DARK_BG = '#1A0A00';
 
 export default function AIRecipeResultScreen() {
@@ -109,7 +109,7 @@ export default function AIRecipeResultScreen() {
             </View>
             {!aiImages && (
               <View style={styles.imgGenBanner}>
-                <ActivityIndicator size="small" color="#E85D26" />
+                <ActivityIndicator size="small" color="#8F3A1F" />
                 <Text style={styles.imgGenBannerText}>
                   AI images are generating in the background. They'll appear automatically in a few minutes.
                 </Text>
@@ -262,11 +262,29 @@ const styles = StyleSheet.create({
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: DARK_BG },
   loadingText: { color: '#fff', fontSize: 16 },
 
-  backBtn: { position: 'absolute', top: 52, left: 20, zIndex: 10 },
+  backBtn: {
+    position: 'absolute',
+    top: 52,
+    left: 16,
+    zIndex: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
   backBtnText: {
     color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '700',
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '900',
     ...Platform.select({
       ios: { textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
     }),
@@ -298,7 +316,7 @@ const styles = StyleSheet.create({
   },
   aiBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(232,93,38,0.12)',
+    backgroundColor: 'rgba(143,58,31,0.12)',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 10,
@@ -312,7 +330,7 @@ const styles = StyleSheet.create({
   imgGenBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(232,93,38,0.08)',
+    backgroundColor: 'rgba(143,58,31,0.08)',
     borderRadius: 10,
     padding: 10,
     marginBottom: 8,

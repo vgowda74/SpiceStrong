@@ -20,6 +20,7 @@ import { generateAllRecipeImages, saveRecipeImages, loadRecipeImages, type Recip
 import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import { PROTEINS } from '../../src/theme';
+import { filterProteinsForPreference, getDietPreference, hasNonVegText, isNonVegProteinId, type DietPreference } from '../../src/utils/dietPreference';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { analyzeNutrition } from '../../services/nutritionService';
 import VoiceInput from '../../components/VoiceInput';
@@ -62,6 +63,7 @@ export default function AddRecipeScreen() {
   const [proteinId, setProteinId] = useState(params.proteinId || '');
   const [proteinName, setProteinName] = useState(params.proteinName || '');
   const [selectedProteinEmoji, setSelectedProteinEmoji] = useState(params.proteinEmoji || '🍽');
+  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>('veg');
 
   // Image import state
   const [importImageUri, setImportImageUri] = useState<string | null>(null);
@@ -96,8 +98,23 @@ export default function AddRecipeScreen() {
   const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
   // Nutrition from Edamam
   const [extractedNutrition, setExtractedNutrition] = useState<{ calories: number; proteinG: number; carbsG: number; fatG: number; fiberG: number; sugarG: number; sodiumMg: number } | null>(null);
+  const allowedProteins = filterProteinsForPreference(PROTEINS, dietPreference);
 
   // ── Load existing recipe when editing ──
+  useEffect(() => {
+    getDietPreference().then((preference) => {
+      setDietPreferenceState(preference);
+      if (preference === 'veg' && isNonVegProteinId(proteinId)) {
+        const fallback = PROTEINS.find((p) => p.id === 'paneer') ?? PROTEINS.find((p) => p.category === 'VEG');
+        if (fallback) {
+          setProteinId(fallback.id);
+          setProteinName(fallback.name);
+          setSelectedProteinEmoji(fallback.emoji);
+        }
+      }
+    });
+  }, []);
+
   useEffect(() => {
     if (!params.editRecipeId) return;
     (async () => {
@@ -589,18 +606,26 @@ CRITICAL RULES:
         return;
       }
 
+      if (dietPreference === 'veg' && hasNonVegText(JSON.stringify(parsed))) {
+        setExtractionError('This recipe appears to include non-vegetarian ingredients. Vegetarian mode only supports vegetarian recipes.');
+        setExtracting(false);
+        return;
+      }
+
       // Auto-detect protein from image
       const detectedProtein = parsed.primaryProtein;
-      const match = PROTEINS.find((p) => p.id === detectedProtein);
-      if (match) {
+      const match = allowedProteins.find((p) => p.id === detectedProtein);
+      if (match && !(dietPreference === 'veg' && isNonVegProteinId(match.id))) {
         setProteinId(match.id);
         setProteinName(match.name);
         setSelectedProteinEmoji(match.emoji);
       } else {
-        // Fallback to eggs if protein not recognized
-        setProteinId('eggs');
-        setProteinName('Eggs');
-        setSelectedProteinEmoji('🥚');
+        const fallback = allowedProteins.find((p) => p.id === 'paneer') ?? allowedProteins[0];
+        if (fallback) {
+          setProteinId(fallback.id);
+          setProteinName(fallback.name);
+          setSelectedProteinEmoji(fallback.emoji);
+        }
       }
 
       // Pre-fill all form fields
@@ -810,15 +835,15 @@ Return ONLY the JSON, no explanation.`,
 
               {!importImageUri && !extracting && (
                 <View style={styles.importCenter}>
-                  <Ionicons name="image-outline" size={64} color="#E85D26" />
+                  <Ionicons name="image-outline" size={64} color="#8F3A1F" />
                   <Text style={styles.importTitle}>Import from a photo</Text>
                   <Text style={styles.importSubtitle}>Take a photo or upload a screenshot of any recipe</Text>
                   <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
                     <TouchableOpacity style={[styles.importBtn, { flex: 1 }]} onPress={() => handlePickImportImage(true)} activeOpacity={0.8}>
                       <Text style={styles.importBtnText}>📷 Camera</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: 'rgba(232,93,38,0.20)' }]} onPress={() => handlePickImportImage(false)} activeOpacity={0.8}>
-                      <Text style={[styles.importBtnText, { color: '#E85D26' }]}>🖼 Gallery</Text>
+                    <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: 'rgba(143,58,31,0.20)' }]} onPress={() => handlePickImportImage(false)} activeOpacity={0.8}>
+                      <Text style={[styles.importBtnText, { color: '#8F3A1F' }]}>🖼 Gallery</Text>
                     </TouchableOpacity>
                   </View>
                   <TouchableOpacity onPress={() => setCurrentStep('basics')} activeOpacity={0.7}>
@@ -842,7 +867,7 @@ Return ONLY the JSON, no explanation.`,
 
               {extracting && (
                 <View style={styles.importCenter}>
-                  <ActivityIndicator color="#E85D26" size="large" />
+                  <ActivityIndicator color="#8F3A1F" size="large" />
                   <Text style={styles.importTitle}>{extractionProgress || 'Extracting recipe...'}</Text>
                   <Text style={styles.importSubtitle}>This may take a moment</Text>
                 </View>
@@ -864,7 +889,7 @@ Return ONLY the JSON, no explanation.`,
               <Text style={styles.sectionTitle}>Protein Type *</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16, maxHeight: 44 }}>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {PROTEINS.map((p) => (
+                  {allowedProteins.map((p) => (
                     <TouchableOpacity
                       key={p.id}
                       style={[styles.proteinChip, proteinId === p.id && styles.proteinChipActive]}
@@ -997,7 +1022,7 @@ Return ONLY the JSON, no explanation.`,
               ))}
 
               <TouchableOpacity style={styles.addBtn} onPress={addIngredient}>
-                <Ionicons name="add-circle-outline" size={18} color="#E85D26" />
+                <Ionicons name="add-circle-outline" size={18} color="#8F3A1F" />
                 <Text style={styles.addBtnText}>Add Ingredient</Text>
               </TouchableOpacity>
             </>
@@ -1092,7 +1117,7 @@ Return ONLY the JSON, no explanation.`,
                       style={styles.stepPhotoBtn}
                       onPress={() => showImagePicker(uri => updateStep(i, 'photoUri', uri))}
                     >
-                      <Ionicons name="camera-outline" size={20} color="#E85D26" />
+                      <Ionicons name="camera-outline" size={20} color="#8F3A1F" />
                       <Text style={styles.stepPhotoBtnText}>Add Step Photo</Text>
                     </TouchableOpacity>
                   )}
@@ -1100,7 +1125,7 @@ Return ONLY the JSON, no explanation.`,
               ))}
 
               <TouchableOpacity style={styles.addBtn} onPress={addStep}>
-                <Ionicons name="add-circle-outline" size={18} color="#E85D26" />
+                <Ionicons name="add-circle-outline" size={18} color="#8F3A1F" />
                 <Text style={styles.addBtnText}>Add Step</Text>
               </TouchableOpacity>
             </>
@@ -1130,7 +1155,7 @@ Return ONLY the JSON, no explanation.`,
                   style={styles.heroPickerArea}
                   onPress={() => showImagePicker(uri => setHeroImageUri(uri))}
                 >
-                  <Ionicons name="camera-outline" size={48} color="#E85D26" />
+                  <Ionicons name="camera-outline" size={48} color="#8F3A1F" />
                   <Text style={styles.heroPickerText}>Tap to add photo</Text>
                   <Text style={styles.heroPickerSub}>Camera or Gallery</Text>
                 </TouchableOpacity>
@@ -1243,17 +1268,23 @@ const styles = StyleSheet.create({
   importSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
   importBtn: {
     marginTop: 16,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 32,
     ...Platform.select({
-      ios: { shadowColor: '#E85D26', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#8F3A1F', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 6 },
     }),
   },
   importBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  importSkipText: { color: 'rgba(255,255,255,0.40)', fontSize: 13, fontWeight: '600', marginTop: 16, textDecorationLine: 'underline' },
+  importSkipText: {
+    color: 'rgba(255,255,255,0.70)',
+    fontSize: 15,
+    fontWeight: '800',
+    marginTop: 20,
+    textDecorationLine: 'underline',
+  },
   importPreview: { alignItems: 'center', gap: 12 },
   importPreviewImg: { width: '90%', height: 200, borderRadius: 16 },
   importError: { color: '#FF4444', fontSize: 13, textAlign: 'center', paddingHorizontal: 20 },
@@ -1270,10 +1301,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
-  proteinChipActive: { borderColor: '#E85D26', backgroundColor: 'rgba(232,93,38,0.15)' },
+  proteinChipActive: { borderColor: '#8F3A1F', backgroundColor: 'rgba(143,58,31,0.15)' },
   proteinChipEmoji: { fontSize: 18 },
   proteinChipText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
-  proteinChipTextActive: { color: '#E85D26' },
+  proteinChipTextActive: { color: '#8F3A1F' },
 
   // Extraction banner
   extractionBanner: {
@@ -1296,12 +1327,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(13,11,9,0.54)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
   },
   headerTitle: {
     fontSize: 20,
@@ -1327,16 +1364,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   progressDotActive: {
-    borderColor: '#E85D26',
-    backgroundColor: 'rgba(232,93,38,0.2)',
+    borderColor: '#8F3A1F',
+    backgroundColor: 'rgba(143,58,31,0.2)',
   },
   progressDotDone: {
-    backgroundColor: '#E85D26',
-    borderColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
+    borderColor: '#8F3A1F',
   },
   progressDotText: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.4)' },
   progressLabel: { fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: '600' },
-  progressLabelActive: { color: '#E85D26' },
+  progressLabelActive: { color: '#8F3A1F' },
 
   scrollView: { flex: 1 },
   content: { padding: 16, paddingBottom: 100 },
@@ -1344,7 +1381,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#E85D26',
+    color: '#8F3A1F',
     marginTop: 20,
     marginBottom: 8,
   },
@@ -1378,11 +1415,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.15)',
   },
   chipActive: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
-    borderColor: '#E85D26',
+    backgroundColor: 'rgba(143,58,31,0.2)',
+    borderColor: '#8F3A1F',
   },
   chipText: { color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: '600' },
-  chipTextActive: { color: '#E85D26' },
+  chipTextActive: { color: '#8F3A1F' },
 
   // Ingredients
   tierTabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
@@ -1395,9 +1432,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
   },
-  tierTabActive: { borderColor: '#E85D26', backgroundColor: 'rgba(232,93,38,0.15)' },
+  tierTabActive: { borderColor: '#8F3A1F', backgroundColor: 'rgba(143,58,31,0.15)' },
   tierTabText: { color: 'rgba(255,255,255,0.5)', fontSize: 13, fontWeight: '600' },
-  tierTabTextActive: { color: '#E85D26' },
+  tierTabTextActive: { color: '#8F3A1F' },
 
   ingredientRow: {
     flexDirection: 'row',
@@ -1414,12 +1451,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.4)',
+    borderColor: 'rgba(143,58,31,0.4)',
     borderRadius: 12,
     padding: 12,
     marginTop: 8,
   },
-  addBtnText: { color: '#E85D26', fontWeight: '700', fontSize: 14 },
+  addBtnText: { color: '#8F3A1F', fontWeight: '700', fontSize: 14 },
 
   // Steps
   stepCard: {
@@ -1435,7 +1472,7 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1456,11 +1493,11 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.3)',
+    borderColor: 'rgba(143,58,31,0.3)',
     borderStyle: 'dashed',
     marginTop: 10,
   },
-  stepPhotoBtnText: { color: '#E85D26', fontSize: 13, fontWeight: '600' },
+  stepPhotoBtnText: { color: '#8F3A1F', fontSize: 13, fontWeight: '600' },
   stepPhotoPreview: { marginTop: 10, borderRadius: 10, overflow: 'hidden', height: 120 },
   stepPhotoImage: { width: '100%', height: '100%' },
   stepPhotoOverlay: {
@@ -1478,14 +1515,14 @@ const styles = StyleSheet.create({
     height: 250,
     borderRadius: 16,
     borderWidth: 2,
-    borderColor: 'rgba(232,93,38,0.3)',
+    borderColor: 'rgba(143,58,31,0.3)',
     borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
     gap: 8,
   },
-  heroPickerText: { color: '#E85D26', fontSize: 16, fontWeight: '700' },
+  heroPickerText: { color: '#8F3A1F', fontSize: 16, fontWeight: '700' },
   heroPickerSub: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
   heroPreview: { height: 250, borderRadius: 16, overflow: 'hidden' },
   heroImage: { width: '100%', height: '100%' },
@@ -1518,7 +1555,7 @@ const styles = StyleSheet.create({
   reviewDescription: { fontSize: 14, color: 'rgba(255,255,255,0.6)', marginBottom: 10 },
   reviewMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   reviewMetaItem: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: '600' },
-  reviewSectionTitle: { fontSize: 15, fontWeight: '700', color: '#E85D26', marginBottom: 10 },
+  reviewSectionTitle: { fontSize: 15, fontWeight: '700', color: '#8F3A1F', marginBottom: 10 },
   reviewIngredient: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginBottom: 4 },
   reviewStep: {
     flexDirection: 'row',
@@ -1530,7 +1567,7 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
@@ -1538,7 +1575,7 @@ const styles = StyleSheet.create({
   reviewStepBadgeText: { color: '#FFF', fontSize: 10, fontWeight: '800' },
   reviewStepTitle: { fontSize: 14, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
   reviewStepDesc: { fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 18 },
-  reviewStepTimer: { fontSize: 12, color: '#E85D26', marginTop: 4, fontWeight: '600' },
+  reviewStepTimer: { fontSize: 12, color: '#8F3A1F', marginTop: 4, fontWeight: '600' },
   reviewStepPhoto: { width: 60, height: 60, borderRadius: 8 },
 
   disclaimer: {
@@ -1566,7 +1603,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 14,
     padding: 16,
   },
@@ -1576,7 +1613,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 14,
     padding: 16,
   },
@@ -1598,7 +1635,7 @@ const styles = StyleSheet.create({
     flex: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 14,
     padding: 16,
   },

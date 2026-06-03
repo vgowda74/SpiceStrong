@@ -13,3 +13,6 @@ expo-env.d.ts
 
 # Google Play service account key
 google-service-account.json
+*-service-account.json
+service-account*.json
+*.p8

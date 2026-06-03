@@ -16,7 +16,7 @@ import {
 import { getRecipeById, SavedRecipe } from '../../src/store/recipes';
 import { openAmazonFresh } from '../../src/utils/shoppingListHelper';
 
-const ORANGE = '#E85D26';
+const ORANGE = '#8F3A1F';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
 
 function getCookTimeMin(recipe: SavedRecipe): number {
@@ -157,7 +157,7 @@ export default function CookingStartScreen() {
         )}
 
         <TouchableOpacity style={styles.btnWrap} onPress={handleStart} activeOpacity={0.85}>
-          <LinearGradient colors={['#F07030', '#C84A10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.btn}>
+          <LinearGradient colors={['#A94724', '#742B17']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.btn}>
             <Text style={styles.btnText}>Let's Start Cooking! 🚀</Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   recipeName: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 16 },
   pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pill: {
-    backgroundColor: 'rgba(232,93,38,0.3)',
+    backgroundColor: 'rgba(143,58,31,0.3)',
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 16,

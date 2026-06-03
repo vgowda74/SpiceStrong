@@ -15,10 +15,12 @@ import { type SavedRecipe } from '../src/store/recipes';
 import { analyzeNutrition } from './nutritionService';
 import { saveAIRecipe, updateRecipeStatus, classifyAndEnrichRecipe, uploadRecipeHeroImage, uploadRecipeStepImage } from './recipeService';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { File } from 'expo-file-system';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+const NOTIFICATIONS_AVAILABLE = Constants.appOwnership !== 'expo';
 
 export interface ReviewResult {
   approved: boolean;
@@ -640,7 +642,7 @@ export async function submitRecipeForReview(recipe: SavedRecipe): Promise<void> 
       await updateRecipeStatus(recipe.id, 'ready');
 
       // Step 7: Notify user
-      await Notifications.scheduleNotificationAsync({
+      if (NOTIFICATIONS_AVAILABLE) await Notifications.scheduleNotificationAsync({
         content: {
           title: '🎉 Recipe Approved!',
           body: `"${recipe.name}" passed quality review (score: ${reviewResult.score}/100) and is now live!`,
@@ -659,7 +661,7 @@ export async function submitRecipeForReview(recipe: SavedRecipe): Promise<void> 
       await updateRecipeStatus(recipe.id, 'ready');
 
       const issueText = reviewResult.issues.slice(0, 2).join('. ') || 'Please review and try again.';
-      await Notifications.scheduleNotificationAsync({
+      if (NOTIFICATIONS_AVAILABLE) await Notifications.scheduleNotificationAsync({
         content: {
           title: '⚠️ Recipe Needs Changes',
           body: `"${recipe.name}": ${issueText}`,

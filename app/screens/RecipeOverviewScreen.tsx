@@ -26,7 +26,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 // imageCacheService no longer needed — expo-image handles caching
 import { loadRecipeImages } from '../../services/imageGenerationService';
 
-const ORANGE = '#E85D26';
+const ORANGE = '#8F3A1F';
 const CARD_WHITE = '#FFFFFF';
 
 export default function RecipeOverviewScreen() {
@@ -88,7 +88,12 @@ export default function RecipeOverviewScreen() {
       <View style={styles.overlay} />
       <View style={styles.container}>
         {/* Back button */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.8}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.back()}
+          activeOpacity={0.8}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
 
@@ -213,13 +218,31 @@ const styles = StyleSheet.create({
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1A0A00' },
   loadingText: { color: '#fff', fontSize: 16 },
 
-  backBtn: { position: 'absolute', top: 52, left: 20, zIndex: 10 },
+  backBtn: {
+    position: 'absolute',
+    top: 52,
+    left: 16,
+    zIndex: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
   backText: {
     color: CARD_WHITE,
-    fontSize: 30,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '900',
+    lineHeight: 30,
     ...Platform.select({
-      ios: { textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+      ios: { textShadowColor: 'rgba(0,0,0,0.35)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
     }),
   },
 
@@ -310,7 +333,7 @@ const styles = StyleSheet.create({
   },
   macroCardItem: { alignItems: 'center', flex: 1 },
   macroCardValue: { fontSize: 18, fontWeight: '800', color: '#1A1A1A' },
-  macroCardProtein: { color: '#E85D26' },
+  macroCardProtein: { color: '#8F3A1F' },
   macroCardLabel: { fontSize: 11, color: '#8B7355', marginTop: 2 },
   macroCardDivider: { width: 1, height: 30, backgroundColor: '#F0E4DC' },
 
@@ -382,17 +405,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   editButton: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
+    backgroundColor: 'rgba(143,58,31,0.2)',
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.5)',
+    borderColor: 'rgba(143,58,31,0.5)',
   },
   editButtonText: {
-    color: '#E85D26',
+    color: '#8F3A1F',
     fontSize: 16,
     fontWeight: '700',
   },

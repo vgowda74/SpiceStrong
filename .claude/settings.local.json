@@ -193,7 +193,9 @@
       "Bash(node -e \"console.log\\(Object.keys\\(require\\(''@fal-ai/client''\\)\\)\\)\")",
       "Bash(eas build:*)",
       "Bash(taskkill /F /FI \"WINDOWTITLE eq *eas*\")",
-      "Bash(pkill -f \"eas build\")"
+      "Bash(pkill -f \"eas build\")",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__execute_sql"
     ]
   },
   "remote": {

@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import type { LimitCheck } from '../services/subscriptionService';
 
-const ORANGE = '#E85D26';
+const ORANGE = '#8F3A1F';
 const GREEN = '#22C55E';
 const BG = '#1A1A1A';
 const SURFACE = '#252525';
@@ -181,7 +181,7 @@ export default function PaywallModal({ visible, onClose, limitCheck, onUpgrade }
               SpiceStrong Premium auto-renewable subscription. {selectedPlan === 'yearly' ? 'Yearly plan: $29.99/year.' : 'Monthly plan: $4.99/month.'} Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Manage subscriptions in Settings &gt; Apple ID &gt; Subscriptions.
             </Text>
             <View style={styles.legalLinks}>
-              <TouchableOpacity onPress={() => Linking.openURL('https://www.spicestrong.app/terms.html')}>
+              <TouchableOpacity onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
                 <Text style={styles.legalLinkText}>Terms of Use</Text>
               </TouchableOpacity>
               <Text style={styles.legalDot}> · </Text>
@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
   },
   planTabActive: {
     borderColor: ORANGE,
-    backgroundColor: 'rgba(232,93,38,0.12)',
+    backgroundColor: 'rgba(143,58,31,0.12)',
   },
   planTabText: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.50)' },
   planTabTextActive: { color: '#FFFFFF' },
@@ -311,10 +311,15 @@ const styles = StyleSheet.create({
   },
   upgradeBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
 
-  restoreBtn: { paddingVertical: 8, alignItems: 'center' },
-  restoreBtnText: { color: 'rgba(255,255,255,0.40)', fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },
-  dismissBtn: { paddingVertical: 10, alignItems: 'center' },
-  dismissBtnText: { color: 'rgba(255,255,255,0.30)', fontSize: 13, fontWeight: '600' },
+  restoreBtn: { paddingVertical: 10, alignItems: 'center' },
+  restoreBtnText: {
+    color: 'rgba(255,255,255,0.66)',
+    fontSize: 15,
+    fontWeight: '800',
+    textDecorationLine: 'underline',
+  },
+  dismissBtn: { paddingVertical: 12, alignItems: 'center' },
+  dismissBtnText: { color: 'rgba(255,255,255,0.52)', fontSize: 15, fontWeight: '800' },
   legalLinks: {
     flexDirection: 'row',
     justifyContent: 'center',

@@ -17,10 +17,11 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { Premium } from '../src/theme/premium';
 
 const SPACE = 4;
-const CARD_RADIUS = 20;
-const HERO_HEIGHT = 160;
+const CARD_RADIUS = 18;
+const HERO_HEIGHT = 176;
 
 export type RecipeDifficulty = 'Easy' | 'Medium' | 'Hard';
 
@@ -47,6 +48,7 @@ export interface RecipeCardProps {
   cookCount?: number;
   emoji: string;
   imageSource?: ImageSourcePropType;
+  imagePriority?: 'low' | 'normal' | 'high';
   isFavorite: boolean;
   onPress: () => void;
   onLongPress?: () => void;
@@ -76,6 +78,7 @@ export function RecipeCard({
   accentColors,
   actionRow,
   imageSource,
+  imagePriority = 'normal',
   isBuilding,
   nutrition,
   onMealPlan,
@@ -124,6 +127,8 @@ export function RecipeCard({
                 source={imageSource}
                 style={styles.heroFullImage}
                 contentFit="cover"
+                cachePolicy="disk"
+                priority={imagePriority}
                 transition={200}
               />
             ) : (
@@ -209,27 +214,25 @@ export function RecipeCard({
 const styles = StyleSheet.create({
   cardShell: {
     marginHorizontal: SPACE * 4,
-    marginVertical: SPACE * 2,
+    marginVertical: SPACE * 2.5,
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
-    borderBottomWidth: 4,
-    borderRightWidth: 2,
-    borderBottomColor: '#D4D4D4',
-    borderRightColor: '#E0E0E0',
+    borderWidth: 1,
+    borderColor: Premium.color.lineStrong,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 3, height: 6 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.22,
+        shadowRadius: 22,
       },
-      android: { elevation: 8 },
+      android: { elevation: 4 },
     }),
   },
   cardInner: {
     borderRadius: CARD_RADIUS,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Premium.color.surface,
   },
   cardBuilding: {
     opacity: 0.85,
@@ -237,7 +240,7 @@ const styles = StyleSheet.create({
   buildingOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 10,
-    backgroundColor: 'rgba(26,10,0,0.9)',
+    backgroundColor: 'rgba(13,11,9,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: CARD_RADIUS,
@@ -249,14 +252,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   buildingTitle: {
-    color: '#FFB347',
+    color: Premium.color.brass,
     fontSize: 16,
     fontWeight: '800',
     textAlign: 'center',
     letterSpacing: 0.5,
   },
   buildingSubtext: {
-    color: 'rgba(255,255,255,0.7)',
+    color: Premium.color.creamMuted,
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
@@ -271,7 +274,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#FFB347',
+    backgroundColor: Premium.color.brass,
     opacity: 1,
   },
   buildingDotMid: {
@@ -303,8 +306,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   caloriePill: {
-    backgroundColor: 'rgba(232,93,38,0.80)',
-    borderRadius: 10,
+    backgroundColor: 'rgba(13,11,9,0.72)',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Premium.color.lineStrong,
     paddingHorizontal: 10,
     paddingVertical: 4,
     alignSelf: 'flex-start',
@@ -317,8 +322,10 @@ const styles = StyleSheet.create({
   macroBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(22,163,74,0.70)',
-    borderRadius: 10,
+    backgroundColor: 'rgba(111,143,85,0.72)',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.16)',
     paddingHorizontal: 10,
     paddingVertical: 4,
     gap: 4,
@@ -346,16 +353,18 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   statPill: {
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(13,11,9,0.68)',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Premium.color.line,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   statPillGreen: {
-    backgroundColor: 'rgba(22,163,74,0.7)',
+    backgroundColor: 'rgba(111,143,85,0.72)',
   },
   statPillBlue: {
-    backgroundColor: 'rgba(59,130,246,0.7)',
+    backgroundColor: 'rgba(185,138,71,0.72)',
   },
   statPillText: {
     fontSize: 11,
@@ -363,8 +372,8 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   mealPlanBtn: {
-    backgroundColor: 'rgba(232,93,38,0.85)',
-    borderRadius: 12,
+    backgroundColor: Premium.color.spice,
+    borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
@@ -388,14 +397,14 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 60,
+    height: 46,
   },
   heroEmojiGlow: {
     position: 'absolute',
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(248,241,232,0.12)',
     alignSelf: 'center',
   },
   heroFullImage: {
@@ -460,14 +469,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 14,
-    paddingBottom: 10,
-    paddingTop: 30,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    paddingTop: 42,
   },
   heroTitle: {
-    fontSize: 20,
+    fontSize: 21,
+    lineHeight: 25,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: Premium.color.cream,
     ...Platform.select({
       ios: {
         textShadowColor: 'rgba(0,0,0,0.5)',

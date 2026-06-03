@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ImageBackground, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ImageBackground, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { saveRecipe, getRecipes, QUANTITY_TIERS, type QuantityTier, type IngredientsByTier } from '../../src/store/recipes';
 
 const defaultIngredientsByTier = (): IngredientsByTier => ({
@@ -119,8 +119,8 @@ const handleSave = async () => {
         backgroundColor: 'rgba(0,0,0,0.45)',
       }} />
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Text style={styles.backText}>← Back</Text>
+      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <Text style={styles.backText}>←</Text>
       </TouchableOpacity>
 
       <Text style={styles.header}>{existingId ? 'Edit' : 'New'} {proteinEmoji} {proteinName} Recipe</Text>
@@ -228,24 +228,38 @@ const handleSave = async () => {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 16, paddingTop: 60, paddingBottom: 60 },
-  backBtn: { marginBottom: 16 },
-  backText: { color: '#E85D26', fontSize: 16 },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  backText: { color: '#FFFFFF', fontSize: 28, lineHeight: 30, fontWeight: '900' },
   header: { fontSize: 24, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 24 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#E85D26', marginTop: 24, marginBottom: 10 },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#8F3A1F', marginTop: 24, marginBottom: 10 },
   tierTabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   tierTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333', alignItems: 'center' },
-  tierTabActive: { borderColor: '#E85D26', backgroundColor: '#2A1A14' },
+  tierTabActive: { borderColor: '#8F3A1F', backgroundColor: '#2A1A14' },
   tierTabText: { color: '#999', fontSize: 13, fontWeight: '600' },
-  tierTabTextActive: { color: '#E85D26' },
+  tierTabTextActive: { color: '#8F3A1F' },
   input: { backgroundColor: '#1A1A1A', borderRadius: 10, padding: 12, color: '#FFFFFF', borderWidth: 1, borderColor: '#333', marginBottom: 8 },
   multiline: { height: 80, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 8 },
   flex1: { flex: 1 },
   flex2: { flex: 2 },
   stepCard: { backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#333' },
-  stepNumber: { color: '#E85D26', fontWeight: 'bold', marginBottom: 8 },
-  addBtn: { borderWidth: 1, borderColor: '#E85D26', borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 8 },
-  addBtnText: { color: '#E85D26', fontWeight: 'bold' },
-  saveBtn: { backgroundColor: '#E85D26', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 32 },
+  stepNumber: { color: '#8F3A1F', fontWeight: 'bold', marginBottom: 8 },
+  addBtn: { borderWidth: 1, borderColor: '#8F3A1F', borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 8 },
+  addBtnText: { color: '#8F3A1F', fontWeight: 'bold' },
+  saveBtn: { backgroundColor: '#8F3A1F', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 32 },
   saveBtnText: { color: '#FFFFFF', fontSize: 18, fontWeight: 'bold' },
 });

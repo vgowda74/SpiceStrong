@@ -1,0 +1,27 @@
+The following packages should be updated for best compatibility with the installed expo version:
+  expo@54.0.33 - expected version: ~54.0.34
+  expo-crypto@15.0.8 - expected version: ~15.0.9
+  expo-file-system@19.0.21 - expected version: ~19.0.22
+  expo-image-picker@17.0.10 - expected version: ~17.0.11
+  expo-linking@8.0.11 - expected version: ~8.0.12
+  expo-notifications@0.32.16 - expected version: ~0.32.17
+  expo-web-browser@15.0.10 - expected version: ~15.0.11
+Your project may not work correctly until you install the expected versions of the packages.
+[expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.
+"shadow*" style props are deprecated. Use "boxShadow".
+[expo-av]: Expo AV has been deprecated and will be removed in SDK 54. Use the `expo-audio` and `expo-video` packages to replace the required functionality.
+"textShadow*" style props are deprecated. Use "textShadow".
+λ  WARN  Route "./store/recipes.ts" is missing the required default export. Ensure a React component is exported as default. 
+  console.warn (C:\Users\v_gow\SpiceStrong\node_modules\expo\node_modules\@expo\cli\src\start\server\serverLogLikeMetro.ts:161:21)
+  getDirectoryTree (C:\Users\v_gow\SpiceStrong\node_modules\expo-router\build\getRoutesCore.js:311:29)
+  getRoutes (C:\Users\v_gow\SpiceStrong\node_modules\expo-router\build\getRoutesCore.js:23:27)
+  getRoutes (C:\Users\v_gow\SpiceStrong\node_modules\expo-router\build\getRoutes.js:20:41)
+  useStore (C:\Users\v_gow\SpiceStrong\node_modules\expo-router\build\global-state\router-store.js:141:48)
+  Component (C:\Users\v_gow\SpiceStrong\node_modules\expo-router\build\ExpoRoot.js:128:46)
+  Object.callComponentInDEV [as react-stack-bottom-frame] (C:\Users\v_gow\SpiceStrong\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:8970:18)
+  renderWithHooks (C:\Users\v_gow\SpiceStrong\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:4699:19)
+  run (C:\Users\v_gow\SpiceStrong\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5134:23)
+  retryNode (C:\Users\v_gow\SpiceStrong\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5899:31)
+Error: Premature close
+    at onclose (node:internal/streams/end-of-stream:159:30)
+    at processTicksAndRejections (node:internal/process/task_queues:77:11)

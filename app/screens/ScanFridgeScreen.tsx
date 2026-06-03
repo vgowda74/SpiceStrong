@@ -34,11 +34,11 @@ import {
   type IngredientCategory,
 } from '../../services/fridgeScanService';
 import { addPantryItemsBatch, addToGroceryList } from '../../services/pantryService';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.10)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const MAX_PHOTOS = 4;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
@@ -282,10 +282,10 @@ export default function ScanFridgeScreen() {
   }, {});
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{modeConfig.title}</Text>
@@ -429,19 +429,19 @@ export default function ScanFridgeScreen() {
           {/* Action footer */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
             <TouchableOpacity style={styles.findBtn} onPress={handleDone} activeOpacity={0.8}>
-              <LinearGradient colors={['#F07030', '#C84A10']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.findBtnGradient}>
+              <LinearGradient colors={['#A94724', '#742B17']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.findBtnGradient}>
                 <Text style={styles.findBtnText}>{modeConfig.doneBtn}</Text>
               </LinearGradient>
             </TouchableOpacity>
           </View>
         </>
       )}
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -449,9 +449,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: PLAYFAIR },
 
   scroll: { paddingHorizontal: 20, paddingTop: 20 },
@@ -487,7 +501,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: 'rgba(232,93,38,0.30)',
+    borderColor: 'rgba(143,58,31,0.30)',
     borderStyle: 'dashed',
     backgroundColor: SURFACE,
     alignItems: 'center',
@@ -562,16 +576,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     marginRight: 6,
   },
-  addCatPillActive: { backgroundColor: 'rgba(232,93,38,0.20)', borderWidth: 1, borderColor: ORANGE },
+  addCatPillActive: { backgroundColor: 'rgba(143,58,31,0.20)', borderWidth: 1, borderColor: ORANGE },
   addCatPillText: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase' },
   addCatPillTextActive: { color: ORANGE },
   addBtn: {
-    backgroundColor: 'rgba(232,93,38,0.20)',
+    backgroundColor: 'rgba(143,58,31,0.20)',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.40)',
+    borderColor: 'rgba(143,58,31,0.40)',
   },
   addBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
 
@@ -601,9 +615,9 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: BG,
+    backgroundColor: 'rgba(13,11,9,0.92)',
     borderTopWidth: 1,
-    borderTopColor: BORDER,
+    borderTopColor: 'rgba(248,241,232,0.10)',
   },
   findBtn: {
     borderRadius: 16,

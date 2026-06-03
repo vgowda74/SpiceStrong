@@ -1,30 +1,107 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ImageBackground, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Premium } from '../../src/theme/premium';
 
 export default function SplashScreen() {
   const router = useRouter();
 
   return (
-    <TouchableOpacity 
-      style={styles.container} 
-      onPress={() => router.push('/screens/ProteinSelectionScreen')}>
-      <Text style={styles.emoji}>💪</Text>
-      <Text style={styles.title}>SpiceStrong</Text>
-      <Text style={styles.subtitle}>Guided High-Protein Cooking</Text>
-      <Text style={styles.tap}>Tap to begin</Text>
-    </TouchableOpacity>
+    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.container} resizeMode="cover">
+      <LinearGradient
+        colors={['rgba(13,11,9,0.25)', 'rgba(13,11,9,0.70)', Premium.color.ink]}
+        style={StyleSheet.absoluteFill}
+      />
+      <TouchableOpacity
+        style={styles.content}
+        onPress={() => router.push('/screens/ProteinSelectionScreen')}
+        activeOpacity={0.9}
+      >
+        <View style={styles.mark}>
+          <Text style={styles.markText}>SS</Text>
+        </View>
+
+        <View style={styles.copy}>
+          <Text style={styles.eyebrow}>Guided High-Protein Cooking</Text>
+          <Text style={styles.title}>SpiceStrong</Text>
+          <Text style={styles.subtitle}>Build powerful meals with bold flavor, clean macros, and chef-guided steps.</Text>
+        </View>
+
+        <LinearGradient colors={[Premium.color.spiceSoft, Premium.color.spice]} style={styles.cta}>
+          <Text style={styles.ctaText}>Get Started</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F0F0F',
+    backgroundColor: Premium.color.ink,
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 28,
+    paddingTop: 92,
+    paddingBottom: 44,
+    justifyContent: 'space-between',
+  },
+  mark: {
+    width: 54,
+    height: 54,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: Premium.color.lineStrong,
+    backgroundColor: 'rgba(248,241,232,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emoji: { fontSize: 64, marginBottom: 16 },
-  title: { fontSize: 36, fontWeight: 'bold', color: '#E85D26' },
-  subtitle: { fontSize: 16, color: '#999999', marginTop: 8 },
-  tap: { fontSize: 13, color: '#555555', marginTop: 40 },
+  markText: {
+    color: Premium.color.cream,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  copy: {
+    marginTop: 'auto',
+    marginBottom: 34,
+  },
+  eyebrow: {
+    color: Premium.color.brass,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 2.4,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 52,
+    lineHeight: 56,
+    fontWeight: '800',
+    color: Premium.color.cream,
+    fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+  },
+  subtitle: {
+    fontSize: 17,
+    lineHeight: 25,
+    color: Premium.color.creamMuted,
+    marginTop: 16,
+    maxWidth: 330,
+  },
+  cta: {
+    height: 58,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Premium.color.spice,
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  ctaText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
 });

@@ -9,7 +9,7 @@ const CREAM_BG = 'rgba(245,230,200,0.92)';
 const DARK_BROWN = '#3D1A0A';
 const STEP_RED = '#9B2C2C';
 const PHOTO_BORDER = '#FFFFFF';
-const ACCENT = '#E85D26';
+const ACCENT = '#8F3A1F';
 
 interface ShareableRecipeCardProps {
   recipe: SavedRecipe;

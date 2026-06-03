@@ -24,6 +24,9 @@ export interface FitnessProfile {
   weightKg: number;         // always stored in kg
   targetWeightKg?: number;  // optional
   bodyFatPercent?: number;  // optional
+  waistCm?: number;         // optional tape measurement
+  neckCm?: number;          // optional tape measurement
+  hipCm?: number;           // optional tape measurement
   activityLevel: ActivityLevel;
   updatedAt: number;        // timestamp
 }
@@ -163,6 +166,9 @@ export interface BodyStatsEntry {
   date: string;
   weightKg: number;
   bodyFatPercent?: number;
+  waistCm?: number;
+  neckCm?: number;
+  hipCm?: number;
   timestamp: number;
 }
 
@@ -177,6 +183,9 @@ export async function saveFitnessProfile(profile: FitnessProfile): Promise<void>
       date: today,
       weightKg: profile.weightKg,
       bodyFatPercent: profile.bodyFatPercent,
+      waistCm: profile.waistCm,
+      neckCm: profile.neckCm,
+      hipCm: profile.hipCm,
       timestamp: Date.now(),
     };
     const raw = await AsyncStorage.getItem(BODY_STATS_HISTORY_KEY);

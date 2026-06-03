@@ -2,7 +2,7 @@ export interface Protein {
   id: string;
   name: string;
   emoji: string;
-  category: 'meat' | 'seafood' | 'vegetarian';
+  category: 'NON-VEG' | 'VEG';
 }
 
 export interface Ingredient {

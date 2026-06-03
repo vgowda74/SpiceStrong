@@ -50,7 +50,7 @@ export default function VoiceInput({
   onTimerDetected,
   size = 28,
   color = 'rgba(255,255,255,0.5)',
-  activeColor = '#E85D26',
+  activeColor = '#8F3A1F',
 }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
 
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.15)',
   },
   micBtnActive: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
-    borderColor: 'rgba(232,93,38,0.5)',
+    backgroundColor: 'rgba(143,58,31,0.2)',
+    borderColor: 'rgba(143,58,31,0.5)',
   },
 });

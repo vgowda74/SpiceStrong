@@ -14,3 +14,4 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 if (__DEV__) console.log(`[SpiceStrong] Supabase URL: ${SUPABASE_URL?.slice(0, 30)}...`);
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+export { SUPABASE_ANON_KEY, SUPABASE_URL };

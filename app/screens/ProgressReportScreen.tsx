@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   ScrollView,
   StyleSheet,
@@ -26,11 +27,11 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { getMealPlanForDate, type MealPlanEntry } from '../../services/mealPlanService';
 import { getRecipeById, getCompletionStats } from '../../src/store/recipes';
 import { getFitnessProfile, getBodyStatsHistory, type FitnessProfile, type BodyStatsEntry } from '../../services/fitnessProfileService';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.08)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const RED = '#EF4444';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
@@ -246,10 +247,10 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Progress Report</Text>
@@ -415,18 +416,32 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
           </View>
         </ScrollView>
       )}
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: BORDER,
+    paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
 
   // Period toggle
@@ -439,7 +454,7 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 20, paddingTop: 12 },
 
   // AI Summary
-  summaryCard: { backgroundColor: 'rgba(232,93,38,0.08)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(232,93,38,0.20)', padding: 16, marginBottom: 14 },
+  summaryCard: { backgroundColor: 'rgba(143,58,31,0.08)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(143,58,31,0.20)', padding: 16, marginBottom: 14 },
   summaryText: { fontSize: 14, color: 'rgba(255,255,255,0.80)', lineHeight: 22 },
 
   // Comparison table
@@ -481,7 +496,7 @@ const styles = StyleSheet.create({
   // Progress photos
   photoCard: { backgroundColor: SURFACE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
   photoHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  photoAddBtn: { backgroundColor: 'rgba(232,93,38,0.15)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(232,93,38,0.35)' },
+  photoAddBtn: { backgroundColor: 'rgba(143,58,31,0.15)', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(143,58,31,0.35)' },
   photoAddText: { fontSize: 12, fontWeight: '700', color: ORANGE },
   photoCompare: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   photoCol: { flex: 1, alignItems: 'center' },

@@ -382,6 +382,44 @@ export async function generateAllRecipeImages(
 }
 
 /**
+ * Generate one replacement image for a specific recipe step.
+ */
+export async function generateSingleStepImage(
+  recipe: {
+    id?: string;
+    name: string;
+    ingredients: Record<string, { name: string; quantity?: string }[]>;
+    steps: { title?: string; description?: string; imagePrompt?: string }[];
+  },
+  stepIndex: number,
+): Promise<ImageResult> {
+  if (!FAL_KEY) {
+    console.warn('[SpiceStrong] FAL_KEY is not set - skipping step image generation');
+    return { url: null, error: 'No FAL_KEY set' };
+  }
+
+  const steps = recipe.steps ?? [];
+  const step = steps[stepIndex];
+  if (!step) return { url: null, error: 'Step not found' };
+
+  const recipeId = recipe.id ?? recipe.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+  const ingredientList = recipe.ingredients?.['2-3 servings']
+    ?? Object.values(recipe.ingredients ?? {})[0]
+    ?? [];
+
+  getImageDir();
+  return generateStepImage(
+    recipe.name,
+    recipeId,
+    stepIndex,
+    steps.length,
+    step,
+    steps.slice(0, stepIndex),
+    ingredientList,
+  );
+}
+
+/**
  * Save generated image local URIs to AsyncStorage, keyed by recipeId.
  */
 export async function saveRecipeImages(recipeId: string, images: RecipeImageResults): Promise<void> {

@@ -2,7 +2,7 @@
   "expo": {
     "name": "SpiceStrong",
     "slug": "SpiceStrong",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "spicestrong",
@@ -13,10 +13,10 @@
       "bundleIdentifier": "com.spicestrong.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition to let you describe recipes by voice in the SpiceBuilder.",
-        "NSCameraUsageDescription": "SpiceStrong uses the camera to scan nutrition labels, barcodes, restaurant menus, grocery receipts, and your fridge to identify ingredients and add items to your pantry.",
-        "NSPhotoLibraryUsageDescription": "SpiceStrong needs access to your photos so you can upload images of nutrition labels, recipes, menus, receipts, and ingredient lists for AI extraction.",
-        "NSPhotoLibraryAddUsageDescription": "SpiceStrong saves recipe photos and progress images to your photo library."
+        "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition so you can dictate recipe ideas, ingredients, and cooking preferences into SpiceBuilder.",
+        "NSCameraUsageDescription": "SpiceStrong uses the camera when you choose to scan food labels, barcodes, menus, receipts, or fridge ingredients. For example, a nutrition label photo is analyzed to estimate macros, and a fridge photo can identify ingredients for recipe suggestions.",
+        "NSPhotoLibraryUsageDescription": "SpiceStrong uses selected photos when you choose to upload nutrition labels, recipes, menus, receipts, or ingredient photos for AI extraction. For example, a receipt photo can be analyzed to add grocery items to your pantry.",
+        "NSPhotoLibraryAddUsageDescription": "SpiceStrong saves images only when you choose to export or save recipe photos, progress images, or shareable recipe cards to your photo library."
       }
     },
     "android": {

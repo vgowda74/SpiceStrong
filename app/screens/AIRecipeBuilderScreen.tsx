@@ -22,6 +22,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Image } from 'expo-image';
 import { PROTEINS } from '../../src/theme';
+import { filterProteinsForPreference, getDietPreference, hasNonVegText, isNonVegProteinId, type DietPreference } from '../../src/utils/dietPreference';
 
 import { SPICEBUILDER_SYSTEM_PROMPT } from '../../src/prompts/spiceBuilderPrompt';
 import { analyzeNutrition } from '../../services/nutritionService';
@@ -62,7 +63,7 @@ const PROTEIN_INFO: Record<string, { name: string; emoji: string }> = {
   whey: { name: 'Protein Powder', emoji: '🏋️' },
 };
 
-const ACCENT = '#E85D26';
+const ACCENT = '#8F3A1F';
 const GLASS = 'rgba(255,255,255,0.1)';
 const BORDER_LIGHT = 'rgba(255,255,255,0.2)';
 
@@ -419,7 +420,7 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   }
   // Remove control characters that can break JSON.parse
-  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (ch) => (ch === '\n' || ch === '\r' || ch === '\t' ? ch : ''));
+  cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (ch: string) => (ch === '\n' || ch === '\r' || ch === '\t' ? ch : ''));
   try {
     return JSON.parse(cleaned);
   } catch (parseErr) {
@@ -562,6 +563,7 @@ export default function AIRecipeBuilderScreen() {
   const [selectedProtein, setSelectedProtein] = useState(routeProteinId || 'chicken');
   const [selectedProteinName, setSelectedProteinName] = useState(routeProteinName || 'Chicken');
   const [selectedProteinEmoji, setSelectedProteinEmoji] = useState(routeProteinEmoji || '🍗');
+  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>('veg');
 
   // Use selected protein throughout (replaces paramProteinId/paramProteinName/proteinEmoji)
   const paramProteinId = selectedProtein;
@@ -617,6 +619,21 @@ export default function AIRecipeBuilderScreen() {
   const [availableProteins, setAvailableProteins] = useState<{ id: string; name: string; emoji: string }[]>([]);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
+  const allowedProteins = filterProteinsForPreference(PROTEINS, dietPreference);
+
+  useEffect(() => {
+    getDietPreference().then((preference) => {
+      setDietPreferenceState(preference);
+      if (preference === 'veg' && isNonVegProteinId(selectedProtein)) {
+        const fallback = PROTEINS.find((p) => p.id === 'paneer') ?? PROTEINS.find((p) => p.category === 'VEG');
+        if (fallback) {
+          setSelectedProtein(fallback.id);
+          setSelectedProteinName(fallback.name);
+          setSelectedProteinEmoji(fallback.emoji);
+        }
+      }
+    });
+  }, [selectedProtein]);
 
   const isVegProtein = VEG_PROTEIN_IDS.includes(paramProteinId ?? '');
   const isDrinkProtein = DRINK_PROTEIN_IDS.includes(paramProteinId ?? '');
@@ -918,6 +935,11 @@ CRITICAL RULES:
         setImporting(false);
         return;
       }
+      if (dietPreference === 'veg' && hasNonVegText(JSON.stringify(parsed))) {
+        Alert.alert('Vegetarian Mode', 'This recipe appears to include non-vegetarian ingredients. Vegetarian mode only supports vegetarian recipes.');
+        setImporting(false);
+        return;
+      }
 
       // ── Step 2: Auto-fix for high-protein standards (same as AddRecipeScreen) ──
       setImportStep('Optimizing for high-protein standards...');
@@ -991,11 +1013,12 @@ Return ONLY the JSON, no explanation.`,
       setImportStep('Saving recipe...');
 
       // Detect protein from extracted data
-      const detectedProtein = parsed.primaryProtein || 'eggs';
-      const proteinMatch = PROTEINS.find((p: any) => p.id === detectedProtein);
-      const pId = proteinMatch?.id || 'eggs';
-      const pName = proteinMatch?.name || 'Eggs';
-      const pEmoji = proteinMatch?.emoji || '🥚';
+      const detectedProtein = parsed.primaryProtein || (dietPreference === 'veg' ? 'paneer' : 'eggs');
+      const proteinMatch = allowedProteins.find((p: any) => p.id === detectedProtein);
+      const fallbackProtein = allowedProteins.find((p) => p.id === 'paneer') ?? allowedProteins[0];
+      const pId = proteinMatch?.id || fallbackProtein?.id || 'paneer';
+      const pName = proteinMatch?.name || fallbackProtein?.name || 'Paneer';
+      const pEmoji = proteinMatch?.emoji || fallbackProtein?.emoji || '🧀';
 
       // Build the recipe object matching saveRecipeFromAI format
       const recipeForSave: Record<string, unknown> = {
@@ -1187,7 +1210,7 @@ Return ONLY the JSON, no explanation.`,
       // Step 2: Save recipe and show immediately — don't wait for images
       setGenStep('Saving your recipe...');
       saved = await saveRecipeFromAI(result, placeholderId);
-      (saved as any).source = 'curated';
+      saved.source = 'ai';
       saved.status = 'ready';
       const syncResult = await saveAIRecipe(saved);
       if (syncResult.duplicate) await saveAIRecipe(saved, true);
@@ -1322,16 +1345,16 @@ Return ONLY the JSON, no explanation.`,
 
             {/* SpiceBuilder AI card */}
             <TouchableOpacity
-              style={[styles.modeCard, { borderColor: 'rgba(232,93,38,0.40)' }]}
+              style={[styles.modeCard, { borderColor: 'rgba(143,58,31,0.40)' }]}
               onPress={() => setScreenMode('builder')}
               activeOpacity={0.85}
             >
               <Text style={styles.modeCardEmoji}>🍳</Text>
               <View style={styles.modeCardTextBlock}>
-                <Text style={[styles.modeCardTitle, { color: '#E85D26' }]}>Build with AI</Text>
+                <Text style={[styles.modeCardTitle, { color: '#8F3A1F' }]}>Build with AI</Text>
                 <Text style={styles.modeCardDesc}>Pick your protein, cuisine, macros and let AI create the recipe</Text>
               </View>
-              <Text style={[styles.modeCardArrow, { color: '#E85D26' }]}>›</Text>
+              <Text style={[styles.modeCardArrow, { color: '#8F3A1F' }]}>›</Text>
             </TouchableOpacity>
           </ScrollView>
         )}
@@ -1369,7 +1392,7 @@ Return ONLY the JSON, no explanation.`,
         {importing && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ActivityIndicator color="#E85D26" size="large" style={{ marginBottom: 24 }} />
+              <ActivityIndicator color="#8F3A1F" size="large" style={{ marginBottom: 24 }} />
               <Text style={styles.genEmoji}>📸</Text>
               <Text style={styles.genTitle}>Importing Recipe</Text>
               <Text style={styles.genStep}>{importStep}</Text>
@@ -1391,32 +1414,31 @@ Return ONLY the JSON, no explanation.`,
             </Text>
             {importedRecipe.aiNutrition && (
               <View style={{ flexDirection: 'row', gap: 16, marginBottom: 20 }}>
-                <Text style={{ color: '#E85D26', fontSize: 13, fontWeight: '700' }}>{Math.round((importedRecipe.aiNutrition.proteinG || 0) / 2.5)}g protein</Text>
+                <Text style={{ color: '#8F3A1F', fontSize: 13, fontWeight: '700' }}>{Math.round((importedRecipe.aiNutrition.proteinG || 0) / 2.5)}g protein</Text>
                 <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>{Math.round((importedRecipe.aiNutrition.calories || 0) / 2.5)} cal</Text>
                 <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>{(importedRecipe.steps?.length || 0)} steps</Text>
               </View>
             )}
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: 24, paddingHorizontal: 20 }}>
-              Recipe extracted successfully. Save it locally or publish for all users.
+              Recipe extracted successfully. Save it to your recipe library.
             </Text>
 
-            {/* Publish button */}
             <TouchableOpacity
               style={[styles.primaryBtn, { width: '100%', marginBottom: 12 }, publishing && { opacity: 0.6 }]}
               onPress={async () => {
                 if (publishing) return;
                 setPublishing(true);
                 try {
-                  (importedRecipe as any).source = 'curated';
+                  importedRecipe.source = 'ai';
                   await saveAIRecipe(importedRecipe);
                   try { await classifyAndEnrichRecipe(importedRecipe); } catch { /* non-fatal */ }
                   if (importImageUri) uploadRecipeHeroImage(importedRecipe.id, importImageUri).catch(() => {});
                   updateRecipeStatus(importedRecipe.id, 'ready').catch(() => {});
-                  Alert.alert('Published!', `"${importedRecipe.name}" is now live for all users.`, [
+                  Alert.alert('Saved!', `"${importedRecipe.name}" is saved to your recipe library.`, [
                     { text: 'View Recipe', onPress: () => router.replace({ pathname: '/screens/RecipeOverviewScreen', params: { recipeId: importedRecipe.id, quantityTier: '2-3 servings' } }) },
                   ]);
                 } catch (e) {
-                  Alert.alert('Publish Failed', 'Could not publish. The recipe is saved locally.');
+                  Alert.alert('Save Failed', 'Could not save this recipe. Please try again.');
                 } finally {
                   setPublishing(false);
                 }
@@ -1427,7 +1449,7 @@ Return ONLY the JSON, no explanation.`,
               {publishing ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
-                <Text style={styles.primaryBtnText}>Publish for Everyone</Text>
+                <Text style={styles.primaryBtnText}>Save Recipe</Text>
               )}
             </TouchableOpacity>
 
@@ -1451,7 +1473,7 @@ Return ONLY the JSON, no explanation.`,
         {generating && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ActivityIndicator color="#E85D26" size="large" style={{ marginBottom: 24 }} />
+              <ActivityIndicator color="#8F3A1F" size="large" style={{ marginBottom: 24 }} />
               <Text style={styles.genEmoji}>👨‍🍳</Text>
               <Text style={styles.genTitle}>Creating Your Recipe</Text>
               <Text style={styles.genStep}>{genStep}</Text>
@@ -1486,7 +1508,7 @@ Return ONLY the JSON, no explanation.`,
               <Text style={styles.proteinPickerLabel}>SELECT PROTEIN</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={styles.proteinPickerRow}>
-                  {PROTEINS.map((p) => (
+                  {allowedProteins.map((p) => (
                     <TouchableOpacity
                       key={p.id}
                       style={[styles.proteinPickerChip, selectedProtein === p.id && styles.proteinPickerChipActive]}
@@ -1528,8 +1550,8 @@ Return ONLY the JSON, no explanation.`,
                   <Text style={styles.macroInputUnit}>cal</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={[styles.macroInputField, { color: '#E85D26' }]} value={targetProtein} onChangeText={setTargetProtein} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
-                  <Text style={[styles.macroInputUnit, { color: '#E85D26' }]}>g P</Text>
+                  <TextInput style={[styles.macroInputField, { color: '#8F3A1F' }]} value={targetProtein} onChangeText={setTargetProtein} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <Text style={[styles.macroInputUnit, { color: '#8F3A1F' }]}>g P</Text>
                 </View>
                 <View style={styles.macroInputBox}>
                   <TextInput style={styles.macroInputField} value={targetCarbs} onChangeText={setTargetCarbs} keyboardType="numeric" returnKeyType="done" placeholder="30" placeholderTextColor="rgba(255,255,255,0.20)" />
@@ -1742,12 +1764,12 @@ const styles = StyleSheet.create({
   },
   genViewBtn: {
     marginTop: 24,
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 16,
     paddingVertical: 16,
     paddingHorizontal: 40,
     ...Platform.select({
-      ios: { shadowColor: '#E85D26', shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#8F3A1F', shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 6 },
     }),
   },
@@ -1772,14 +1794,14 @@ const styles = StyleSheet.create({
   refImageBtnRow: { flexDirection: 'row', gap: 10 },
   refImageBtn: {
     flex: 1,
-    backgroundColor: 'rgba(232,93,38,0.15)',
+    backgroundColor: 'rgba(143,58,31,0.15)',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.30)',
+    borderColor: 'rgba(143,58,31,0.30)',
   },
-  refImageBtnText: { fontSize: 14, fontWeight: '700', color: '#E85D26' },
+  refImageBtnText: { fontSize: 14, fontWeight: '700', color: '#8F3A1F' },
   refImagePreview: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1788,7 +1810,7 @@ const styles = StyleSheet.create({
   refImageThumb: { width: 80, height: 80, borderRadius: 12 },
   refImageActions: { flex: 1, gap: 4 },
   refImageHint: { fontSize: 13, fontWeight: '600', color: '#22C55E' },
-  refImageRemove: { fontSize: 13, fontWeight: '600', color: '#E85D26', textDecorationLine: 'underline' },
+  refImageRemove: { fontSize: 13, fontWeight: '600', color: '#8F3A1F', textDecorationLine: 'underline' },
   refImageOptional: { fontSize: 11, color: 'rgba(255,255,255,0.30)', marginTop: 8 },
   header: {
     flexDirection: 'row',
@@ -1798,8 +1820,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 16,
   },
-  backBtn: { padding: 8 },
-  backText: { color: '#fff', fontSize: 28, fontWeight: '700' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  backText: { color: '#fff', fontSize: 28, lineHeight: 30, fontWeight: '900' },
   title: { color: '#fff', fontSize: 18, fontWeight: '700', flex: 1, textAlign: 'center' },
   headerSpacer: { width: 44 },
   scroll: { flex: 1 },
@@ -1826,12 +1861,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.12)',
   },
   proteinPickerChipActive: {
-    borderColor: '#E85D26',
-    backgroundColor: 'rgba(232,93,38,0.15)',
+    borderColor: '#8F3A1F',
+    backgroundColor: 'rgba(143,58,31,0.15)',
   },
   proteinPickerEmoji: { fontSize: 18 },
   proteinPickerText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
-  proteinPickerTextActive: { color: '#E85D26', fontWeight: '700' },
+  proteinPickerTextActive: { color: '#8F3A1F', fontWeight: '700' },
 
   // Macro input boxes
   macroInputRow: {
@@ -1944,12 +1979,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   keywordTag: {
-    backgroundColor: 'rgba(232,93,38,0.25)',
+    backgroundColor: 'rgba(143,58,31,0.25)',
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.4)',
+    borderColor: 'rgba(143,58,31,0.4)',
   },
   keywordTagText: { color: '#fff', fontSize: 11, fontWeight: '600' },
 
@@ -2013,9 +2048,9 @@ const styles = StyleSheet.create({
     maxWidth: 380,
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(232,93,38,0.35)',
+    borderColor: 'rgba(143,58,31,0.35)',
     ...Platform.select({
-      ios: { shadowColor: '#E85D26', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
+      ios: { shadowColor: '#8F3A1F', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
       android: { elevation: 16 },
     }),
   },
@@ -2040,7 +2075,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   modalTitle: {
-    color: '#E85D26',
+    color: '#8F3A1F',
     fontSize: 22,
     fontWeight: '800',
     marginBottom: 14,
@@ -2054,7 +2089,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalProteinHighlight: {
-    color: '#E85D26',
+    color: '#8F3A1F',
     fontWeight: '800',
   },
   modalOtherSection: {
@@ -2081,12 +2116,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   modalOtherChip: {
-    backgroundColor: 'rgba(232,93,38,0.2)',
+    backgroundColor: 'rgba(143,58,31,0.2)',
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: 'rgba(232,93,38,0.4)',
+    borderColor: 'rgba(143,58,31,0.4)',
   },
   modalOtherChipText: {
     color: '#fff',
@@ -2094,14 +2129,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   modalDismissBtn: {
-    backgroundColor: '#E85D26',
+    backgroundColor: '#8F3A1F',
     borderRadius: 16,
     height: 50,
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
-      ios: { shadowColor: '#E85D26', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#8F3A1F', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 8 },
     }),
   },

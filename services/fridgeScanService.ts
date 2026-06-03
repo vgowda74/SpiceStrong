@@ -15,6 +15,7 @@ import { applyDietaryFilter, getDietaryRestrictions } from './dietaryService';
 import { fetchRecipesByProtein } from './recipeService';
 import { type SavedRecipe } from '../src/store/recipes';
 import { BUILTIN_RECIPES } from '../src/data/builtInRecipes';
+import { filterRecipesForPreference, getAllowedProteinIds, getDietPreference } from '../src/utils/dietPreference';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -611,9 +612,11 @@ export async function matchRecipes(
 ): Promise<MatchedRecipe[]> {
   const scannedNames = scannedIngredients.map((i) => i.name.toLowerCase().trim());
   const dietary = await getDietaryRestrictions();
+  const dietPreference = await getDietPreference();
+  const allowedProteinIds = new Set(getAllowedProteinIds(dietPreference));
 
   // Detect which proteins the user has → only fetch those categories
-  const proteinCategories = detectProteinCategories(scannedIngredients);
+  const proteinCategories = detectProteinCategories(scannedIngredients).filter((id) => allowedProteinIds.has(id));
   console.log(`[SpiceStrong] Fridge scan: detected proteins: ${proteinCategories.join(', ')}`);
 
   // Gather recipes from detected protein categories
@@ -621,7 +624,7 @@ export async function matchRecipes(
   const seen = new Set<string>();
 
   // Start with built-in recipes (instant, in-memory)
-  for (const r of BUILTIN_RECIPES) {
+  for (const r of filterRecipesForPreference(BUILTIN_RECIPES, dietPreference)) {
     if (!seen.has(r.id)) { allRecipes.push(r); seen.add(r.id); }
   }
 

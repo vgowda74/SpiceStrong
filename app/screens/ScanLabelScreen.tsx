@@ -34,11 +34,11 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
+import { PremiumScreen } from '../../components/PremiumScreen';
 
-const ORANGE = '#E85D26';
-const BG = '#0F0F0F';
-const SURFACE = '#1A1A1A';
-const BORDER = 'rgba(255,255,255,0.08)';
+const ORANGE = '#8F3A1F';
+const SURFACE = 'rgba(248,241,232,0.08)';
+const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const YELLOW = '#F59E0B';
 const RED = '#EF4444';
@@ -92,7 +92,9 @@ export default function ScanLabelScreen() {
   const [barcodeOpen, setBarcodeOpen] = useState(false);
   const [barcodeScanned, setBarcodeScanned] = useState(false);
   const [barcodeReady, setBarcodeReady] = useState(false);
+  const [barcodeLookupError, setBarcodeLookupError] = useState<string | null>(null);
   const scanLockRef = useRef(false);
+  const barcodeOpenRef = useRef(false);
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -102,6 +104,16 @@ export default function ScanLabelScreen() {
   const [dailyPct, setDailyPct] = useState<DailyTargetPct | null>(null);
   const [aiSummary, setAiSummary] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    barcodeOpenRef.current = barcodeOpen;
+  }, [barcodeOpen]);
+
+  useEffect(() => {
+    if (!barcodeOpen) return;
+    const timer = setTimeout(() => setBarcodeReady(true), 6000);
+    return () => clearTimeout(timer);
+  }, [barcodeOpen, barcodeScanned]);
 
   const pickImage = async (useCamera: boolean) => {
     // Freemium limit check
@@ -137,6 +149,7 @@ export default function ScanLabelScreen() {
   const analyzeLabelImage = async (uri: string) => {
     setScanning(true);
     setError(null);
+    setBarcodeLookupError(null);
     try {
       // Compress image
       const manipulated = await manipulateAsync(
@@ -479,7 +492,9 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       } catch {}
 
       // Lookup succeeded — close the camera and show results
+      scanLockRef.current = true;
       setBarcodeOpen(false);
+      setBarcodeLookupError(null);
       setLabelData(label);
       recordUsage('scan');
       const score = calculateHealthScore(label);
@@ -541,25 +556,17 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
         }
       } catch (e) { console.log('[SpiceStrong] AI summary failed', e); }
     } catch (err: any) {
+      if (!barcodeOpenRef.current) return;
       if (err?.message === 'not_food') {
-        Alert.alert(
-          'Product Not Found',
-          'This product wasn\'t found in our food database. It may not be a food item.',
-          [
-            { text: 'Scan Again', onPress: () => { setBarcodeScanned(false); scanLockRef.current = false; } },
-            { text: 'Photo Label Instead', onPress: () => { setBarcodeOpen(false); pickImage(true); } },
-            { text: 'Cancel', style: 'cancel', onPress: () => { setBarcodeOpen(false); setBarcodeScanned(false); scanLockRef.current = false; } },
-          ],
-        );
+        setBarcodeLookupError(null);
+        setBarcodeScanned(false);
+        setBarcodeReady(false);
+        scanLockRef.current = false;
       } else {
-        Alert.alert(
-          'Scan Error',
-          'Could not read this barcode. Try holding the camera steady and closer to the barcode.',
-          [
-            { text: 'Try Again', onPress: () => { setBarcodeScanned(false); scanLockRef.current = false; } },
-            { text: 'Cancel', style: 'cancel', onPress: () => { setBarcodeOpen(false); setBarcodeScanned(false); scanLockRef.current = false; } },
-          ],
-        );
+        setBarcodeLookupError(null);
+        setBarcodeScanned(false);
+        setBarcodeReady(false);
+        scanLockRef.current = false;
       }
     } finally {
       setScanning(false);
@@ -677,10 +684,10 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Scan Label</Text>
@@ -706,9 +713,15 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
                 }
                 setBarcodeScanned(false); scanLockRef.current = false;
                 setBarcodeReady(false);
+                setBarcodeLookupError(null);
+                setImageUri(null);
+                setLabelData(null);
+                setHealthScore(null);
+                setAiSummary('');
+                setDietaryViolations([]);
+                setDailyPct(null);
+                setError(null);
                 setBarcodeOpen(true);
-                // Give camera 2 seconds to focus before accepting scans
-                setTimeout(() => setBarcodeReady(true), 4000);
               }} activeOpacity={0.8}>
                 <Text style={styles.galleryBtnText}>📊 Scan Barcode</Text>
               </TouchableOpacity>
@@ -732,8 +745,9 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
             <View style={styles.barcodeOverlay}>
               <View style={styles.barcodeCrosshair} />
               <Text style={styles.barcodeHint}>
-                {barcodeScanned ? 'Looking up product…' : (barcodeReady ? 'Point at the barcode — hold steady' : 'Focusing camera...')}
+                {barcodeScanned ? 'Looking up product...' : (barcodeReady ? 'Scanning automatically...' : 'Line up the barcode in the frame')}
               </Text>
+              {barcodeLookupError && <Text style={styles.barcodeErrorText}>{barcodeLookupError}</Text>}
             </View>
             <TouchableOpacity style={styles.barcodeCloseBtn} onPress={() => setBarcodeOpen(false)}>
               <Text style={styles.barcodeCloseBtnText}>✕ Close</Text>
@@ -946,17 +960,31 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
         )}
       </ScrollView>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
-    </View>
+    </PremiumScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: BG },
+  container: { flex: 1, backgroundColor: 'transparent' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: BORDER,
+    paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(248,241,232,0.12)',
   },
-  back: { fontSize: 24, color: '#FFFFFF', fontWeight: '600' },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
   scroll: { paddingHorizontal: 20, paddingTop: 20 },
 
@@ -985,6 +1013,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   barcodeHint: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginTop: 20, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  barcodeErrorText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 12,
+    marginHorizontal: 28,
+    textAlign: 'center',
+    lineHeight: 18,
+    backgroundColor: 'rgba(239,68,68,0.78)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    overflow: 'hidden',
+  },
   barcodeCloseBtn: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 60 : 40,
