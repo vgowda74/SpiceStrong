@@ -8,7 +8,7 @@
  * - Scan My Grocery CTA
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -37,6 +37,7 @@ import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscri
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getIngredientInfo } from '../../services/ingredientInfoService';
+import { trackEvent } from '../../services/analyticsService';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -60,6 +61,10 @@ const CATEGORY_CONFIG: Record<Category, { label: string; emoji: string; color: s
 export default function MyPantryScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    trackEvent('pantry_opened', { screen: 'MyPantryScreen' });
+  }, []);
 
   const [items, setItems] = useState<PantryItem[]>([]);
   const [addName, setAddName] = useState('');

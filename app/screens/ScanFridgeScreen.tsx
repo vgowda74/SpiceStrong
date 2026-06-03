@@ -34,6 +34,7 @@ import {
   type IngredientCategory,
 } from '../../services/fridgeScanService';
 import { addPantryItemsBatch, addToGroceryList } from '../../services/pantryService';
+import { trackEvent } from '../../services/analyticsService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 
 const ORANGE = '#8F3A1F';
@@ -119,6 +120,7 @@ export default function ScanFridgeScreen() {
   // ── AI scan ──
   const startScan = async () => {
     setStep('scanning');
+    trackEvent('scan_fridge', { screen: 'ScanFridgeScreen', metadata: { scanMode } });
     try {
       const photoData = photos.map((p) => ({ base64: p.base64, uri: p.uri }));
       const results = scanMode === 'fridge'

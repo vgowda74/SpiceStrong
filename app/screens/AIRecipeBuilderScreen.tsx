@@ -30,6 +30,7 @@ import { getDietaryRestrictions } from '../../services/dietaryService';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
+import { trackEvent } from '../../services/analyticsService';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -1162,6 +1163,11 @@ Return ONLY the JSON, no explanation.`,
     // Stay on screen with progress steps
     setGenerating(true);
     setGenStep('Understanding your preferences...');
+    trackEvent('ai_recipe_generated', {
+      screen: 'AIRecipeBuilderScreen',
+      proteinId,
+      metadata: { proteinName },
+    });
 
     const findLabel = (options: { id: string; label: string }[], id: string) =>
       options.find((o) => o.id === id)?.label.replace(/^.\s/, '') ?? '';

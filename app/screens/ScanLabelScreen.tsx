@@ -32,6 +32,7 @@ import { useRouter } from 'expo-router';
 import { getDietaryRestrictions } from '../../services/dietaryService';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
+import { trackEvent } from '../../services/analyticsService';
 import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
@@ -254,6 +255,7 @@ Rules:
       };
       setLabelData(label);
       recordUsage('scan');
+      trackEvent('scan_label', { screen: 'ScanLabelScreen', metadata: { method: 'photo' } });
 
       // Step 2: Calculate health score
       const score = calculateHealthScore(label);
@@ -497,6 +499,7 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       setBarcodeLookupError(null);
       setLabelData(label);
       recordUsage('scan');
+      trackEvent('scan_label', { screen: 'ScanLabelScreen', metadata: { method: 'barcode' } });
       const score = calculateHealthScore(label);
       setHealthScore(score);
 

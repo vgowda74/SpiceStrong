@@ -8,7 +8,7 @@
  * - Pantry items auto-subtracted
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -39,6 +39,7 @@ import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscri
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getIngredientInfo } from '../../services/ingredientInfoService';
+import { trackEvent } from '../../services/analyticsService';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -49,6 +50,10 @@ const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'Pla
 export default function GroceryListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    trackEvent('grocery_opened', { screen: 'GroceryListScreen' });
+  }, []);
 
   const [items, setItems] = useState<GroceryItem[]>([]);
   const [addName, setAddName] = useState('');

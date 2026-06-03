@@ -3,7 +3,7 @@
  * Premium upgrade screen with Free vs Pro comparison and plan toggle.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import type { LimitCheck } from '../services/subscriptionService';
+import { trackEvent } from '../services/analyticsService';
 
 const ORANGE = '#8F3A1F';
 const GREEN = '#22C55E';
@@ -49,6 +50,15 @@ export default function PaywallModal({ visible, onClose, limitCheck, onUpgrade }
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'yearly' | 'monthly'>('yearly');
+
+  useEffect(() => {
+    if (visible) {
+      trackEvent('paywall_viewed', {
+        screen: 'PaywallModal',
+        metadata: { featureLabel: limitCheck?.featureLabel },
+      });
+    }
+  }, [visible, limitCheck?.featureLabel]);
 
   const handlePurchase = async () => {
     setPurchasing(true);

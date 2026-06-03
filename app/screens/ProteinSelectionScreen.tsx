@@ -37,6 +37,7 @@ import { PROTEINS } from '../../src/theme';
 import { filterProteinsForPreference, getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
 import { ProfileMenu } from '../../components/ProfileMenu';
 import { Premium } from '../../src/theme/premium';
+import { trackEvent } from '../../services/analyticsService';
 
 const screenWidth = Dimensions.get('window').width;
 const CARD_WIDTH = (screenWidth - 56) / 2;
@@ -133,6 +134,11 @@ export default function ProteinSelectionScreen() {
   const veg = filtered.filter((p) => p.category === 'VEG');
 
   const navigateToRecipes = (item: (typeof PROTEINS)[0]) => {
+    trackEvent('protein_selected', {
+      screen: 'ProteinSelectionScreen',
+      proteinId: item.id,
+      metadata: { proteinName: item.name, category: item.category },
+    });
     router.push({
       pathname: '/screens/RecipeListScreen',
       params: { proteinId: item.id, proteinName: item.name, proteinEmoji: item.emoji },

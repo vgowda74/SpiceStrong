@@ -23,6 +23,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getDietaryRestrictions } from '../../services/dietaryService';
+import { trackEvent } from '../../services/analyticsService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
 
@@ -78,6 +79,7 @@ export default function ScanMenuScreen() {
   const analyzeMenu = async (uri: string) => {
     setScanning(true);
     setError(null);
+    trackEvent('scan_menu', { screen: 'ScanMenuScreen' });
     try {
       const manipulated = await manipulateAsync(
         uri,

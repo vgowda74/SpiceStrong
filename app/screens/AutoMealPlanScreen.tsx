@@ -29,6 +29,7 @@ import { generateAutoMealPlan, type AutoPlanPreferences } from '../../services/a
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { type MealSlot } from '../../services/mealPlanService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
+import { trackEvent } from '../../services/analyticsService';
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
 
@@ -128,6 +129,10 @@ export default function AutoMealPlanScreen() {
 
     setStep('generating');
     setGenProgress('Getting ready...');
+    trackEvent('auto_meal_plan_generated', {
+      screen: 'AutoMealPlanScreen',
+      metadata: { slots: slots.length, servingCount, pantryOnly },
+    });
 
     const today = new Date();
     const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { trackEvent } from '../../services/analyticsService';
 
 const FEEDBACK_KEY = 'spicestrong_feedback';
 const ORANGE = '#8F3A1F';
@@ -118,6 +119,10 @@ export default function FeedbackScreen() {
       list.push(feedbackRecord);
       await AsyncStorage.setItem(FEEDBACK_KEY, JSON.stringify(list));
     } catch (_) {}
+    trackEvent('feedback_submitted', {
+      screen: 'FeedbackScreen',
+      metadata: { rating, recipeName },
+    });
     const smsBody = compileSMSBody(smsAnswers, recipeName, rating);
     const encodedBody = encodeURIComponent(smsBody);
     const smsUrl =

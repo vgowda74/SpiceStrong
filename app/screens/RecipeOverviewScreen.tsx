@@ -25,6 +25,7 @@ import { submitCookCount } from '../../services/ratingsService';
 import { getRecipeImageUrls } from '../../services/recipeService';
 // imageCacheService no longer needed — expo-image handles caching
 import { loadRecipeImages } from '../../services/imageGenerationService';
+import { trackEvent } from '../../services/analyticsService';
 
 const ORANGE = '#8F3A1F';
 const CARD_WHITE = '#FFFFFF';
@@ -43,7 +44,17 @@ export default function RecipeOverviewScreen() {
   const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
 
   useEffect(() => {
-    getRecipeById(recipeId).then(setRecipe);
+    getRecipeById(recipeId).then((r) => {
+      setRecipe(r);
+      if (r) {
+        trackEvent('recipe_viewed', {
+          screen: 'RecipeOverviewScreen',
+          recipeId,
+          proteinId: (r as { proteinId?: string }).proteinId,
+          metadata: { recipeName: r.name, quantityTier },
+        });
+      }
+    });
 
     // Load hero image from Supabase → AI → built-in fallback chain
     (async () => {

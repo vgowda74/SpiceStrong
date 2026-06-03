@@ -39,6 +39,7 @@ import { loadRecipeImages, type RecipeImageResults } from '../../services/imageG
 import { getRecipeImageUrls } from '../../services/recipeService';
 import { isAdmin } from '../../services/adminService';
 import { fixRecipeStepAsAdmin, type AdminRecipeFixMode } from '../../services/adminRecipeFixService';
+import { trackEvent } from '../../services/analyticsService';
 // imageCacheService no longer needed — expo-image handles caching
 
 
@@ -307,7 +308,16 @@ export default function CookingModeScreen() {
 
   useEffect(() => {
     if (!recipeId) return;
-    getRecipeById(recipeId).then(setRecipe);
+    getRecipeById(recipeId).then((r) => {
+      setRecipe(r);
+      if (r) {
+        trackEvent('cooking_started', {
+          screen: 'CookingModeScreen',
+          recipeId,
+          metadata: { recipeName: r.name, quantityTier: tierParam ?? '2-3 servings' },
+        });
+      }
+    });
     loadRecipeImages(recipeId).then(setAiImages);
     // Load Supabase step image URLs (expo-image caches automatically)
     getRecipeImageUrls(recipeId).then((urls) => {
@@ -539,7 +549,13 @@ export default function CookingModeScreen() {
     if (currentStep < totalSteps - 1) {
       setCurrentStep((s) => s + 1);
     } else {
-      setDone(true);      (async () => {
+      setDone(true);
+      trackEvent('cooking_completed', {
+        screen: 'CookingModeScreen',
+        recipeId,
+        metadata: { recipeName: recipe?.name, totalSteps },
+      });
+      (async () => {
         try {
           const countRaw = await AsyncStorage.getItem(REVIEW_COUNT_KEY);
           let count = countRaw ? parseInt(countRaw, 10) : 0;
