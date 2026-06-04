@@ -745,32 +745,22 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
           <View style={styles.uploadSection}>
             <Text style={styles.uploadEmoji}>🔍</Text>
             <Text style={styles.uploadTitle}>Check Any Product</Text>
-            <Text style={styles.uploadSub}>Photograph the nutrition label & ingredients list, or scan the barcode</Text>
+            <Text style={styles.uploadSub}>Photograph the full label — the Nutrition Facts panel and the ingredients list together</Text>
             <View style={styles.btnRow}>
               <TouchableOpacity style={styles.cameraBtn} onPress={() => pickImage(true)} activeOpacity={0.8}>
-                <Text style={styles.cameraBtnText}>📷 Photo Label</Text>
+                <Text style={styles.cameraBtnText}>📷 Take Photo</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.galleryBtn} onPress={async () => {
-                if (!cameraPermission?.granted) {
-                  const perm = await requestCameraPermission();
-                  if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required for barcode scanning.'); return; }
-                }
-                setBarcodeScanned(false); scanLockRef.current = false;
-                setBarcodeReady(false);
-                setBarcodeLookupError(null);
-                setImageUri(null);
-                setLabelData(null);
-                setHealthScore(null);
-                setAiSummary('');
-                setDietaryViolations([]);
-                setDailyPct(null);
-                setError(null);
-                setBarcodeOpen(true);
-              }} activeOpacity={0.8}>
-                <Text style={styles.galleryBtnText}>📊 Scan Barcode</Text>
+              <TouchableOpacity style={styles.galleryBtn} onPress={() => pickImage(false)} activeOpacity={0.8}>
+                <Text style={styles.galleryBtnText}>🖼️ Upload Photo</Text>
               </TouchableOpacity>
             </View>
-            <Text style={styles.hintText}>💡 For best results, capture both the Nutrition Facts panel and ingredients list in one photo</Text>
+            <View style={styles.tipsCard}>
+              <Text style={styles.tipsTitle}>📸 For an accurate report, include:</Text>
+              <Text style={styles.tipLine}>✓  The full Nutrition Facts panel</Text>
+              <Text style={styles.tipLine}>✓  The complete Ingredients list &amp; “Contains…” line</Text>
+              <Text style={styles.tipLine}>✓  Good lighting, label filling the frame, no glare</Text>
+              <Text style={styles.tipNote}>The ingredients list is how we detect additives, allergens, and whether it’s Veg / Vegan.</Text>
+            </View>
           </View>
         )}
 
@@ -1060,6 +1050,10 @@ const styles = StyleSheet.create({
   galleryBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   galleryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
   hintText: { fontSize: 12, color: 'rgba(255,255,255,0.40)', textAlign: 'center', marginTop: 16, lineHeight: 18, paddingHorizontal: 10 },
+  tipsCard: { marginTop: 22, alignSelf: 'stretch', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)', padding: 16 },
+  tipsTitle: { fontSize: 13, fontWeight: '800', color: 'rgba(255,255,255,0.80)', marginBottom: 10 },
+  tipLine: { fontSize: 13, color: 'rgba(255,255,255,0.65)', lineHeight: 22 },
+  tipNote: { fontSize: 12, color: ORANGE, marginTop: 10, lineHeight: 18, fontWeight: '600' },
 
   // Barcode scanner
   barcodeContainer: { flex: 1, backgroundColor: '#000' },
