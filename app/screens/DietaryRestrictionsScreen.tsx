@@ -59,8 +59,12 @@ const ALLERGEN_OPTIONS = [
 ];
 
 function getHiddenAllergenTags(preference: DietPreference | null): string[] {
-  if (preference === 'veg') return ['Vegetarian', 'Egg free', 'Shellfish free'];
-  return ['Vegetarian'];
+  // Veg users: hide redundant veg-axis/shellfish tags, but keep "Egg free"
+  // (vegetarians eat eggs, so it's a valid restriction for them).
+  if (preference === 'veg') return ['Vegetarian', 'Shellfish free'];
+  // Non-veg users: hide the veg-axis tags entirely — that lifestyle is set on
+  // the landing screen. Offering "Vegan" here would filter out their whole catalog.
+  return ['Vegetarian', 'Vegan'];
 }
 
 function Chip({
