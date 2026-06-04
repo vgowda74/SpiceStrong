@@ -1,6 +1,14 @@
 ScreenShot/
 docs/
+Docs/
 scripts/
 dist/
+Recipes/
+.eas-inspect-ios/
+*.aab
+*.ipa
+*.pdf
+*.docx
+*.xlsx
 *.md
 .claude/
