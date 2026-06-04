@@ -20,7 +20,9 @@ import {
   View,
 } from 'react-native';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { generateBodyScanSample } from '../../services/imageGenerationService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -99,6 +101,10 @@ export default function FitnessProfileScreen() {
   const [scanCountdownActive, setScanCountdownActive] = useState(false);
   const [scanPhotoAssessing, setScanPhotoAssessing] = useState(false);
   const [scanPhotoFeedback, setScanPhotoFeedback] = useState('');
+  // Upload-only flow: gender-matched reference sample + per-pose upload state
+  const [sampleUri, setSampleUri] = useState<string | null>(null);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [uploadingPose, setUploadingPose] = useState<'front' | 'side' | null>(null);
   const [waist, setWaist] = useState('');
   const [neck, setNeck] = useState('');
   const [hip, setHip] = useState('');
@@ -132,6 +138,16 @@ export default function FitnessProfileScreen() {
       }
     })();
   }, []);
+
+  // Load the gender-matched reference sample once the user reaches the scan step.
+  useEffect(() => {
+    if (step !== 'body_fat' || sampleUri || sampleLoading) return;
+    const sampleGender = gender === 'female' ? 'female' : 'male';
+    setSampleLoading(true);
+    generateBodyScanSample(sampleGender)
+      .then((uri) => setSampleUri(uri))
+      .finally(() => setSampleLoading(false));
+  }, [step, gender, sampleUri, sampleLoading]);
 
   const goNext = () => {
     const idx = STEPS.indexOf(step);
@@ -300,6 +316,59 @@ Accept only if the full body from head to feet is visible, the person is centere
       setScanCameraOpen(false);
       setScanCountdownActive(false);
       setScanPhotoAssessing(false);
+    }
+  };
+
+  // ── Upload-only body scan: pick from gallery, validate, gate side behind front ──
+  const uploadBodyPhoto = async (pose: 'front' | 'side') => {
+    // Side photo is locked until a valid front photo exists.
+    if (pose === 'side' && !scanFrontUri) {
+      Alert.alert('Front photo first', 'Please add and pass your front photo before adding the side photo.');
+      return;
+    }
+    if (uploadingPose) return;
+
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Photo library access is required to upload your body-scan photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.6,
+        base64: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      let b64 = asset.base64 || '';
+      if (b64.includes(',')) b64 = b64.split(',')[1];
+
+      setUploadingPose(pose);
+      const quality = await assessBodyScanPhoto(b64, pose);
+      setUploadingPose(null);
+
+      if (!quality.ok) {
+        Alert.alert(
+          'Photo Not Usable',
+          `${quality.feedback || 'This photo can’t be used for an accurate measurement.'}\n\nPlease upload another ${pose} photo.`,
+        );
+        return;
+      }
+
+      if (pose === 'front') {
+        setScanFrontUri(asset.uri);
+        setScanFrontBase64(b64);
+      } else {
+        setScanSideUri(asset.uri);
+        setScanSideBase64(b64);
+      }
+    } catch (err) {
+      console.warn('[SpiceStrong] Body scan upload failed:', err);
+      setUploadingPose(null);
+      Alert.alert('Upload Failed', 'Could not process that photo. Please try another.');
     }
   };
 
@@ -655,33 +724,57 @@ Use the photos, user stats, and measurements together. Prefer a range over false
               <View style={styles.scanSection}>
                 <View style={styles.scanDivider}>
                   <View style={styles.scanDividerLine} />
-                  <Text style={styles.scanDividerText}>guided photo scan</Text>
+                  <Text style={styles.scanDividerText}>upload photo scan</Text>
                   <View style={styles.scanDividerLine} />
                 </View>
 
-                <Text style={styles.scanHint}>Fit your full body inside the guide. The app captures front first, then side, using the same two-pose flow as leading scan apps.</Text>
+                <Text style={styles.scanHint}>Upload a full-body front photo first. Once it passes our quality check, you can add the side photo. Match the reference pose below for an accurate estimate.</Text>
 
-                {/* Photo row */}
+                {/* Gender-matched reference pose */}
+                <View style={styles.sampleCard}>
+                  <Text style={styles.sampleTitle}>Match this pose</Text>
+                  {sampleUri ? (
+                    <Image source={{ uri: sampleUri }} style={styles.sampleImg} contentFit="contain" />
+                  ) : (
+                    <View style={styles.samplePlaceholder}>
+                      {sampleLoading ? <ActivityIndicator color={ORANGE} /> : <Text style={styles.sampleIcon}>🧍</Text>}
+                      <Text style={styles.samplePlaceholderText}>
+                        {sampleLoading ? 'Loading reference pose…' : 'Stand straight, facing forward, full body in frame'}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Photo row — upload only */}
                 <View style={styles.scanPhotoRow}>
-                  <TouchableOpacity style={styles.scanPhotoCard} onPress={() => openGuidedBodyScan('front')} activeOpacity={0.75}>
+                  <TouchableOpacity style={styles.scanPhotoCard} onPress={() => uploadBodyPhoto('front')} activeOpacity={0.75} disabled={uploadingPose !== null}>
                     {scanFrontUri ? (
                       <Image source={{ uri: scanFrontUri }} style={styles.scanPhotoImg} contentFit="cover" />
+                    ) : uploadingPose === 'front' ? (
+                      <ActivityIndicator color={ORANGE} />
                     ) : (
                       <>
-                        <Text style={styles.scanPhotoIcon}>📷</Text>
-                        <Text style={styles.scanPhotoLabel}>Front</Text>
+                        <Text style={styles.scanPhotoIcon}>⬆️</Text>
+                        <Text style={styles.scanPhotoLabel}>Upload Front</Text>
                         <Text style={styles.scanPhotoRequired}>Required</Text>
                       </>
                     )}
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.scanPhotoCard} onPress={() => openGuidedBodyScan('side')} activeOpacity={0.75}>
+                  <TouchableOpacity
+                    style={[styles.scanPhotoCard, !scanFrontUri && styles.scanPhotoCardLocked]}
+                    onPress={() => uploadBodyPhoto('side')}
+                    activeOpacity={0.75}
+                    disabled={!scanFrontUri || uploadingPose !== null}
+                  >
                     {scanSideUri ? (
                       <Image source={{ uri: scanSideUri }} style={styles.scanPhotoImg} contentFit="cover" />
+                    ) : uploadingPose === 'side' ? (
+                      <ActivityIndicator color={ORANGE} />
                     ) : (
                       <>
-                        <Text style={styles.scanPhotoIcon}>📷</Text>
-                        <Text style={styles.scanPhotoLabel}>Side</Text>
-                        <Text style={styles.scanPhotoOptional}>Required</Text>
+                        <Text style={styles.scanPhotoIcon}>{scanFrontUri ? '⬆️' : '🔒'}</Text>
+                        <Text style={styles.scanPhotoLabel}>Upload Side</Text>
+                        <Text style={styles.scanPhotoOptional}>{scanFrontUri ? 'Required' : 'After front'}</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -689,7 +782,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
 
                 {/* Scan tips */}
                 <View style={styles.scanTips}>
-                  <Text style={styles.scanTipText}>💡 Wear tight-fitting clothes • Good lighting • Plain background</Text>
+                  <Text style={styles.scanTipText}>💡 Wear tight-fitting clothes • Good lighting • Plain background • Full body head-to-toe</Text>
                 </View>
 
                 {/* Scan button */}
@@ -996,6 +1089,13 @@ const styles = StyleSheet.create({
   scanDividerLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.10)' },
   scanDividerText: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.40)' },
   scanHint: { fontSize: 13, color: 'rgba(255,255,255,0.45)', textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+  sampleCard: { backgroundColor: SURFACE, borderRadius: 16, borderWidth: 1, borderColor: BORDER, padding: 12, marginBottom: 14, alignItems: 'center' },
+  sampleTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', marginBottom: 10 },
+  sampleImg: { width: 140, height: 200, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.04)' },
+  samplePlaceholder: { width: 140, height: 200, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.04)', alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 14 },
+  sampleIcon: { fontSize: 44 },
+  samplePlaceholderText: { fontSize: 11, color: 'rgba(255,255,255,0.45)', textAlign: 'center', lineHeight: 16 },
+  scanPhotoCardLocked: { opacity: 0.5 },
   scanPhotoRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   scanPhotoCard: {
     flex: 1,

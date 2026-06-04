@@ -163,6 +163,49 @@ async function callFal(prompt: string, label: string, model: FalModel = 'schnell
   return { url: null, error: 'Max retries exceeded' };
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Body-scan reference samples
+// A neutral, illustrative full-body reference pose per gender, generated once
+// via fal.ai and cached locally. Used to show users how to stand before they
+// upload their own body-scan photo.
+// ─────────────────────────────────────────────────────────────────────────
+
+const BODY_SCAN_SAMPLE_PREFIX = 'spicestrong_bodyscan_sample_';
+
+const BODY_SCAN_SAMPLE_PROMPTS: Record<'male' | 'female', string> = {
+  male: 'Clean minimal flat vector illustration of a fit man standing in a straight front-facing reference pose for a body measurement guide, full body visible from head to feet, arms slightly away from the sides, feet shoulder-width apart, wearing fitted athletic shorts and a plain tank top, neutral grey silhouette style, plain light studio background, centered, modest, non-photographic instructional diagram',
+  female: 'Clean minimal flat vector illustration of a fit woman standing in a straight front-facing reference pose for a body measurement guide, full body visible from head to feet, arms slightly away from the sides, feet shoulder-width apart, wearing fitted athletic leggings and a sports top, neutral grey silhouette style, plain light studio background, centered, modest, non-photographic instructional diagram',
+};
+
+/**
+ * Get the local URI of the front-pose reference sample for a gender.
+ * Returns a cached local file if available; otherwise generates one via fal.ai,
+ * downloads it, caches the URI, and returns it. Returns null on failure
+ * (e.g. no FAL_KEY) so the caller can fall back to a placeholder.
+ */
+export async function generateBodyScanSample(gender: 'male' | 'female'): Promise<string | null> {
+  const cacheKey = `${BODY_SCAN_SAMPLE_PREFIX}${gender}`;
+  try {
+    const cached = await AsyncStorage.getItem(cacheKey);
+    if (cached) {
+      const file = new File(cached);
+      if (file.exists) return cached;
+    }
+  } catch { /* regenerate below */ }
+
+  const { url, error } = await callFal(BODY_SCAN_SAMPLE_PROMPTS[gender], `bodyscan-${gender}`);
+  if (!url) {
+    console.warn(`[SpiceStrong] Body-scan sample generation failed (${gender}): ${error}`);
+    return null;
+  }
+
+  const localUri = await downloadImage(url, `bodyscan_sample_${gender}.jpg`);
+  if (localUri) {
+    try { await AsyncStorage.setItem(cacheKey, localUri); } catch { /* non-blocking */ }
+  }
+  return localUri;
+}
+
 /**
  * Build a context-aware hero image prompt.
  * Includes visible ingredients, cuisine style, and expected presentation.
