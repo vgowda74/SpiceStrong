@@ -23,6 +23,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { generateBodyScanSample } from '../../services/imageGenerationService';
+import { trackEvent } from '../../services/analyticsService';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -351,6 +352,10 @@ Accept only if the full body from head to feet is visible, the person is centere
       setUploadingPose(null);
 
       if (!quality.ok) {
+        trackEvent('body_scan_photo_rejected', {
+          screen: 'FitnessProfileScreen',
+          metadata: { pose, feedback: quality.feedback || '' },
+        });
         Alert.alert(
           'Photo Not Usable',
           `${quality.feedback || 'This photo can’t be used for an accurate measurement.'}\n\nPlease upload another ${pose} photo.`,
@@ -514,6 +519,14 @@ Use the photos, user stats, and measurements together. Prefer a range over false
         nutritionFocus: parsed.nutritionFocus || 'Keep protein consistent and use weekly progress to adjust calories.',
       });
       setBodyFat(String(bf));
+      trackEvent('body_scan_completed', {
+        screen: 'FitnessProfileScreen',
+        metadata: {
+          confidence: parsed.confidence ?? 'low',
+          hasSide: !!scanSideBase64,
+          gender,
+        },
+      });
     } catch (err: any) {
       console.error('[SpiceStrong] Body scan failed:', err);
       Alert.alert('Scan Failed', 'Could not analyze the photo. You can enter body fat manually or skip.');

@@ -37,6 +37,9 @@ const EVENT_FEATURE: Record<string, string> = {
   auto_meal_plan_generated: 'meal_plan',
   pantry_opened: 'pantry',
   grocery_opened: 'grocery',
+  // body scan
+  body_scan_completed: 'body_scan',
+  body_scan_photo_rejected: 'body_scan',
   // monetization & feedback
   paywall_viewed: 'paywall',
   feedback_submitted: 'feedback',
