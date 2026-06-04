@@ -30,8 +30,7 @@
       "credentialsSource": "remote",
       "resourceClass": "large",
       "env": {
-        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "false",
-        "NODE_OPTIONS": "--max-old-space-size=8192"
+        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "false"
       }
     }
   },
