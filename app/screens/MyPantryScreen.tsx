@@ -38,6 +38,7 @@ import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getIngredientInfo } from '../../services/ingredientInfoService';
 import { trackEvent } from '../../services/analyticsService';
+import { getDietPreference, isNonVegIngredientName, type DietPreference } from '../../src/utils/dietPreference';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -65,6 +66,22 @@ export default function MyPantryScreen() {
   useEffect(() => {
     trackEvent('pantry_opened', { screen: 'MyPantryScreen' });
   }, []);
+
+  const [dietPref, setDietPref] = useState<DietPreference | null>(null);
+  useEffect(() => { getDietPreference().then(setDietPref); }, []);
+
+  // Hard block: veg users cannot add non-vegetarian items. Returns true if blocked.
+  const blockIfNonVeg = (name: string): boolean => {
+    if (dietPref === 'veg' && isNonVegIngredientName(name)) {
+      Alert.alert(
+        '🟢 Vegetarian Mode',
+        `"${name}" looks non-vegetarian, so it can't be added while your diet preference is set to Vegetarian.\n\nYou can change this in your profile.`,
+        [{ text: 'OK' }],
+      );
+      return true;
+    }
+    return false;
+  };
 
   const [items, setItems] = useState<PantryItem[]>([]);
   const [addName, setAddName] = useState('');
@@ -247,6 +264,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
   const handleAdd = async () => {
     const name = addName.trim().toLowerCase();
     if (!name) return;
+    if (blockIfNonVeg(name)) return;
     const category = detectCategory(name);
     await addPantryItem({ name, category, quantity: addQty.trim() || 'some' });
     setAddName('');

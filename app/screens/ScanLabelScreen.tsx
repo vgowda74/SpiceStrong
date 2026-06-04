@@ -30,6 +30,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getDietaryRestrictions } from '../../services/dietaryService';
+import { normalizeDietType, type DietType } from '../../src/utils/dietPreference';
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import { trackEvent } from '../../services/analyticsService';
@@ -44,6 +45,14 @@ const GREEN = '#22C55E';
 const YELLOW = '#F59E0B';
 const RED = '#EF4444';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+
+// Presentation for the veg/vegan diet badge shown on scan results.
+const DIET_BADGE: Record<DietType, { emoji: string; label: string; color: string }> = {
+  vegan: { emoji: '🌱', label: 'Vegan', color: '#16A34A' },
+  vegetarian: { emoji: '🟢', label: 'Vegetarian', color: GREEN },
+  'non-vegetarian': { emoji: '🔴', label: 'Non-Vegetarian', color: RED },
+  unknown: { emoji: '⚪', label: "Can't confirm — check ingredients", color: '#9CA3AF' },
+};
 
 interface LabelData {
   productName: string;
@@ -62,6 +71,8 @@ interface LabelData {
   ingredients: string[];
   additives: string[];
   allergens: string[];
+  dietType: DietType;
+  dietReason: string;
 }
 
 interface HealthScore {
@@ -195,7 +206,9 @@ Return ONLY this JSON:
   "cholesterolMg": number,
   "ingredients": ["ingredient1", "ingredient2"],
   "additives": ["Red 40", "Sodium Benzoate"],
-  "allergens": ["milk", "soy", "wheat"]
+  "allergens": ["milk", "soy", "wheat"],
+  "dietType": "vegan" | "vegetarian" | "non-vegetarian" | "unknown",
+  "dietReason": "Short reason, e.g. 'Contains gelatin' or 'All plant-based ingredients'"
 }
 
 If the image is NOT a nutrition label, return: {"identified": false}
@@ -206,7 +219,13 @@ Rules:
 - CRITICAL: Read the ENTIRE ingredients list — this is just as important as the nutrition numbers. Look for the fine print text that starts with "Ingredients:" and list EVERY single ingredient.
 - Separate out additives from the ingredients: artificial colors (Red 40, Yellow 5, Blue 1), preservatives (sodium benzoate, potassium sorbate, BHA, BHT), artificial sweeteners (sucralose, aspartame, acesulfame potassium), emulsifiers, and chemical-sounding additives go in "additives"
 - List allergen warnings in "allergens" (look for "Contains:" or bold allergens in ingredients)
-- If ingredients text is visible but hard to read, try your best — partial extraction is better than empty`,
+- If ingredients text is visible but hard to read, try your best — partial extraction is better than empty
+- DIET CLASSIFICATION (dietType) — be careful and honest:
+  - "non-vegetarian": contains any meat, poultry, fish, seafood, or animal-derived ingredient like gelatin, rennet (non-microbial), carmine/cochineal (E120), lard, tallow, isinglass, anchovy, fish sauce, animal fat, L-cysteine from feathers/hair.
+  - "vegetarian": no meat/fish, but contains dairy, eggs, honey, or other animal-byproducts that are acceptable to vegetarians (milk, cheese, whey, casein, butter, ghee, egg, honey).
+  - "vegan": contains NO animal-derived ingredients at all — fully plant-based.
+  - "unknown": ONLY use when an ingredient is genuinely ambiguous and you cannot tell its source (e.g. "natural flavors", "mono- and diglycerides", unspecified "lecithin", "vitamin D3", "enzymes"). When unsure, prefer "unknown" over guessing "vegan". NEVER label something "vegan" unless you are confident.
+  - dietReason: one short phrase naming the deciding ingredient(s) or "All plant-based ingredients".`,
           messages: [{
             role: 'user',
             content: [
@@ -252,10 +271,15 @@ Rules:
         ingredients: parsed.ingredients || [],
         additives: parsed.additives || [],
         allergens: parsed.allergens || [],
+        dietType: normalizeDietType(parsed.dietType),
+        dietReason: typeof parsed.dietReason === 'string' ? parsed.dietReason : '',
       };
       setLabelData(label);
       recordUsage('scan');
-      trackEvent('scan_label', { screen: 'ScanLabelScreen', metadata: { method: 'photo' } });
+      trackEvent('scan_label', {
+        screen: 'ScanLabelScreen',
+        metadata: { method: 'photo', dietType: label.dietType },
+      });
 
       // Step 2: Calculate health score
       const score = calculateHealthScore(label);
@@ -312,6 +336,15 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
     }
   };
 
+  // Map Open Food Facts ingredients-analysis tags → our DietType.
+  const dietTypeFromOFFTags = (tags?: string[]): DietType => {
+    if (!Array.isArray(tags)) return 'unknown';
+    if (tags.includes('en:non-vegetarian')) return 'non-vegetarian';
+    if (tags.includes('en:vegan')) return 'vegan';
+    if (tags.includes('en:vegetarian')) return 'vegetarian';
+    return 'unknown';
+  };
+
   // ── Health Score Calculation ──
   // ── Barcode lookup via Edamam Food Database ──
   const handleBarcodeScan = async (barcode: string) => {
@@ -358,6 +391,8 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
             ingredients: cached.ingredients || [],
             additives: cached.additives || [],
             allergens: cached.allergens || [],
+            dietType: normalizeDietType(cached.diet_type),
+            dietReason: cached.diet_reason || '',
           };
         }
       } catch (e) {
@@ -398,6 +433,8 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
               ingredients: [],
               additives: [],
               allergens: food.foodContentsLabel ? food.foodContentsLabel.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean) : [],
+              dietType: 'unknown',
+              dietReason: '',
             };
             console.log(`[SpiceStrong] Edamam hit: ${label.productName} (serving: ${servingG}g)`);
           }
@@ -455,6 +492,8 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
                 ingredients: p.ingredients_text ? p.ingredients_text.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean) : [],
                 additives: p.additives_tags ? p.additives_tags.map((t: string) => t.replace('en:', '')) : [],
                 allergens: p.allergens_tags ? p.allergens_tags.map((t: string) => t.replace('en:', '')) : [],
+                dietType: dietTypeFromOFFTags(p.ingredients_analysis_tags),
+                dietReason: '',
               };
               console.log(`[SpiceStrong] Open Food Facts hit: ${label.productName} (serving: ${p.serving_size || 'per 100g'})`);
             }
@@ -486,6 +525,8 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
           ingredients: label.ingredients,
           additives: label.additives,
           allergens: label.allergens,
+          diet_type: label.dietType,
+          diet_reason: label.dietReason,
           source: 'api',
         }, { onConflict: 'barcode' }).then(({ error }: any) => {
           if (error) console.warn('[SpiceStrong] Barcode cache save failed:', error.message);
@@ -499,7 +540,7 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       setBarcodeLookupError(null);
       setLabelData(label);
       recordUsage('scan');
-      trackEvent('scan_label', { screen: 'ScanLabelScreen', metadata: { method: 'barcode' } });
+      trackEvent('scan_label', { screen: 'ScanLabelScreen', metadata: { method: 'barcode', dietType: label.dietType } });
       const score = calculateHealthScore(label);
       setHealthScore(score);
 
@@ -892,6 +933,23 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
             <View style={styles.nutritionCard}>
               <Text style={styles.cardTitle}>Nutrition Facts</Text>
               <Text style={styles.servingSize}>Serving: {labelData.servingSize}</Text>
+
+              {/* Diet type — shown for all users (e.g. checking if a protein powder is vegan) */}
+              {(() => {
+                const badge = DIET_BADGE[labelData.dietType];
+                return (
+                  <View style={[styles.dietBadge, { borderColor: badge.color + '40', backgroundColor: badge.color + '14' }]}>
+                    <Text style={styles.dietBadgeEmoji}>{badge.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.dietBadgeLabel, { color: badge.color }]}>{badge.label}</Text>
+                      {!!labelData.dietReason && (
+                        <Text style={styles.dietBadgeReason}>{labelData.dietReason}</Text>
+                      )}
+                    </View>
+                  </View>
+                );
+              })()}
+
               {[
                 { label: 'Calories', value: `${labelData.calories}`, unit: 'kcal', pct: dailyPct?.calories },
                 { label: 'Protein', value: `${labelData.proteinG}g`, unit: '', pct: dailyPct?.proteinG, highlight: true },
@@ -1064,6 +1122,10 @@ const styles = StyleSheet.create({
   scoreRight: { flex: 1, marginLeft: 4 },
   scoreLabel: { fontSize: 18, fontWeight: '800' },
   productName: { fontSize: 13, color: 'rgba(255,255,255,0.50)', marginTop: 2 },
+  dietBadge: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, marginTop: 12, marginBottom: 4 },
+  dietBadgeEmoji: { fontSize: 20 },
+  dietBadgeLabel: { fontSize: 15, fontWeight: '800' },
+  dietBadgeReason: { fontSize: 12, color: 'rgba(255,255,255,0.55)', marginTop: 1 },
   scoreBreakdown: { gap: 8 },
   scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scoreRowLabel: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.55)', width: 120 },

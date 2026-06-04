@@ -18,9 +18,15 @@ CREATE TABLE IF NOT EXISTS barcode_cache (
   ingredients TEXT[],
   additives TEXT[],
   allergens TEXT[],
+  diet_type TEXT,
+  diet_reason TEXT,
   source TEXT DEFAULT 'api',
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Backfill for existing installs created before the diet columns were added.
+ALTER TABLE barcode_cache ADD COLUMN IF NOT EXISTS diet_type TEXT;
+ALTER TABLE barcode_cache ADD COLUMN IF NOT EXISTS diet_reason TEXT;
 
 ALTER TABLE barcode_cache ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Anyone can read barcode cache" ON barcode_cache FOR SELECT USING (true);

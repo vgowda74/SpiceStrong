@@ -51,6 +51,55 @@ const NON_VEG_KEYWORDS = [
   'egg',
 ];
 
+/**
+ * Diet classification for a packaged product / scanned label.
+ * `unknown` is used when ingredients are ambiguous (e.g. "natural flavors",
+ * mono- & diglycerides) — we never guess "vegan" without evidence.
+ */
+export type DietType = 'vegan' | 'vegetarian' | 'non-vegetarian' | 'unknown';
+
+/**
+ * Phrases that CONTAIN a non-veg keyword but are actually vegetarian/vegan.
+ * Checked before keyword matching so the hard block never rejects a legit veg item
+ * (e.g. "eggplant" contains "egg", "goat cheese" contains "goat").
+ */
+const VEG_OVERRIDE_TERMS = [
+  'eggplant', 'egg plant',
+  'meatless', 'meat-free', 'meat free', 'meat substitute', 'meat alternative',
+  'mock meat', 'soy meat', 'plant meat', 'plant-based meat', 'plant based meat',
+  'beyond meat', 'impossible meat', 'wheat meat',
+  'vegan', 'vegetarian', 'veggie',
+  'crabapple', 'crab apple',
+  'beefsteak tomato', 'beef tomato',
+  'goat cheese', 'goat milk', 'goat curd', 'goat yogurt', 'goat butter',
+  "lamb's lettuce", 'lambs lettuce', "lamb's quarter", 'lambs quarter',
+  'fishless', 'fish-free', 'fish free',
+];
+
+/**
+ * Whether a SINGLE ingredient/product name looks non-vegetarian.
+ * Used for the hard block when adding to pantry/grocery as a veg user.
+ * Errs toward catching non-veg items, but protects known veg false-positives above.
+ */
+export function isNonVegIngredientName(name?: string | null): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase().trim();
+  if (!lower) return false;
+  if (VEG_OVERRIDE_TERMS.some((term) => lower.includes(term))) return false;
+  return NON_VEG_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
+/** Normalize a raw diet string (e.g. from the label scanner AI) into a DietType. */
+export function normalizeDietType(raw?: string | null): DietType {
+  const v = (raw ?? '').toLowerCase().trim();
+  if (v === 'vegan') return 'vegan';
+  if (v === 'vegetarian' || v === 'veg') return 'vegetarian';
+  if (v === 'non-vegetarian' || v === 'nonveg' || v === 'non-veg' || v === 'non vegetarian') {
+    return 'non-vegetarian';
+  }
+  return 'unknown';
+}
+
 export function isNonVegProteinId(proteinId?: string | null): boolean {
   return !!proteinId && NON_VEG_PROTEIN_IDS.includes(proteinId as typeof NON_VEG_PROTEIN_IDS[number]);
 }

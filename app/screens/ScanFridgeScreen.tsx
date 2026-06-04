@@ -7,7 +7,7 @@
  *   Step 4: Navigate to FridgeRecipeResultsScreen
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -35,6 +35,7 @@ import {
 } from '../../services/fridgeScanService';
 import { addPantryItemsBatch, addToGroceryList } from '../../services/pantryService';
 import { trackEvent } from '../../services/analyticsService';
+import { getDietPreference, isNonVegIngredientName, type DietPreference } from '../../src/utils/dietPreference';
 import { PremiumScreen } from '../../components/PremiumScreen';
 
 const ORANGE = '#8F3A1F';
@@ -86,6 +87,9 @@ export default function ScanFridgeScreen() {
   const [addingName, setAddingName] = useState('');
   const [addingCategory, setAddingCategory] = useState<IngredientCategory>('VEGETABLE');
 
+  const [dietPref, setDietPref] = useState<DietPreference | null>(null);
+  useEffect(() => { getDietPreference().then(setDietPref); }, []);
+
   // ── Photo capture ──
   const takePhoto = async (useCamera: boolean) => {
     if (photos.length >= MAX_PHOTOS) {
@@ -129,35 +133,48 @@ export default function ScanFridgeScreen() {
 
       // Receipt/list mode: skip review, go straight to confirmation
       if (scanMode === 'receipt' || scanMode === 'list') {
-        if (results.length === 0) {
-          Alert.alert('No Items Found', 'Could not identify any items from the image. Try a clearer photo.');
+        // Vegetarian mode: drop any non-veg items before adding to pantry/list
+        let filtered = results;
+        let removedNonVeg = 0;
+        if (dietPref === 'veg') {
+          filtered = results.filter((i) => !isNonVegIngredientName(i.name));
+          removedNonVeg = results.length - filtered.length;
+        }
+        if (filtered.length === 0) {
+          const reason = removedNonVeg > 0
+            ? `All ${removedNonVeg} detected item${removedNonVeg !== 1 ? 's' : ''} looked non-vegetarian and were skipped (Vegetarian mode is on).`
+            : 'Could not identify any items from the image. Try a clearer photo.';
+          Alert.alert('No Items Added', reason);
           setStep('capture');
           return;
         }
-        const itemList = results.slice(0, 8).map((i) => `• ${i.name} (${i.quantity})`).join('\n');
-        const moreText = results.length > 8 ? `\n...and ${results.length - 8} more` : '';
+        const itemList = filtered.slice(0, 8).map((i) => `• ${i.name} (${i.quantity})`).join('\n');
+        const moreText = filtered.length > 8 ? `\n...and ${filtered.length - 8} more` : '';
+        const skippedNote = removedNonVeg > 0
+          ? `\n\n🟢 ${removedNonVeg} non-vegetarian item${removedNonVeg !== 1 ? 's' : ''} skipped (Vegetarian mode).`
+          : '';
         const target = scanMode === 'receipt' ? 'pantry' : 'shopping list';
         Alert.alert(
-          `Found ${results.length} Items`,
-          `These items will be added to your ${target}:\n\n${itemList}${moreText}`,
+          `Found ${filtered.length} Item${filtered.length !== 1 ? 's' : ''}`,
+          `These items will be added to your ${target}:\n\n${itemList}${moreText}${skippedNote}`,
           [
             { text: 'Cancel', style: 'cancel', onPress: () => setStep('capture') },
             {
-              text: `Add ${results.length} Items`,
+              text: `Add ${filtered.length} Item${filtered.length !== 1 ? 's' : ''}`,
               onPress: async () => {
                 if (scanMode === 'receipt') {
-                  await addPantryItemsBatch(results.map((i) => ({
+                  await addPantryItemsBatch(filtered.map((i) => ({
                     name: i.name,
                     category: i.category,
                     quantity: i.quantity,
                     state: i.state,
                   })));
                 } else {
-                  for (const ing of results) {
+                  for (const ing of filtered) {
                     await addToGroceryList({ name: ing.name, quantity: ing.quantity });
                   }
                 }
-                Alert.alert('Done!', `${results.length} item${results.length !== 1 ? 's' : ''} added to your ${target}.`, [
+                Alert.alert('Done!', `${filtered.length} item${filtered.length !== 1 ? 's' : ''} added to your ${target}.`, [
                   { text: 'OK', onPress: () => router.back() },
                 ]);
               },
