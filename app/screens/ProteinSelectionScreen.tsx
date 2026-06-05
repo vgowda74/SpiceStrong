@@ -15,6 +15,11 @@ import {
 } from 'react-native';
 import type { ImageSourcePropType } from 'react-native';
 import { Image } from 'expo-image';
+import { PROTEINS } from '../../src/theme';
+import { filterProteinsForPreference, getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
+import { ProfileMenu } from '../../components/ProfileMenu';
+import { Premium } from '../../src/theme/premium';
+import { trackEvent } from '../../services/analyticsService';
 
 /** Custom images for proteins (replaces emoji). */
 const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
@@ -33,11 +38,6 @@ const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
   milk: require('../../assets/images/Protein/Dairy.jpg'),
   whey: require('../../assets/images/Protein/ProteinPowder.jpg'),
 };
-import { PROTEINS } from '../../src/theme';
-import { filterProteinsForPreference, getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
-import { ProfileMenu } from '../../components/ProfileMenu';
-import { Premium } from '../../src/theme/premium';
-import { trackEvent } from '../../services/analyticsService';
 
 const screenWidth = Dimensions.get('window').width;
 const CARD_WIDTH = (screenWidth - 56) / 2;

@@ -1,6 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { filterRecipesForPreference, getDietPreference } from '../utils/dietPreference';
 
+// Re-export built-in data from the dedicated module.
+import {
+  BUILTIN_RECIPES,
+  BUILTIN_INGREDIENT_GROUPS as _BUILTIN_GROUPS,
+  getBuiltInRecipeById as _getBuiltIn,
+  getBuiltInRecipesForProtein,
+  type NutritionInfo,
+} from '../data/builtInRecipes';
+
 export const QUANTITY_TIERS = ['2-3 servings', '4-6 servings'] as const;
 export type QuantityTier = (typeof QUANTITY_TIERS)[number];
 
@@ -195,15 +204,6 @@ export async function saveRecipe(recipe: SavedRecipe): Promise<void> {
     console.error('Failed to save recipe', e);
   }
 }
-
-// Re-export built-in data from the dedicated module.
-import {
-  BUILTIN_RECIPES,
-  BUILTIN_INGREDIENT_GROUPS as _BUILTIN_GROUPS,
-  getBuiltInRecipeById as _getBuiltIn,
-  getBuiltInRecipesForProtein,
-  type NutritionInfo,
-} from '../data/builtInRecipes';
 
 export const BUILTIN_INGREDIENT_GROUPS = _BUILTIN_GROUPS;
 export { getBuiltInRecipesForProtein };

@@ -21,8 +21,6 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const screenWidth = Dimensions.get('window').width;
-
 import RecipeCard, { type RecipeDifficulty, type CardNutrition } from '../../components/RecipeCard';
 import { CommunityReviewsModal } from '../../components/CommunityReviewsModal';
 import { getAllRecipesForProteinWithRefresh, getAllRecipesForProtein, getCompletionStats, SavedRecipe, QUANTITY_TIERS, type QuantityTier, type MealType, SERVINGS_PER_TIER } from '../../src/store/recipes';
@@ -37,12 +35,21 @@ import {
   SLOT_LIMITS,
   type MealSlot,
 } from '../../services/mealPlanService';
-// imageCacheService no longer needed — expo-image handles caching
-
-const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import type { ImageSourcePropType } from 'react-native';
+import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
+import { ProfileMenu } from '../../components/ProfileMenu';
+import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
+import { saveRecipe as saveLocalRecipe } from '../../src/store/recipes';
+import { Premium } from '../../src/theme/premium';
+import { isAdmin } from '../../services/adminService';
+import { getDietPreference, isNonVegProteinId } from '../../src/utils/dietPreference';
+
+const screenWidth = Dimensions.get('window').width;
+// imageCacheService no longer needed — expo-image handles caching
+
+const builtInIds = new Set(BUILTIN_RECIPES.map((r) => r.id));
 
 /** Protein header images — keyed by protein ID */
 const PROTEIN_HEADER_IMAGES: Record<string, ImageSourcePropType> = {
@@ -71,19 +78,12 @@ function imageSourceToUri(source: ImageSourcePropType | undefined): string | nul
   return typeof source.uri === 'string' ? source.uri : null;
 }
 
-function prefetchImageSources(sources: Array<ImageSourcePropType | undefined>): void {
+function prefetchImageSources(sources: (ImageSourcePropType | undefined)[]): void {
   const uris = Array.from(new Set(sources.map(imageSourceToUri).filter((uri): uri is string => Boolean(uri))));
   uris.slice(0, 8).forEach((uri) => {
     Image.prefetch(uri, { cachePolicy: 'disk' }).catch(() => {});
   });
 }
-import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
-import { ProfileMenu } from '../../components/ProfileMenu';
-import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
-import { saveRecipe as saveLocalRecipe } from '../../src/store/recipes';
-import { Premium } from '../../src/theme/premium';
-import { isAdmin } from '../../services/adminService';
-import { getDietPreference, isNonVegProteinId } from '../../src/utils/dietPreference';
 // AsyncStorage no longer needed — deleteAIRecipe handles all cleanup
 
 const HEADER_ORANGE = Premium.color.spice;
