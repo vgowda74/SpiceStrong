@@ -7,6 +7,7 @@ import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeServ
 import { getDeviceId } from '../services/adminService';
 import { initPurchases } from '../services/purchaseService';
 import { trackAppOpen } from '../services/analyticsService';
+import { initFirebaseAnalytics } from '../services/firebaseAnalytics';
 // pruneImageCache disabled — expo-file-system new API causes TurboModule crash
 // import { pruneImageCache } from '../services/imageCacheService';
 
@@ -30,6 +31,8 @@ export default function RootLayout() {
     // Log device ID on startup for admin setup
     getDeviceId();
     trackAppOpen().catch(() => {});
+    // Firebase Analytics — install/open tracking for Google Ads conversions
+    initFirebaseAnalytics().catch(() => {});
     // Initialize RevenueCat for IAP
     initPurchases();
 

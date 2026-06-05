@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.spicestrong.app",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition so you can dictate recipe ideas, ingredients, and cooking preferences into SpiceBuilder.",
@@ -53,7 +54,17 @@
           }
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-firebase/app",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
+        }
+      ],
+      "./plugins/withFirebaseStaticFix"
     ],
     "experiments": {
       "typedRoutes": true,
