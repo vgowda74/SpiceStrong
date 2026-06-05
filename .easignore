@@ -3,7 +3,7 @@ docs/
 Docs/
 scripts/
 dist/
-Recipes/
+/Recipes/
 .eas-inspect-ios/
 *.aab
 *.ipa
