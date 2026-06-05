@@ -17,3 +17,7 @@ google-service-account.json
 service-account*.json
 *.p8
 GoogleService-Info.plist
+
+# Local expo export:embed test artifacts
+ios.jsbundle
+ios-assets/

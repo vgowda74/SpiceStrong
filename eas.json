@@ -9,20 +9,23 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true"
+        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
       }
     },
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true"
+        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
       }
     },
     "testflight-admin": {
       "autoIncrement": true,
       "credentialsSource": "remote",
       "env": {
-        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true"
+        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
       }
     },
     "production": {
@@ -30,7 +33,8 @@
       "credentialsSource": "remote",
       "resourceClass": "large",
       "env": {
-        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "false"
+        "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "false",
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
       }
     }
   },

@@ -12,3 +12,8 @@ dist/
 *.xlsx
 *.md
 .claude/
+node_modules/
+.git/
+ios/Pods/
+ios/build/
+android/build/
