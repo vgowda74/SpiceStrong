@@ -65,7 +65,8 @@
           }
         }
       ],
-      "./plugins/withFirebaseStaticFix"
+      "./plugins/withFirebaseStaticFix",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
