@@ -1402,6 +1402,7 @@ RULES:
       <Modal visible={quickAddOpen} transparent animationType="fade" onRequestClose={() => { Keyboard.dismiss(); closeQuickAdd(); }} statusBarTranslucent>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Pressable style={styles.cmBackdrop} onPress={() => { Keyboard.dismiss(); closeQuickAdd(); }}>
+          <ScrollView>
           <Pressable style={styles.cmSheet} onPress={() => Keyboard.dismiss()}>
             <View style={styles.cmHandle} />
             <Text style={styles.cmTitle}>Quick Add Meal</Text>
@@ -1550,6 +1551,7 @@ RULES:
               </>
             )}
           </Pressable>
+          </ScrollView>
         </Pressable>
         </KeyboardAvoidingView>
       </Modal>
@@ -2132,6 +2134,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     padding: 20,
+    paddingBottom: 32,
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 24, shadowOffset: { width: 0, height: 12 } },
       android: { elevation: 16 },
