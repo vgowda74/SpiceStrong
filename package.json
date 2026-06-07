@@ -8,7 +8,18 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "release": "node ./scripts/release.js",
+    "test:e2e:ios": "detox build-framework-cache && detox build-app --configuration ios && detox test e2e/regression.e2e.ts --configuration ios --cleanup",
+    "test:e2e:android": "detox build-app --configuration android && detox test e2e/regression.e2e.ts --configuration android --cleanup",
+    "test:e2e:ios:debug": "detox build-app --configuration ios && detox test e2e/regression.e2e.ts --configuration ios --record-logs all",
+    "test:e2e:android:debug": "detox build-app --configuration android && detox test e2e/regression.e2e.ts --configuration android --record-logs all",
+    "test:db:audit": "node scripts/audit-database.js",
+    "test:db:audit:watch": "nodemon --exec node scripts/audit-database.js --ext js,ts",
+    "test:all": "npm run test:e2e:ios && npm run test:db:audit",
+    "android:build": "eas build --platform android --wait",
+    "android:submit": "eas submit --platform android --latest",
+    "android:release": "node scripts/android-release.js"
   },
   "dependencies": {
     "@expo/ngrok": "^4.0.0",
@@ -62,13 +73,18 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/react": "~19.1.0",
+    "detox": "^20.51.3",
+    "detox-cli": "^20.51.3",
     "dotenv": "^17.3.1",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "exceljs": "^4.4.0",
+    "jest": "^30.4.2",
     "pdf-lib": "^1.17.1",
     "sharp": "^0.34.5",
+    "ts-jest": "^29.4.11",
     "typescript": "~5.9.2",
     "xlsx": "^0.18.5"
   },

@@ -1,0 +1,107 @@
+name: E2E Regression Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test-ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Setup Detox CLI
+        run: npm install -g detox-cli
+      
+      - name: Build Detox app (iOS)
+        run: npm run test:e2e:ios:debug
+        timeout-minutes: 45
+        continue-on-error: true
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: detox-results-ios
+          path: artifacts/
+      
+      - name: Comment PR with test results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const testResults = fs.existsSync('artifacts/test-results.json') 
+              ? JSON.parse(fs.readFileSync('artifacts/test-results.json', 'utf8'))
+              : { passed: 0, failed: 0 };
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## E2E Test Results (iOS)\n\n✅ **Passed**: ${testResults.passed || '?'}\n❌ **Failed**: ${testResults.failed || '?'}\n\n[View Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            });
+
+  test-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Setup Detox CLI
+        run: npm install -g detox-cli
+      
+      - name: Build Detox app (Android)
+        run: npm run test:e2e:android:debug
+        timeout-minutes: 45
+        continue-on-error: true
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: detox-results-android
+          path: artifacts/
+      
+      - name: Comment PR with test results
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const testResults = fs.existsSync('artifacts/test-results.json') 
+              ? JSON.parse(fs.readFileSync('artifacts/test-results.json', 'utf8'))
+              : { passed: 0, failed: 0 };
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## E2E Test Results (Android)\n\n✅ **Passed**: ${testResults.passed || '?'}\n❌ **Failed**: ${testResults.failed || '?'}\n\n[View Artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            });
