@@ -8,6 +8,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -22,8 +24,12 @@ import {
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { generateBodyScanSample } from '../../services/imageGenerationService';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { generateBodyScanSample, generateScanInstrImages, type ScanInstrImages } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
+import BodyOutline from '../../components/BodyOutline';
+import { simulateAlignmentScore, buildAlignmentResult } from '../../services/bodyAlignmentService';
+import * as Speech from 'expo-speech';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -44,6 +50,7 @@ import {
 } from '../../services/fitnessProfileService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 
+const SCREEN_W = Dimensions.get('window').width;
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
@@ -82,6 +89,8 @@ export default function FitnessProfileScreen() {
   const [scanSideUri, setScanSideUri] = useState<string | null>(null);
   const [scanFrontBase64, setScanFrontBase64] = useState<string>('');
   const [scanSideBase64, setScanSideBase64] = useState<string>('');
+  const [scanFrontBad, setScanFrontBad] = useState(false);
+  const [scanSideBad, setScanSideBad] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<{
     bodyFat: number;
@@ -109,6 +118,34 @@ export default function FitnessProfileScreen() {
   const [waist, setWaist] = useState('');
   const [neck, setNeck] = useState('');
   const [hip, setHip] = useState('');
+  const [bodyScanMode, setBodyScanMode] = useState<null | 'manual' | 'camera'>(null);
+  const [scanInstructionPose, setScanInstructionPose] = useState<'front' | 'side' | null>(null);
+
+  // Pose guidance state
+  const [poseStatus, setPoseStatus] = useState<'not-ready' | 'almost' | 'perfect'>('not-ready');
+  const [guidanceText, setGuidanceText] = useState('Position yourself in the outline');
+  const [poseScore, setPoseScore] = useState(0);
+
+  // Outline-guided capture state
+  const [alignmentScore, setAlignmentScore] = useState(0);
+  const [holdingStill, setHoldingStill] = useState(false);
+  const [holdCountdown, setHoldCountdown] = useState(5);
+  const [capturing, setCapturing] = useState(false);
+  const [captureAttempts, setCaptureAttempts] = useState(0);
+  const [photoReady, setPhotoReady] = useState(false);
+  const cameraOpenTimeRef = useRef<number>(0);
+  const alignmentIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const glowAnim = useRef(new Animated.Value(0)).current;
+  const [instrSlide, setInstrSlide] = useState(0);
+  const instrScrollRef = useRef<ScrollView>(null);
+  const [instrImages, setInstrImages] = useState<ScanInstrImages>({
+    clothingGood: null, clothingBad: null,
+    lightingGood: null, lightingBad: null,
+    backgroundGood: null, backgroundBad: null,
+    distanceGood: null, distanceBad: null,
+  });
+  const instrImagesLoadingRef = useRef(false);
 
   // Results
   const [macros, setMacros] = useState<MacroTargets | null>(null);
@@ -149,6 +186,17 @@ export default function FitnessProfileScreen() {
       .then((uri) => setSampleUri(uri))
       .finally(() => setSampleLoading(false));
   }, [step, gender, sampleUri, sampleLoading]);
+
+  // Pre-generate instruction comparison images as soon as user picks "Body Scan" mode.
+  // Images resolve one-by-one via onProgress so cards update incrementally.
+  useEffect(() => {
+    if (bodyScanMode !== 'camera') return;
+    if (instrImagesLoadingRef.current) return;
+    instrImagesLoadingRef.current = true;
+    generateScanInstrImages((update) => {
+      setInstrImages((prev) => ({ ...prev, [update.key]: update.uri }));
+    }).finally(() => { instrImagesLoadingRef.current = false; });
+  }, [bodyScanMode]);
 
   const goNext = () => {
     const idx = STEPS.indexOf(step);
@@ -211,12 +259,37 @@ export default function FitnessProfileScreen() {
       return;
     }
     setScanPose(side);
-    setScanCountdown(5);
+    setScanCountdown(3);
     setScanCameraReady(false);
     setScanCountdownActive(false);
     setScanPhotoAssessing(false);
     setScanPhotoFeedback('');
+    // Outline guidance reset
+    setPoseScore(0);
+    setPoseStatus('not-ready');
+    setGuidanceText('Position yourself in the outline');
+    setAlignmentScore(0);
+    setHoldingStill(false);
+    setHoldCountdown(5);
+    setCapturing(false);
+    setPhotoReady(false);
+    setCaptureAttempts(0);
+    if (side === 'front') setScanFrontBad(false);
+    else setScanSideBad(false);
+    cameraOpenTimeRef.current = Date.now();
+    glowAnim.setValue(0);
     setScanCameraOpen(true);
+  };
+
+  // Resize + compress a photo URI to a small JPEG base64 safe for API upload.
+  // Caps longest side at 900px and uses 55% JPEG quality → ~100-250 KB typical.
+  const compressForApi = async (uri: string): Promise<string> => {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 900 } }],
+      { compress: 0.55, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    return result.base64 || '';
   };
 
   const assessBodyScanPhoto = async (base64: string, pose: 'front' | 'side'): Promise<{ ok: boolean; feedback: string }> => {
@@ -277,32 +350,63 @@ Accept only if the full body from head to feet is visible, the person is centere
   };
 
   const captureGuidedBodyPhoto = async () => {
+    // Guard: camera must be mounted and ready
+    if (!scanCameraRef.current || !scanCameraReady) {
+      setCapturing(false);
+      setHoldingStill(false);
+      setAlignmentScore(0);
+      cameraOpenTimeRef.current = Date.now();
+      glowAnim.setValue(0);
+      return;
+    }
     try {
-      const photo = await scanCameraRef.current?.takePictureAsync({ quality: 0.55, base64: true, skipProcessing: true });
-      if (!photo?.uri) throw new Error('No photo captured');
-      let b64 = photo.base64 || '';
-      if (b64.includes(',')) b64 = b64.split(',')[1];
+      setCapturing(true);
       setScanCountdownActive(false);
+      const photo = await scanCameraRef.current.takePictureAsync({ quality: 0.85, skipProcessing: false });
+      if (!photo?.uri) throw new Error('No photo captured');
+      // Compress to ~900px wide before any API calls to keep payload under 300 KB
+      const b64 = await compressForApi(photo.uri);
+
       setScanPhotoAssessing(true);
       setScanPhotoFeedback('Checking photo quality...');
 
       const quality = await assessBodyScanPhoto(b64, scanPose);
       setScanPhotoAssessing(false);
+
       if (!quality.ok) {
+        const attempts = captureAttempts + 1;
+        setCaptureAttempts(attempts);
         const feedback = quality.feedback || 'Adjust your position and try again.';
         setScanPhotoFeedback(feedback);
-        Alert.alert('Adjust Position', feedback);
-        setScanCountdown(5);
-        setTimeout(() => {
+
+        if (attempts >= 3) {
+          // Accept after 3 retries but flag it so user can retake from the card
+          if (scanPose === 'front') setScanFrontBad(true);
+          else setScanSideBad(true);
           setScanPhotoFeedback('');
-          setScanCountdownActive(true);
-        }, 1200);
-        return;
+        } else {
+          // Auto-retake: reset alignment engine
+          setCapturing(false);
+          setHoldingStill(false);
+          setAlignmentScore(0);
+          cameraOpenTimeRef.current = Date.now();
+          glowAnim.setValue(0);
+          setTimeout(() => setScanPhotoFeedback(''), 1800);
+          return;
+        }
       }
+
+      setCapturing(false);
+      setPhotoReady(true);
+      setScanPhotoFeedback('');
 
       if (scanPose === 'front') {
         setScanFrontUri(photo.uri);
         setScanFrontBase64(b64);
+        // Announce transition to side view
+        Speech.stop();
+        Speech.speak('Front photo done! Now turn ninety degrees for your side view.', { rate: 0.92 });
+        await new Promise(r => setTimeout(r, 1800));
         setScanCameraOpen(false);
         setTimeout(() => openGuidedBodyScan('side'), 350);
       } else {
@@ -310,12 +414,11 @@ Accept only if the full body from head to feet is visible, the person is centere
         setScanSideBase64(b64);
         setScanCameraOpen(false);
       }
-      setScanPhotoFeedback('');
     } catch (err) {
       console.warn('[SpiceStrong] Guided body scan capture failed:', err);
       Alert.alert('Capture Failed', 'Could not take the photo. Please try again.');
       setScanCameraOpen(false);
-      setScanCountdownActive(false);
+      setCapturing(false);
       setScanPhotoAssessing(false);
     }
   };
@@ -406,9 +509,131 @@ Accept only if the full body from head to feet is visible, the person is centere
     return Math.round(86.01 * Math.log10(waistInches - neckInches) - 70.041 * Math.log10(heightInches) + 36.76);
   };
 
+  // ── Alignment simulation engine ──
+  useEffect(() => {
+    if (!scanCameraOpen || !scanCameraReady || holdingStill || capturing || scanPhotoAssessing) return;
+
+    let score = alignmentScore;
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - cameraOpenTimeRef.current;
+      score = simulateAlignmentScore(elapsed, score);
+      setAlignmentScore(score);
+
+      const result = buildAlignmentResult(score, scanPose);
+      setGuidanceText(result.feedback);
+
+      if (score >= 80) {
+        setPoseStatus('perfect');
+        setHoldingStill(true);
+        clearInterval(interval);
+      } else if (score >= 50) {
+        setPoseStatus('almost');
+      } else {
+        setPoseStatus('not-ready');
+      }
+    }, 200);
+
+    alignmentIntervalRef.current = interval;
+    return () => clearInterval(interval);
+  }, [scanCameraOpen, scanCameraReady, holdingStill, capturing, scanPhotoAssessing, scanPose]);
+
+  // ── Audio guidance while not yet aligned ──
+  useEffect(() => {
+    if (!scanCameraOpen || !scanCameraReady || holdingStill || capturing || scanPhotoAssessing) return;
+
+    const isSide = scanPose === 'side';
+
+    // Low score (<50): user needs basic positioning help
+    const MESSAGES_LOW = isSide ? [
+      'Turn ninety degrees so your side profile faces the camera.',
+      'Stand six to eight feet from the camera.',
+      'Make sure your full body is visible from head to toe.',
+      'Turn sideways — we need to see your full side profile.',
+    ] : [
+      'Stand six to eight feet from the camera.',
+      'Make sure your full body is visible, head to toe.',
+      'Step back so your entire body fits inside the outline.',
+      'Face the camera straight on and stand tall.',
+    ];
+
+    // Mid score (50–79): user is close, fine-tune
+    const MESSAGES_MID = isSide ? [
+      'Almost there — make sure your full side profile is visible.',
+      'Keep your arms at your sides and stand tall.',
+      'Good. Hold this position as steady as you can.',
+    ] : [
+      'Almost there. Adjust your position slightly.',
+      'Face forward with your arms slightly away from your body.',
+      'Keep your feet together and stand tall.',
+    ];
+
+    let msgIndex = 0;
+
+    const speakNext = (score: number) => {
+      Speech.stop();
+      const pool = score < 50 ? MESSAGES_LOW : MESSAGES_MID;
+      Speech.speak(pool[msgIndex % pool.length], { rate: 0.92, pitch: 1.0 });
+      msgIndex += 1;
+    };
+
+    // Speak immediately when camera is ready
+    speakNext(0);
+
+    const interval = setInterval(() => {
+      setAlignmentScore((current) => {
+        if (current < 80) speakNext(current);
+        return current;
+      });
+    }, 4000);
+
+    return () => {
+      clearInterval(interval);
+      Speech.stop();
+    };
+  }, [scanCameraOpen, scanCameraReady, holdingStill, capturing, scanPhotoAssessing, scanPose]);
+
+  // ── Announce alignment achieved ──
+  useEffect(() => {
+    if (!holdingStill) return;
+    Speech.stop();
+    Speech.speak('Perfect! Hold very still.', { rate: 0.92 });
+  }, [holdingStill]);
+
+  // ── Hold-still countdown + auto-capture ──
+  useEffect(() => {
+    if (!holdingStill || capturing || scanPhotoAssessing) return;
+
+    // Start glow pulse
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    ).start();
+
+    setHoldCountdown(5);
+    let count = 5;
+    const tick = setInterval(() => {
+      count -= 1;
+      setHoldCountdown(count);
+      if (count <= 0) {
+        clearInterval(tick);
+        glowAnim.stopAnimation();
+        setCapturing(true);
+        captureGuidedBodyPhoto();
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(tick);
+      glowAnim.stopAnimation();
+    };
+  }, [holdingStill, capturing, scanPhotoAssessing]);
+
+  // ── Old countdown fallback (kept for manual-tap path) ──
   useEffect(() => {
     if (!scanCameraOpen || !scanCountdownActive || scanPhotoAssessing) return;
-    setScanCountdown(5);
+    setScanCountdown(3);
     const interval = setInterval(() => {
       setScanCountdown((prev) => {
         if (prev <= 1) {
@@ -422,11 +647,14 @@ Accept only if the full body from head to feet is visible, the person is centere
     return () => clearInterval(interval);
   }, [scanCameraOpen, scanCountdownActive, scanPose, scanPhotoAssessing]);
 
-  useEffect(() => {
-    if (!scanCameraOpen || !scanCameraReady || scanCountdownActive || scanPhotoAssessing) return;
-    const timer = setTimeout(() => setScanCountdownActive(true), 1800);
-    return () => clearTimeout(timer);
-  }, [scanCameraOpen, scanCameraReady, scanCountdownActive, scanPhotoAssessing]);
+  const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2): Promise<Response> => {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(url, options);
+      if (res.ok || res.status < 500 || attempt === maxRetries) return res;
+      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+    }
+    return fetch(url, options);
+  };
 
   const runBodyScan = async () => {
     if (!scanFrontBase64) {
@@ -475,7 +703,7 @@ Return ONLY this JSON:
 Use the photos, user stats, and measurements together. Prefer a range over false precision. If photos are unclear, lower confidence. This is an approximate estimate, not a medical diagnosis.`,
       });
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -490,7 +718,10 @@ Use the photos, user stats, and measurements together. Prefer a range over false
         }),
       });
 
-      if (!res.ok) throw new Error(`API returned ${res.status}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`API ${res.status}: ${body.slice(0, 120)}`);
+      }
       const data = await res.json();
       const text = data.content?.[0]?.text || '';
 
@@ -533,6 +764,18 @@ Use the photos, user stats, and measurements together. Prefer a range over false
     } finally {
       setScanning(false);
     }
+  };
+
+  const getPoseColor = (score: number) => {
+    if (score >= 80) return '#34C759';
+    if (score >= 50) return '#FFD60A';
+    return '#FF3B30';
+  };
+
+  const getPoseStatusFromScore = (score: number): 'not-ready' | 'almost' | 'perfect' => {
+    if (score >= 80) return 'perfect';
+    if (score >= 50) return 'almost';
+    return 'not-ready';
   };
 
   const stepIndex = STEPS.indexOf(step);
@@ -705,150 +948,221 @@ Use the photos, user stats, and measurements together. Prefer a range over false
           {step === 'body_fat' && (
             <>
               <Text style={styles.stepTitle}>Progress Scan</Text>
-              <Text style={styles.stepHint}>Combine photos and simple tape measurements for a more useful trend estimate.</Text>
+              <Text style={styles.stepHint}>How would you like to set your body composition?</Text>
 
-              {/* Manual input */}
-              <TextInput style={styles.bigInput} value={bodyFat} onChangeText={setBodyFat} keyboardType="numeric" returnKeyType="done" placeholder="20" placeholderTextColor="rgba(255,255,255,0.20)" maxLength={4} />
-              <Text style={styles.inputUnit}>% body fat</Text>
+              {/* ── Option selection ── */}
+              {bodyScanMode === null && (
+                <>
+                  <TouchableOpacity style={styles.scanModeCard} onPress={() => setBodyScanMode('manual')} activeOpacity={0.75}>
+                    <Text style={styles.scanModeIcon}>✏️</Text>
+                    <View style={styles.scanModeText}>
+                      <Text style={styles.scanModeTitle}>Enter Manually</Text>
+                      <Text style={styles.scanModeDesc}>Type in your body fat % and optional tape measurements</Text>
+                    </View>
+                    <Text style={styles.scanModeArrow}>›</Text>
+                  </TouchableOpacity>
 
-              <View style={styles.measureCard}>
-                <Text style={styles.measureTitle}>Optional measurements</Text>
-                <Text style={styles.measureHint}>Waist and neck improve the estimate; hip helps for female profiles.</Text>
-                <View style={styles.measureGrid}>
-                  <View style={styles.measureField}>
-                    <Text style={styles.measureLabel}>Waist</Text>
-                    <TextInput style={styles.measureInput} value={waist} onChangeText={setWaist} keyboardType="decimal-pad" returnKeyType="done" placeholder={useImperial ? '34' : '86'} placeholderTextColor="rgba(255,255,255,0.20)" maxLength={5} />
-                    <Text style={styles.measureUnit}>{useImperial ? 'in' : 'cm'}</Text>
+                  <TouchableOpacity style={[styles.scanModeCard, styles.scanModeCardHighlight]} onPress={() => setBodyScanMode('camera')} activeOpacity={0.75}>
+                    <Text style={styles.scanModeIcon}>📸</Text>
+                    <View style={styles.scanModeText}>
+                      <Text style={[styles.scanModeTitle, { color: '#FFFFFF' }]}>Body Scan</Text>
+                      <Text style={styles.scanModeDesc}>Take front & side photos — AI estimates your body composition</Text>
+                    </View>
+                    <Text style={styles.scanModeArrow}>›</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
+                    <Text style={styles.skipText}>Skip this step</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* ── Manual entry ── */}
+              {bodyScanMode === 'manual' && (
+                <>
+                  <TouchableOpacity onPress={() => setBodyScanMode(null)} style={styles.scanModeBack} activeOpacity={0.7}>
+                    <Text style={styles.scanModeBackText}>← Back</Text>
+                  </TouchableOpacity>
+
+                  <TextInput style={styles.bigInput} value={bodyFat} onChangeText={setBodyFat} keyboardType="numeric" returnKeyType="done" placeholder="20" placeholderTextColor="rgba(255,255,255,0.20)" maxLength={4} />
+                  <Text style={styles.inputUnit}>% body fat</Text>
+
+                  <View style={styles.measureCard}>
+                    <Text style={styles.measureTitle}>Optional measurements</Text>
+                    <Text style={styles.measureHint}>Waist and neck improve the estimate; hip helps for female profiles.</Text>
+                    <View style={styles.measureGrid}>
+                      <View style={styles.measureField}>
+                        <Text style={styles.measureLabel}>Waist</Text>
+                        <TextInput style={styles.measureInput} value={waist} onChangeText={setWaist} keyboardType="decimal-pad" returnKeyType="done" placeholder={useImperial ? '34' : '86'} placeholderTextColor="rgba(255,255,255,0.20)" maxLength={5} />
+                        <Text style={styles.measureUnit}>{useImperial ? 'in' : 'cm'}</Text>
+                      </View>
+                      <View style={styles.measureField}>
+                        <Text style={styles.measureLabel}>Neck</Text>
+                        <TextInput style={styles.measureInput} value={neck} onChangeText={setNeck} keyboardType="decimal-pad" returnKeyType="done" placeholder={useImperial ? '15' : '38'} placeholderTextColor="rgba(255,255,255,0.20)" maxLength={5} />
+                        <Text style={styles.measureUnit}>{useImperial ? 'in' : 'cm'}</Text>
+                      </View>
+                      <View style={styles.measureField}>
+                        <Text style={styles.measureLabel}>Hip</Text>
+                        <TextInput style={styles.measureInput} value={hip} onChangeText={setHip} keyboardType="decimal-pad" returnKeyType="done" placeholder={useImperial ? '40' : '102'} placeholderTextColor="rgba(255,255,255,0.20)" maxLength={5} />
+                        <Text style={styles.measureUnit}>{useImperial ? 'in' : 'cm'}</Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.measureField}>
-                    <Text style={styles.measureLabel}>Neck</Text>
-                    <TextInput style={styles.measureInput} value={neck} onChangeText={setNeck} keyboardType="decimal-pad" returnKeyType="done" placeholder={useImperial ? '15' : '38'} placeholderTextColor="rgba(255,255,255,0.20)" maxLength={5} />
-                    <Text style={styles.measureUnit}>{useImperial ? 'in' : 'cm'}</Text>
+
+                  <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
+                    <Text style={styles.skipText}>Skip this step</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {/* ── Camera / Body Scan ── */}
+              {bodyScanMode === 'camera' && (
+                <>
+                  <TouchableOpacity onPress={() => setBodyScanMode(null)} style={styles.scanModeBack} activeOpacity={0.7}>
+                    <Text style={styles.scanModeBackText}>← Back</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.scanCameraHint}>Stand straight with your full body visible. Good lighting and a plain background give the best results.</Text>
+
+                  {/* Front photo card */}
+                  <View style={[styles.scanCameraCard, scanFrontBad && styles.scanCameraCardBad]}>
+                    <View style={styles.scanCameraCardHeader}>
+                      <Text style={styles.scanCameraCardLabel}>Front View</Text>
+                      {scanFrontUri && !scanFrontBad && <Text style={styles.scanCameraCardDone}>✓ Done</Text>}
+                      {scanFrontBad && <Text style={styles.scanCameraCardWarn}>⚠ Low quality</Text>}
+                    </View>
+                    {scanFrontUri ? (
+                      <View style={styles.scanCameraPreviewWrap}>
+                        <Image source={{ uri: scanFrontUri }} style={styles.scanCameraPreview} contentFit="contain" />
+                        {scanFrontBad && (
+                          <View style={styles.scanCameraBadBanner}>
+                            <Text style={styles.scanCameraBadText}>Photo quality is low — please retake for best results</Text>
+                          </View>
+                        )}
+                        <TouchableOpacity style={styles.scanCameraRetake} onPress={() => { setScanFrontUri(null); setScanFrontBase64(''); setScanFrontBad(false); }} activeOpacity={0.8}>
+                          <Text style={styles.scanCameraRetakeText}>Retake</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : uploadingPose === 'front' ? (
+                      <View style={styles.scanCameraPlaceholder}>
+                        <ActivityIndicator color={ORANGE} size="large" />
+                        <Text style={styles.scanCameraCheckingText}>Checking photo…</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.scanCameraPlaceholder}>
+                        <TouchableOpacity style={styles.scanCameraBtn} onPress={() => { setScanInstructionPose('front'); setInstrSlide(0); }} activeOpacity={0.8}>
+                          <Text style={styles.scanCameraBtnIcon}>📷</Text>
+                          <Text style={styles.scanCameraBtnText}>Take Photo</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => uploadBodyPhoto('front')} activeOpacity={0.7}>
+                          <Text style={styles.scanCameraLibraryText}>or choose from library</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
-                  <View style={styles.measureField}>
-                    <Text style={styles.measureLabel}>Hip</Text>
-                    <TextInput style={styles.measureInput} value={hip} onChangeText={setHip} keyboardType="decimal-pad" returnKeyType="done" placeholder={useImperial ? '40' : '102'} placeholderTextColor="rgba(255,255,255,0.20)" maxLength={5} />
-                    <Text style={styles.measureUnit}>{useImperial ? 'in' : 'cm'}</Text>
+
+                  {/* Side photo card */}
+                  <View style={[styles.scanCameraCard, !scanFrontUri && styles.scanCameraCardLocked, scanSideBad && styles.scanCameraCardBad]}>
+                    <View style={styles.scanCameraCardHeader}>
+                      <Text style={styles.scanCameraCardLabel}>Side View</Text>
+                      {scanSideUri && !scanSideBad && <Text style={styles.scanCameraCardDone}>✓ Done</Text>}
+                      {scanSideBad && <Text style={styles.scanCameraCardWarn}>⚠ Low quality</Text>}
+                      {!scanSideUri && !scanFrontUri && <Text style={styles.scanCameraCardLockedLabel}>🔒 After front</Text>}
+                    </View>
+                    {scanSideUri ? (
+                      <View style={styles.scanCameraPreviewWrap}>
+                        <Image source={{ uri: scanSideUri }} style={styles.scanCameraPreview} contentFit="contain" />
+                        {scanSideBad && (
+                          <View style={styles.scanCameraBadBanner}>
+                            <Text style={styles.scanCameraBadText}>Photo quality is low — please retake for best results</Text>
+                          </View>
+                        )}
+                        <TouchableOpacity style={styles.scanCameraRetake} onPress={() => { setScanSideUri(null); setScanSideBase64(''); setScanSideBad(false); }} activeOpacity={0.8}>
+                          <Text style={styles.scanCameraRetakeText}>Retake</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : uploadingPose === 'side' ? (
+                      <View style={styles.scanCameraPlaceholder}>
+                        <ActivityIndicator color={ORANGE} size="large" />
+                        <Text style={styles.scanCameraCheckingText}>Checking photo…</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.scanCameraPlaceholder}>
+                        <TouchableOpacity
+                          style={[styles.scanCameraBtn, !scanFrontUri && { opacity: 0.4 }]}
+                          onPress={() => { if (scanFrontUri) { setScanInstructionPose('side'); setInstrSlide(0); } }}
+                          activeOpacity={0.8}
+                          disabled={!scanFrontUri}
+                        >
+                          <Text style={styles.scanCameraBtnIcon}>📷</Text>
+                          <Text style={styles.scanCameraBtnText}>Take Photo</Text>
+                        </TouchableOpacity>
+                        {!!scanFrontUri && (
+                          <TouchableOpacity onPress={() => uploadBodyPhoto('side')} activeOpacity={0.7}>
+                            <Text style={styles.scanCameraLibraryText}>or choose from library</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </View>
-                </View>
-              </View>
 
-              {/* AI Body Scan section */}
-              <View style={styles.scanSection}>
-                <View style={styles.scanDivider}>
-                  <View style={styles.scanDividerLine} />
-                  <Text style={styles.scanDividerText}>upload photo scan</Text>
-                  <View style={styles.scanDividerLine} />
-                </View>
+                  {/* Tips */}
+                  <View style={styles.scanTips}>
+                    <Text style={styles.scanTipText}>💡 Wear tight-fitting clothes • Good lighting • Plain background • Full body head-to-toe</Text>
+                  </View>
 
-                <Text style={styles.scanHint}>Upload a full-body front photo first. Once it passes our quality check, you can add the side photo. Match the reference pose below for an accurate estimate.</Text>
+                  {/* Analyze button */}
+                  {scanFrontUri && scanSideUri && !scanning && !scanResult && (
+                    <TouchableOpacity style={styles.scanBtn} onPress={runBodyScan} activeOpacity={0.8}>
+                      <Text style={styles.scanBtnText}>Analyze Body Scan</Text>
+                    </TouchableOpacity>
+                  )}
 
-                {/* Gender-matched reference pose */}
-                <View style={styles.sampleCard}>
-                  <Text style={styles.sampleTitle}>Match this pose</Text>
-                  {sampleUri ? (
-                    <Image source={{ uri: sampleUri }} style={styles.sampleImg} contentFit="contain" />
-                  ) : (
-                    <View style={styles.samplePlaceholder}>
-                      {sampleLoading ? <ActivityIndicator color={ORANGE} /> : <Text style={styles.sampleIcon}>🧍</Text>}
-                      <Text style={styles.samplePlaceholderText}>
-                        {sampleLoading ? 'Loading reference pose…' : 'Stand straight, facing forward, full body in frame'}
-                      </Text>
+                  {/* Scanning */}
+                  {scanning && (
+                    <View style={styles.scanLoadingRow}>
+                      <ActivityIndicator color={ORANGE} size="small" />
+                      <Text style={styles.scanLoadingText}>Analyzing photos...</Text>
                     </View>
                   )}
-                </View>
 
-                {/* Photo row — upload only */}
-                <View style={styles.scanPhotoRow}>
-                  <TouchableOpacity style={styles.scanPhotoCard} onPress={() => uploadBodyPhoto('front')} activeOpacity={0.75} disabled={uploadingPose !== null}>
-                    {scanFrontUri ? (
-                      <Image source={{ uri: scanFrontUri }} style={styles.scanPhotoImg} contentFit="cover" />
-                    ) : uploadingPose === 'front' ? (
-                      <ActivityIndicator color={ORANGE} />
-                    ) : (
-                      <>
-                        <Text style={styles.scanPhotoIcon}>⬆️</Text>
-                        <Text style={styles.scanPhotoLabel}>Upload Front</Text>
-                        <Text style={styles.scanPhotoRequired}>Required</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.scanPhotoCard, !scanFrontUri && styles.scanPhotoCardLocked]}
-                    onPress={() => uploadBodyPhoto('side')}
-                    activeOpacity={0.75}
-                    disabled={!scanFrontUri || uploadingPose !== null}
-                  >
-                    {scanSideUri ? (
-                      <Image source={{ uri: scanSideUri }} style={styles.scanPhotoImg} contentFit="cover" />
-                    ) : uploadingPose === 'side' ? (
-                      <ActivityIndicator color={ORANGE} />
-                    ) : (
-                      <>
-                        <Text style={styles.scanPhotoIcon}>{scanFrontUri ? '⬆️' : '🔒'}</Text>
-                        <Text style={styles.scanPhotoLabel}>Upload Side</Text>
-                        <Text style={styles.scanPhotoOptional}>{scanFrontUri ? 'Required' : 'After front'}</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                {/* Scan tips */}
-                <View style={styles.scanTips}>
-                  <Text style={styles.scanTipText}>💡 Wear tight-fitting clothes • Good lighting • Plain background • Full body head-to-toe</Text>
-                </View>
-
-                {/* Scan button */}
-                {scanFrontUri && scanSideUri && !scanning && !scanResult && (
-                  <TouchableOpacity style={styles.scanBtn} onPress={runBodyScan} activeOpacity={0.8}>
-                    <Text style={styles.scanBtnText}>Analyze Progress Scan</Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Scanning */}
-                {scanning && (
-                  <View style={styles.scanLoadingRow}>
-                    <ActivityIndicator color={ORANGE} size="small" />
-                    <Text style={styles.scanLoadingText}>Analyzing photos, measurements, and nutrition context...</Text>
-                  </View>
-                )}
-
-                {/* Scan results */}
-                {scanResult && (
-                  <View style={styles.scanResultCard}>
-                    <Text style={styles.scanResultTitle}>Progress Scan Estimate</Text>
-                    <View style={styles.scanResultRow}>
-                      <View style={styles.scanResultItem}>
-                        <Text style={styles.scanResultValue}>{scanResult.bodyFatLow}-{scanResult.bodyFatHigh}%</Text>
-                        <Text style={styles.scanResultLabel}>Body Fat Range</Text>
+                  {/* Scan results */}
+                  {scanResult && (
+                    <View style={styles.scanResultCard}>
+                      <Text style={styles.scanResultTitle}>Progress Scan Estimate</Text>
+                      <View style={styles.scanResultRow}>
+                        <View style={styles.scanResultItem}>
+                          <Text style={styles.scanResultValue}>{scanResult.bodyFatLow}-{scanResult.bodyFatHigh}%</Text>
+                          <Text style={styles.scanResultLabel}>Body Fat Range</Text>
+                        </View>
+                        <View style={styles.scanResultDivider} />
+                        <View style={styles.scanResultItem}>
+                          <Text style={styles.scanResultValue}>{scanResult.bodyType}</Text>
+                          <Text style={styles.scanResultLabel}>Body Type</Text>
+                        </View>
+                        <View style={styles.scanResultDivider} />
+                        <View style={styles.scanResultItem}>
+                          <Text style={styles.scanResultValue}>{scanResult.muscleMass}</Text>
+                          <Text style={styles.scanResultLabel}>Muscle</Text>
+                        </View>
                       </View>
-                      <View style={styles.scanResultDivider} />
-                      <View style={styles.scanResultItem}>
-                        <Text style={styles.scanResultValue}>{scanResult.bodyType}</Text>
-                        <Text style={styles.scanResultLabel}>Body Type</Text>
+                      <View style={styles.scanInsightCard}>
+                        <Text style={styles.scanInsightLabel}>Confidence: {scanResult.confidence}</Text>
+                        <Text style={styles.scanInsightText}>{scanResult.assessment}</Text>
+                        <Text style={styles.scanInsightText}>{scanResult.nutritionFocus}</Text>
                       </View>
-                      <View style={styles.scanResultDivider} />
-                      <View style={styles.scanResultItem}>
-                        <Text style={styles.scanResultValue}>{scanResult.muscleMass}</Text>
-                        <Text style={styles.scanResultLabel}>Muscle</Text>
-                      </View>
+                      <Text style={styles.scanDisclaimer}>Use this for trend tracking, not diagnosis. For precise body composition, use DEXA or a clinical assessment.</Text>
+                      <TouchableOpacity onPress={() => { setScanResult(null); setScanFrontUri(null); setScanSideUri(null); setScanFrontBase64(''); setScanSideBase64(''); }} activeOpacity={0.7}>
+                        <Text style={styles.scanRetakeText}>Retake photos</Text>
+                      </TouchableOpacity>
                     </View>
-                    <View style={styles.scanInsightCard}>
-                      <Text style={styles.scanInsightLabel}>Confidence: {scanResult.confidence}</Text>
-                      <Text style={styles.scanInsightText}>{scanResult.assessment}</Text>
-                      <Text style={styles.scanInsightText}>{scanResult.nutritionFocus}</Text>
-                    </View>
-                    <Text style={styles.scanDisclaimer}>Use this for trend tracking, not diagnosis. For precise body composition, use DEXA or a clinical assessment.</Text>
-                    <TouchableOpacity onPress={() => { setScanResult(null); setScanFrontUri(null); setScanSideUri(null); setScanFrontBase64(''); setScanSideBase64(''); }} activeOpacity={0.7}>
-                      <Text style={styles.scanRetakeText}>Retake photos</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
+                  )}
 
-              <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
-                <Text style={styles.skipText}>Skip this step</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
+                    <Text style={styles.skipText}>Skip this step</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </>
           )}
 
@@ -913,39 +1227,356 @@ Use the photos, user stats, and measurements together. Prefer a range over false
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <Modal visible={scanCameraOpen} animationType="slide" onRequestClose={() => setScanCameraOpen(false)}>
+      {/* ── Pre-camera instruction carousel (Zing-style) ── */}
+      <Modal
+        visible={scanInstructionPose !== null}
+        animationType="slide"
+        onRequestClose={() => { setScanInstructionPose(null); setInstrSlide(0); }}
+      >
+        <View style={styles.instrCarouselWrap}>
+          {/* Fixed header */}
+          <View style={styles.instrCarouselHeader}>
+            <Text style={styles.instrCarouselTitle}>How It Works</Text>
+            <TouchableOpacity
+              style={styles.instrCarouselClose}
+              onPress={() => { setScanInstructionPose(null); setInstrSlide(0); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.instrCarouselCloseIcon}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Paginated slides */}
+          <ScrollView
+            ref={instrScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={(e) => {
+              setInstrSlide(Math.round(e.nativeEvent.contentOffset.x / SCREEN_W));
+            }}
+            style={{ flex: 1 }}
+          >
+            {/* Slide 0: How to Stand / Turn */}
+            <View style={[styles.instrSlide, { width: SCREEN_W }]}>
+              <View style={styles.instrPosePreview}>
+                <BodyOutline
+                  pose={scanInstructionPose ?? 'front'}
+                  gender={gender}
+                  color="#FFFFFF"
+                  opacity={0.85}
+                  height={240}
+                />
+              </View>
+              <View style={styles.instrAnnotations}>
+                {(scanInstructionPose === 'front' ? [
+                  'Look straight ahead',
+                  'Spread arms slightly (A-pose)',
+                  'Keep feet shoulder-width apart',
+                ] : [
+                  'Turn 90° so your full side faces the camera',
+                  'Arms relaxed at your sides',
+                  'Stand tall — head to toe must be visible',
+                ]).map((tip, i) => (
+                  <View key={i} style={styles.instrAnnotationRow}>
+                    <View style={styles.instrAnnotationDot} />
+                    <Text style={styles.instrAnnotationText}>{tip}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.instrSlideTitle}>
+                {scanInstructionPose === 'front' ? 'How to Stand' : 'How to Turn'}
+              </Text>
+              <Text style={styles.instrSlideSubtitle}>
+                {scanInstructionPose === 'front'
+                  ? 'Keep hands and feet within the frame'
+                  : 'Show your full body profile from head to toe'}
+              </Text>
+            </View>
+
+            {/* Slide 1: Clothing */}
+            <View style={[styles.instrSlide, { width: SCREEN_W }]}>
+              <View style={styles.instrCompareRow}>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardGood]}>
+                    {instrImages.clothingGood
+                      ? <Image source={{ uri: instrImages.clothingGood }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeGood}><Text style={styles.instrBadgeText}>✓</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Minimal clothing</Text>
+                </View>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardBad]}>
+                    {instrImages.clothingBad
+                      ? <Image source={{ uri: instrImages.clothingBad }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeBad}><Text style={styles.instrBadgeText}>✕</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Baggy clothing</Text>
+                </View>
+              </View>
+              <Text style={styles.instrSlideTitle}>Clothing</Text>
+              <Text style={styles.instrSlideSubtitle}>Remove your shirt or wear form-fitting attire that provides a clear outline of your body shape. Avoid loose or baggy clothing.</Text>
+            </View>
+
+            {/* Slide 2: Lighting */}
+            <View style={[styles.instrSlide, { width: SCREEN_W }]}>
+              <View style={styles.instrCompareRow}>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardGood]}>
+                    {instrImages.lightingGood
+                      ? <Image source={{ uri: instrImages.lightingGood }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeGood}><Text style={styles.instrBadgeText}>✓</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Well-lit</Text>
+                </View>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardBad]}>
+                    {instrImages.lightingBad
+                      ? <Image source={{ uri: instrImages.lightingBad }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeBad}><Text style={styles.instrBadgeText}>✕</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Dark / shadows</Text>
+                </View>
+              </View>
+              <Text style={styles.instrSlideTitle}>Lighting</Text>
+              <Text style={styles.instrSlideSubtitle}>Ensure your photo is well-lit. Natural, bright light is ideal. Avoid obscuring details with dark shadows or uneven lighting.</Text>
+            </View>
+
+            {/* Slide 3: Background */}
+            <View style={[styles.instrSlide, { width: SCREEN_W }]}>
+              <View style={styles.instrCompareRow}>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardGood]}>
+                    {instrImages.backgroundGood
+                      ? <Image source={{ uri: instrImages.backgroundGood }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeGood}><Text style={styles.instrBadgeText}>✓</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Plain wall</Text>
+                </View>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardBad]}>
+                    {instrImages.backgroundBad
+                      ? <Image source={{ uri: instrImages.backgroundBad }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeBad}><Text style={styles.instrBadgeText}>✕</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Cluttered room</Text>
+                </View>
+              </View>
+              <Text style={styles.instrSlideTitle}>Background</Text>
+              <Text style={styles.instrSlideSubtitle}>Choose a plain, uncluttered background like a neutral-colored wall. Avoid busy patterns or objects that might interfere with the analysis.</Text>
+            </View>
+
+            {/* Slide 4: Distance & Framing */}
+            <View style={[styles.instrSlide, { width: SCREEN_W }]}>
+              <View style={styles.instrCompareRow}>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardGood]}>
+                    {instrImages.distanceGood
+                      ? <Image source={{ uri: instrImages.distanceGood }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeGood}><Text style={styles.instrBadgeText}>✓</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Full body in frame</Text>
+                </View>
+                <View style={styles.instrCompareCol}>
+                  <View style={[styles.instrCompareCard, styles.instrCompareCardBad]}>
+                    {instrImages.distanceBad
+                      ? <Image source={{ uri: instrImages.distanceBad }} style={styles.instrCompareImg} contentFit="cover" />
+                      : <View style={styles.instrCompareImgLoading}><ActivityIndicator color="rgba(255,255,255,0.35)" /></View>}
+                    <View style={styles.instrBadgeBad}><Text style={styles.instrBadgeText}>✕</Text></View>
+                  </View>
+                  <Text style={styles.instrCompareLabelText}>Too close — cropped</Text>
+                </View>
+              </View>
+              <Text style={styles.instrSlideTitle}>Distance & Framing</Text>
+              <Text style={styles.instrSlideSubtitle}>Stand 6–8 feet away from the camera. Ensure your full body from head to toe is in frame for accurate analysis.</Text>
+            </View>
+
+            {/* Slide 5: Volume */}
+            <View style={[styles.instrSlide, { width: SCREEN_W }]}>
+              <View style={styles.instrVolumeBox}>
+                <Text style={styles.instrVolumeIcon}>🔊</Text>
+              </View>
+              <Text style={styles.instrSlideTitle}>Turn Up Your Volume</Text>
+              <Text style={styles.instrSlideSubtitle}>Ensure your phone volume is high enough for you to hear the audio guidance during the scan.</Text>
+            </View>
+          </ScrollView>
+
+          {/* Pagination dots */}
+          <View style={styles.instrDotsRow}>
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <View key={i} style={[styles.instrDot, instrSlide === i && styles.instrDotActive]} />
+            ))}
+          </View>
+
+          {/* Next / Start button */}
+          <View style={styles.instrFooter}>
+            <TouchableOpacity
+              style={styles.instrNextBtn}
+              activeOpacity={0.85}
+              onPress={() => {
+                if (instrSlide < 5) {
+                  const next = instrSlide + 1;
+                  instrScrollRef.current?.scrollTo({ x: SCREEN_W * next, animated: true });
+                  setInstrSlide(next);
+                } else {
+                  const pose = scanInstructionPose!;
+                  setScanInstructionPose(null);
+                  setInstrSlide(0);
+                  setTimeout(() => openGuidedBodyScan(pose), 300);
+                }
+              }}
+            >
+              <Text style={styles.instrNextBtnText}>
+                {instrSlide < 5 ? 'Next' : (scanInstructionPose === 'front' ? 'Start Front Scan' : 'Start Side Scan')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={scanCameraOpen} animationType="slide" onRequestClose={() => { Speech.stop(); setScanCameraOpen(false); setHoldingStill(false); setCapturing(false); }}>
         <View style={styles.bodyCameraWrap}>
           <CameraView ref={scanCameraRef} style={styles.bodyCamera} facing="front" onCameraReady={() => setScanCameraReady(true)} />
+
           <View style={styles.bodyCameraOverlay}>
-            <Text style={styles.bodyCameraTitle}>{scanPose === 'front' ? 'Front Pose' : 'Side Pose'}</Text>
-            <View style={styles.bodyGuide}>
-              <View style={styles.bodyGuideHead} />
-              <View style={styles.bodyGuideShoulders} />
-              <View style={styles.bodyGuideTorso} />
-              <View style={styles.bodyGuideLegs} />
+
+            {/* ── Title + pose label ── */}
+            <View style={styles.outlineHeader}>
+              <Text style={styles.outlinePoseLabel}>
+                {scanPose === 'front' ? 'FRONT VIEW' : 'SIDE VIEW'}
+              </Text>
+              <Text style={styles.outlineSubLabel}>
+                {alignmentScore < 50
+                  ? 'Step back until your full body fits inside the outline'
+                  : alignmentScore < 80
+                    ? scanPose === 'front' ? 'Face forward, arms slightly away from body' : 'Turn side-on so full profile is visible'
+                    : 'Great position — hold very still'}
+              </Text>
             </View>
-            {scanCountdownActive && (
-              <View style={styles.bodyCountdownBadge}>
-                <Text style={styles.bodyCountdownText}>{scanCountdown}</Text>
+
+            {/* ── Body outline silhouette ── */}
+            {!photoReady && (
+              <Animated.View style={[
+                styles.outlineGlowWrap,
+                holdingStill && !capturing && {
+                  shadowColor: '#34C759',
+                  shadowOpacity: glowAnim,
+                  shadowRadius: 18,
+                  shadowOffset: { width: 0, height: 0 },
+                },
+              ]}>
+                <BodyOutline
+                  pose={scanPose}
+                  gender={gender}
+                  color={
+                    photoReady ? '#34C759'
+                    : holdingStill ? '#34C759'
+                    : alignmentScore >= 80 ? '#34C759'
+                    : alignmentScore >= 50 ? '#FFD60A'
+                    : '#FFFFFF'
+                  }
+                  opacity={
+                    alignmentScore >= 80 ? 0.9
+                    : alignmentScore >= 50 ? 0.70
+                    : 0.40
+                  }
+                  height={540}
+                />
+              </Animated.View>
+            )}
+
+            {/* ── Photo captured flash ── */}
+            {photoReady && (
+              <View style={styles.outlineCapturedBadge}>
+                <Text style={styles.outlineCapturedIcon}>✓</Text>
+                <Text style={styles.outlineCapturedText}>
+                  {scanPose === 'front' ? 'Front captured!' : 'Side captured!'}
+                </Text>
+                {scanPose === 'front' && <Text style={styles.outlineCapturedSub}>Preparing side view…</Text>}
               </View>
             )}
-            {scanPhotoAssessing && (
-              <View style={styles.bodyQualityBadge}>
-                <ActivityIndicator color="#FFFFFF" size="small" />
-                <Text style={styles.bodyQualityText}>Checking pose</Text>
+
+
+            {/* ── Hold still countdown ── */}
+            {holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
+              <View style={styles.outlineHoldWrap}>
+                <Text style={styles.outlineHoldText}>Hold still…</Text>
+                <View style={styles.outlineCountdownRow}>
+                  {[5, 4, 3, 2, 1].map((n) => (
+                    <View key={n} style={[styles.outlineCountdownDot, holdCountdown < n && styles.outlineCountdownDotFilled]} />
+                  ))}
+                </View>
+                <Text style={styles.outlineCountdownNum}>{holdCountdown}</Text>
               </View>
             )}
-            <Text style={styles.bodyCameraHint}>
-              {scanPhotoAssessing
-                ? 'Reviewing full-body visibility, lighting, and position'
-                : scanPhotoFeedback
-                  ? scanPhotoFeedback
-                  : scanCountdownActive
-                    ? 'Hold still until the photo is taken'
-                    : 'Fit your full body inside the outline'}
-            </Text>
+
+            {/* ── Capturing / quality check ── */}
+            {(capturing || scanPhotoAssessing) && !photoReady && (
+              <View style={styles.outlineHoldWrap}>
+                <ActivityIndicator color="#34C759" size="large" />
+                <Text style={styles.outlineHoldText}>
+                  {scanPhotoAssessing ? 'Checking photo…' : 'Capturing…'}
+                </Text>
+                {!!scanPhotoFeedback && captureAttempts < 3 && (
+                  <Text style={styles.outlineRetakeText}>Retaking… {scanPhotoFeedback}</Text>
+                )}
+              </View>
+            )}
           </View>
-          <TouchableOpacity style={styles.bodyCameraClose} onPress={() => { setScanCountdownActive(false); setScanCameraOpen(false); }} activeOpacity={0.8}>
+
+          {/* ── Zing-style bottom instruction bar ── */}
+          {!holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
+            <View style={[
+              styles.outlineInstrBar,
+              scanPose === 'side' && alignmentScore < 50 ? styles.outlineInstrBarLime : styles.outlineInstrBarDark,
+            ]}>
+              <View style={[
+                styles.outlineInstrIconCircle,
+                scanPose === 'side' && alignmentScore < 50 ? styles.outlineInstrIconDark : styles.outlineInstrIconLight,
+              ]}>
+                <Text style={styles.outlineInstrIconText}>
+                  {scanPose === 'side' && alignmentScore < 50 ? '←' : '↕'}
+                </Text>
+              </View>
+              <Text style={[
+                styles.outlineInstrBarText,
+                scanPose === 'side' && alignmentScore < 50 ? { color: '#1A1A1A' } : { color: '#FFFFFF' },
+              ]}>
+                {alignmentScore < 50
+                  ? (scanPose === 'front'
+                      ? 'Move back until your body fits the outline'
+                      : 'Turn to the left to show your side profile')
+                  : (scanPose === 'front'
+                      ? 'Face forward, arms slightly away from body'
+                      : 'Hold your full side profile visible')}
+              </Text>
+            </View>
+          )}
+
+          {/* ── Manual capture button ── */}
+          {!capturing && !scanPhotoAssessing && !photoReady && (
+            <TouchableOpacity
+              style={styles.bodyCaptureBtn}
+              onPress={captureGuidedBodyPhoto}
+              activeOpacity={0.8}
+            >
+              <View style={styles.bodyCaptureBtnInner} />
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={styles.bodyCameraClose}
+            onPress={() => { Speech.stop(); setHoldingStill(false); setCapturing(false); setScanCameraOpen(false); }}
+            activeOpacity={0.8}
+          >
             <Text style={styles.bodyCameraCloseText}>Close</Text>
           </TouchableOpacity>
         </View>
@@ -1195,7 +1826,7 @@ const styles = StyleSheet.create({
   bodyGuideLegs: { width: '48%', height: '28%', borderLeftWidth: 3, borderRightWidth: 3, borderBottomWidth: 3, borderColor: 'rgba(255,255,255,0.86)', borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
   bodyCountdownBadge: {
     position: 'absolute',
-    bottom: 104,
+    bottom: 156,
     width: 74,
     height: 74,
     borderRadius: 37,
@@ -1208,7 +1839,7 @@ const styles = StyleSheet.create({
   bodyCountdownText: { color: '#FFFFFF', fontSize: 34, fontWeight: '900' },
   bodyQualityBadge: {
     position: 'absolute',
-    bottom: 104,
+    bottom: 156,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -1235,10 +1866,13 @@ const styles = StyleSheet.create({
   bodyLooksGoodText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
   bodyCameraHint: {
     position: 'absolute',
-    bottom: 64,
+    bottom: 142,
+    left: 24,
+    right: 24,
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+    textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
@@ -1310,4 +1944,420 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nextBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+
+  // Two-option body scan selection
+  scanModeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 18,
+    marginBottom: 14,
+    gap: 14,
+  },
+  scanModeCardHighlight: {
+    borderColor: ORANGE,
+    backgroundColor: 'rgba(143,58,31,0.12)',
+  },
+  scanModeIcon: { fontSize: 32 },
+  scanModeText: { flex: 1 },
+  scanModeTitle: { fontSize: 17, fontWeight: '800', color: 'rgba(255,255,255,0.75)', marginBottom: 4 },
+  scanModeDesc: { fontSize: 13, color: 'rgba(255,255,255,0.45)', lineHeight: 18 },
+  scanModeArrow: { fontSize: 26, color: 'rgba(255,255,255,0.30)', fontWeight: '300' },
+  scanModeBack: { marginBottom: 20 },
+  scanModeBackText: { fontSize: 14, color: 'rgba(255,255,255,0.50)', fontWeight: '600' },
+
+  // Camera capture cards
+  scanCameraHint: { fontSize: 14, color: 'rgba(255,255,255,0.50)', lineHeight: 20, marginBottom: 20, textAlign: 'center' },
+  scanCameraCard: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+    marginBottom: 14,
+  },
+  scanCameraCardLocked: { opacity: 0.45 },
+  scanCameraCardBad: { borderWidth: 1.5, borderColor: '#FF9500' },
+  scanCameraCardWarn: { fontSize: 13, fontWeight: '700', color: '#FF9500' },
+  scanCameraBadBanner: {
+    position: 'absolute',
+    bottom: 48,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(255,90,0,0.82)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  scanCameraBadText: { fontSize: 12, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
+  scanCameraCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  scanCameraCardLabel: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  scanCameraCardDone: { fontSize: 13, fontWeight: '700', color: '#34C759' },
+  scanCameraCardLockedLabel: { fontSize: 12, color: 'rgba(255,255,255,0.40)' },
+  scanCameraPlaceholder: { alignItems: 'center', paddingVertical: 20, gap: 14 },
+  scanCameraCheckingText: { fontSize: 13, color: 'rgba(255,255,255,0.50)', marginTop: 6 },
+  scanCameraBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    ...Platform.select({
+      ios: { shadowColor: ORANGE, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 4 },
+    }),
+  },
+  scanCameraBtnIcon: { fontSize: 20 },
+  scanCameraBtnText: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  scanCameraLibraryText: { fontSize: 13, color: 'rgba(255,255,255,0.38)', fontWeight: '600', textDecorationLine: 'underline' },
+  scanCameraPreviewWrap: { position: 'relative', backgroundColor: '#000', borderRadius: 12 },
+  scanCameraPreview: { width: '100%', height: 380, borderRadius: 12 },
+  scanCameraRetake: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  scanCameraRetakeText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+
+  // ── Instruction carousel ──
+  instrCarouselWrap: {
+    flex: 1,
+    backgroundColor: '#0F0F0F',
+  },
+  instrCarouselHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: Platform.OS === 'ios' ? 58 : 36,
+    paddingBottom: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
+  instrCarouselTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  instrCarouselClose: {
+    position: 'absolute',
+    right: 20,
+    top: Platform.OS === 'ios' ? 54 : 32,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  instrCarouselCloseIcon: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  instrSlide: {
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 12,
+    alignItems: 'center',
+  },
+  instrPosePreview: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    marginBottom: 18,
+    alignItems: 'center',
+    width: '100%',
+  },
+  instrAnnotations: { width: '100%', gap: 12, marginBottom: 20 },
+  instrAnnotationRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  instrAnnotationDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#C6F135',
+    flexShrink: 0,
+  },
+  instrAnnotationText: {
+    fontSize: 15, fontWeight: '600',
+    color: 'rgba(255,255,255,0.80)',
+    flex: 1,
+  },
+
+  instrCompareRow: {
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 20,
+    width: '100%',
+  },
+  instrCompareCol: {
+    flex: 1,
+    gap: 8,
+    alignItems: 'center',
+  },
+  instrCompareCard: {
+    width: '100%',
+    height: 220,
+    borderRadius: 20,
+    borderWidth: 2,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  instrCompareCardGood: { borderColor: '#34C759' },
+  instrCompareCardBad: { borderColor: '#FF3B30' },
+  instrCompareImg: { width: '100%', height: '100%' },
+  instrCompareImgLoading: {
+    width: '100%', height: '100%',
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  instrCompareLabelText: {
+    fontSize: 12, fontWeight: '700',
+    color: 'rgba(255,255,255,0.65)',
+    textAlign: 'center',
+  },
+  instrBadgeGood: {
+    position: 'absolute', bottom: 10, right: 10,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#34C759',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  instrBadgeBad: {
+    position: 'absolute', bottom: 10, right: 10,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  instrBadgeText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+
+  instrVolumeBox: {
+    width: '100%',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    height: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  instrVolumeIcon: { fontSize: 72 },
+
+  instrSlideTitle: {
+    fontSize: 22, fontWeight: '900', color: '#FFFFFF',
+    textAlign: 'center',
+    fontFamily: PLAYFAIR,
+    marginBottom: 10,
+  },
+  instrSlideSubtitle: {
+    fontSize: 15, color: 'rgba(255,255,255,0.50)',
+    textAlign: 'center', lineHeight: 22,
+  },
+
+  instrDotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 14,
+  },
+  instrDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.20)',
+  },
+  instrDotActive: {
+    width: 22, height: 6, borderRadius: 3,
+    backgroundColor: '#FFFFFF',
+  },
+
+  instrFooter: {
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 28,
+  },
+  instrNextBtn: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 17,
+    alignItems: 'center',
+  },
+  instrNextBtnText: { color: '#0F0F0F', fontSize: 17, fontWeight: '900' },
+
+  // ── Camera bottom instruction bar (Zing-style) ──
+  outlineInstrBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 22,
+    paddingTop: 18,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  outlineInstrBarLime: { backgroundColor: '#C6F135' },
+  outlineInstrBarDark: { backgroundColor: 'rgba(0,0,0,0.76)' },
+  outlineInstrIconCircle: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  outlineInstrIconDark: { backgroundColor: '#1A1A1A' },
+  outlineInstrIconLight: { backgroundColor: 'rgba(255,255,255,0.18)' },
+  outlineInstrIconText: { fontSize: 20, fontWeight: '900', color: '#FFFFFF' },
+  outlineInstrBarText: {
+    flex: 1, fontSize: 16, fontWeight: '800', lineHeight: 22,
+  },
+
+  // Outline-guided capture overlay
+  outlineHeader: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 64 : 42,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  outlinePoseLabel: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 2,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  outlineSubLabel: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 3,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  outlineGlowWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  outlineScoreWrap: {
+    position: 'absolute',
+    bottom: 144,
+    left: 28,
+    right: 28,
+    alignItems: 'center',
+    gap: 8,
+  },
+  outlineScoreTrack: {
+    width: '100%',
+    height: 5,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  outlineScoreFill: { height: '100%', borderRadius: 3 },
+  outlineScoreText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  outlineHoldWrap: {
+    position: 'absolute',
+    bottom: 144,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    gap: 8,
+  },
+  outlineHoldText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#34C759',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  outlineMovedText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FF3B30',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  outlineCountdownRow: { flexDirection: 'row', gap: 10 },
+  outlineCountdownDot: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.30)',
+  },
+  outlineCountdownDotFilled: { backgroundColor: '#34C759' },
+  outlineCountdownNum: {
+    fontSize: 48,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+
+  outlineCapturedBadge: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  outlineCapturedIcon: {
+    fontSize: 56,
+    color: '#34C759',
+  },
+  outlineCapturedText: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#34C759',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  outlineCapturedSub: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.65)',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  outlineRetakeText: {
+    fontSize: 13,
+    color: '#FFD60A',
+    textAlign: 'center',
+    paddingHorizontal: 24,
+    textShadowColor: 'rgba(0,0,0,0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+
+  bodyCaptureBtn: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 136 : 120,
+    alignSelf: 'center',
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bodyCaptureBtnInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#FFFFFF',
+  },
 });

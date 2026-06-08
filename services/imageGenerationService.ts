@@ -206,6 +206,90 @@ export async function generateBodyScanSample(gender: 'male' | 'female'): Promise
   return localUri;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Body scan instruction comparison images
+// 4 pairs (good/bad) for the "How It Works" carousel.
+// Generated once via fal.ai schnell and cached permanently.
+// ─────────────────────────────────────────────────────────────────────────
+
+const SCAN_INSTR_CACHE_KEY = 'spicestrong_scan_instr_images_v2';
+
+export interface ScanInstrImages {
+  clothingGood: string | null;
+  clothingBad: string | null;
+  lightingGood: string | null;
+  lightingBad: string | null;
+  backgroundGood: string | null;
+  backgroundBad: string | null;
+  distanceGood: string | null;
+  distanceBad: string | null;
+}
+
+const SCAN_INSTR_PROMPTS: Record<keyof ScanInstrImages, string> = {
+  clothingGood: 'Fitness body scan reference photo. Athletic man wearing only fitted black compression shorts, shirtless, standing straight facing camera, arms slightly away from sides, full body visible from head to feet, plain light gray wall background, soft bright natural lighting, professional portrait photography, crisp detail, no text',
+  clothingBad: 'Fitness body scan bad example. Same man but wearing an oversized baggy gray hoodie and very loose sweatpants, full body facing camera, same plain gray wall, same bright lighting, body shape completely hidden by loose baggy clothing, portrait photo',
+  lightingGood: 'Fitness body scan reference photo. Shirtless athletic man in black compression shorts facing camera against white wall, perfectly lit with soft even diffused natural window light, no harsh shadows, bright and clear, high quality portrait, full body visible',
+  lightingBad: 'Fitness body scan bad example. Same shirtless man in black shorts facing camera but in a dark poorly lit room, single harsh side shadow obscuring half the body, underexposed dark image, barely visible details, showing why bad lighting ruins body scan accuracy',
+  backgroundGood: 'Fitness body scan reference photo. Shirtless athletic man in black shorts standing facing camera in front of a perfectly clean plain white wall, zero clutter or objects, minimal neutral background, ideal for body composition analysis, professional portrait',
+  backgroundBad: 'Fitness body scan bad example. Same shirtless man in gym shorts standing in a very cluttered busy room — a messy bedroom with visible bed, furniture, curtains, shelves with objects visible behind him, very distracting background, portrait photo',
+  distanceGood: 'Fitness body scan reference photo. Full body shot of shirtless athletic man in gym shorts, standing 6 to 8 feet from camera, complete body perfectly framed from top of head to feet with slight margin at top and bottom, properly proportioned for body measurement, clean wall background, portrait',
+  distanceBad: 'Fitness body scan bad example. Same man shirtless in gym shorts but standing far too close to camera, only chest and shoulders visible in frame, waist and legs completely cut off, severely over-cropped portrait, demonstrating wrong camera distance for body scan',
+};
+
+/**
+ * Generate (or load from cache) all 8 instruction comparison images.
+ * Calls onProgress as each image resolves so the UI can update card-by-card.
+ */
+export async function generateScanInstrImages(
+  onProgress?: (update: { key: keyof ScanInstrImages; uri: string }) => void,
+): Promise<ScanInstrImages> {
+  const empty: ScanInstrImages = {
+    clothingGood: null, clothingBad: null,
+    lightingGood: null, lightingBad: null,
+    backgroundGood: null, backgroundBad: null,
+    distanceGood: null, distanceBad: null,
+  };
+
+  // Try cache
+  try {
+    const cached = await AsyncStorage.getItem(SCAN_INSTR_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached) as ScanInstrImages;
+      const allValid = (Object.keys(parsed) as (keyof ScanInstrImages)[]).every((k) => {
+        const uri = parsed[k];
+        if (!uri) return false;
+        try { return new File(uri).exists; } catch { return false; }
+      });
+      if (allValid) return parsed;
+    }
+  } catch { /* regenerate */ }
+
+  if (!FAL_KEY) return empty;
+
+  const result: ScanInstrImages = { ...empty };
+  getImageDir();
+
+  // Generate all 8 in parallel — each resolves independently
+  const keys = Object.keys(SCAN_INSTR_PROMPTS) as (keyof ScanInstrImages)[];
+  await Promise.all(
+    keys.map(async (key) => {
+      const { url, error } = await callFal(SCAN_INSTR_PROMPTS[key], `scan-instr-${key}`, 'schnell');
+      if (!url) {
+        console.warn(`[SpiceStrong] scan instr ${key} failed: ${error}`);
+        return;
+      }
+      const localUri = await downloadImage(url, `scan_instr_${key}.jpg`);
+      if (localUri) {
+        result[key] = localUri;
+        onProgress?.({ key, uri: localUri });
+      }
+    }),
+  );
+
+  try { await AsyncStorage.setItem(SCAN_INSTR_CACHE_KEY, JSON.stringify(result)); } catch { /* non-blocking */ }
+  return result;
+}
+
 /**
  * Build a context-aware hero image prompt.
  * Includes visible ingredients, cuisine style, and expected presentation.
