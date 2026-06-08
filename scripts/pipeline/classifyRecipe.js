@@ -1,7 +1,7 @@
 /**
  * classifyRecipe.js — SpiceStrong Recipe Classification Engine
  *
- * Uses the Claude API (claude-sonnet-4-20250514) to auto-classify a recipe
+ * Uses the Claude API (claude-sonnet-4-6) to auto-classify a recipe
  * across 10 dimensions: cuisine, spice, difficulty, cook time, meal type,
  * dietary tags, allergen tags, cooking method, fitness goal, and storage tags.
  *
@@ -168,7 +168,7 @@ ${instructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: CLASSIFICATION_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],

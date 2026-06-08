@@ -130,7 +130,7 @@ async function identifyFoodImage(base64: string, recipeName: string): Promise<{
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 500,
       system: `You are a food identification AI for a fitness cooking app.
 
@@ -228,7 +228,7 @@ async function analyzeFoodPhoto(base64: string, recipeName: string): Promise<{ c
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 200,
       messages: [{
         role: 'user',
@@ -392,7 +392,12 @@ export default function MealPlanScreen() {
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    let base64 = asset.base64 ?? '';
+    const compressed = await manipulateAsync(
+      asset.uri,
+      [{ resize: { width: 1024 } }],
+      { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+    );
+    let base64 = compressed.base64 ?? '';
     if (base64.includes(',')) base64 = base64.split(',')[1];
 
     if (!base64 || base64.length < 100) {
@@ -400,7 +405,6 @@ export default function MealPlanScreen() {
       return;
     }
 
-    // Use picker URI directly with unique cache key to avoid stale images
     const uniqueUri = `${asset.uri}?t=${Date.now()}`;
     setCorrectionPhotos((prev) => [...prev, { uri: uniqueUri, base64 }]);
   };
@@ -438,7 +442,7 @@ export default function MealPlanScreen() {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 500,
           system: `You are a food and nutrition label analysis expert for a nutrition tracking app.
 
@@ -530,7 +534,7 @@ RULES:
               'anthropic-dangerous-direct-browser-access': 'true',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-sonnet-4-6',
               max_tokens: 200,
               messages: [{ role: 'user', content: `Estimate total nutrition for: ${ingredients.join(', ')}. Return ONLY: {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}` }],
             }),
@@ -696,7 +700,12 @@ RULES:
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    let b64 = asset.base64 ?? '';
+    const compressed = await manipulateAsync(
+      asset.uri,
+      [{ resize: { width: 1024 } }],
+      { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+    );
+    let b64 = compressed.base64 ?? '';
     if (b64.includes(',')) b64 = b64.split(',')[1];
 
     setQuickAddEstimated(false);
@@ -952,7 +961,7 @@ RULES:
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 4096,
           system: systemPrompt,
           messages: [{ role: 'user', content: `Generate a high-protein ${mealTypeLabel} recipe.

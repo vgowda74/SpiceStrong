@@ -306,7 +306,7 @@ export default function FitnessProfileScreen() {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 180,
           messages: [{
             role: 'user',
@@ -545,10 +545,8 @@ Accept only if the full body from head to feet is visible, the person is centere
 
     // Low score (<50): user needs basic positioning help
     const MESSAGES_LOW = isSide ? [
-      'Turn ninety degrees so your side profile faces the camera.',
-      'Stand six to eight feet from the camera.',
-      'Make sure your full body is visible from head to toe.',
-      'Turn sideways — we need to see your full side profile.',
+      'Turn ninety degrees and show your side profile to the camera.',
+      'Stand six to eight feet away and face your side toward the phone.',
     ] : [
       'Stand six to eight feet from the camera.',
       'Make sure your full body is visible, head to toe.',
@@ -558,9 +556,8 @@ Accept only if the full body from head to feet is visible, the person is centere
 
     // Mid score (50–79): user is close, fine-tune
     const MESSAGES_MID = isSide ? [
-      'Almost there — make sure your full side profile is visible.',
+      'Good — keep your side profile visible and hold still.',
       'Keep your arms at your sides and stand tall.',
-      'Good. Hold this position as steady as you can.',
     ] : [
       'Almost there. Adjust your position slightly.',
       'Face forward with your arms slightly away from your body.',
@@ -712,7 +709,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 300,
           messages: [{ role: 'user', content }],
         }),
@@ -1455,9 +1452,11 @@ Use the photos, user stats, and measurements together. Prefer a range over false
               </Text>
               <Text style={styles.outlineSubLabel}>
                 {alignmentScore < 50
-                  ? 'Step back until your full body fits inside the outline'
+                  ? scanPose === 'front'
+                    ? 'Step back until your full body fits inside the outline'
+                    : 'Turn sideways — show your full left or right profile'
                   : alignmentScore < 80
-                    ? scanPose === 'front' ? 'Face forward, arms slightly away from body' : 'Turn side-on so full profile is visible'
+                    ? scanPose === 'front' ? 'Face forward, arms slightly away from body' : 'Perfect — hold this position steady'
                     : 'Great position — hold very still'}
               </Text>
             </View>
@@ -1485,7 +1484,8 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                   }
                   opacity={
                     alignmentScore >= 80 ? 0.9
-                    : alignmentScore >= 50 ? 0.70
+                    : alignmentScore >= 50 ? 0.75
+                    : scanPose === 'side' ? 0.65
                     : 0.40
                   }
                   height={540}
@@ -1536,40 +1536,43 @@ Use the photos, user stats, and measurements together. Prefer a range over false
           {!holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
             <View style={[
               styles.outlineInstrBar,
-              scanPose === 'side' && alignmentScore < 50 ? styles.outlineInstrBarLime : styles.outlineInstrBarDark,
+              scanPose === 'side' && alignmentScore < 25 ? styles.outlineInstrBarLime : styles.outlineInstrBarDark,
             ]}>
               <View style={[
                 styles.outlineInstrIconCircle,
-                scanPose === 'side' && alignmentScore < 50 ? styles.outlineInstrIconDark : styles.outlineInstrIconLight,
+                scanPose === 'side' && alignmentScore < 25 ? styles.outlineInstrIconDark : styles.outlineInstrIconLight,
               ]}>
                 <Text style={styles.outlineInstrIconText}>
-                  {scanPose === 'side' && alignmentScore < 50 ? '←' : '↕'}
+                  {scanPose === 'side' && alignmentScore < 25 ? '↩' : '↕'}
                 </Text>
               </View>
               <Text style={[
                 styles.outlineInstrBarText,
-                scanPose === 'side' && alignmentScore < 50 ? { color: '#1A1A1A' } : { color: '#FFFFFF' },
+                scanPose === 'side' && alignmentScore < 25 ? { color: '#1A1A1A' } : { color: '#FFFFFF' },
               ]}>
                 {alignmentScore < 50
                   ? (scanPose === 'front'
                       ? 'Move back until your body fits the outline'
-                      : 'Turn to the left to show your side profile')
+                      : 'Turn 90° — face one side toward the camera')
                   : (scanPose === 'front'
                       ? 'Face forward, arms slightly away from body'
-                      : 'Hold your full side profile visible')}
+                      : 'Good — keep your side profile in view')}
               </Text>
             </View>
           )}
 
           {/* ── Manual capture button ── */}
           {!capturing && !scanPhotoAssessing && !photoReady && (
-            <TouchableOpacity
-              style={styles.bodyCaptureBtn}
-              onPress={captureGuidedBodyPhoto}
-              activeOpacity={0.8}
-            >
-              <View style={styles.bodyCaptureBtnInner} />
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                style={styles.bodyCaptureBtn}
+                onPress={captureGuidedBodyPhoto}
+                activeOpacity={0.8}
+              >
+                <View style={styles.bodyCaptureBtnInner} />
+              </TouchableOpacity>
+              <Text style={styles.bodyCaptureTapHint}>tap to capture now</Text>
+            </>
           )}
 
           <TouchableOpacity
@@ -2359,5 +2362,14 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 26,
     backgroundColor: '#FFFFFF',
+  },
+  bodyCaptureTapHint: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 106 : 92,
+    alignSelf: 'center',
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });

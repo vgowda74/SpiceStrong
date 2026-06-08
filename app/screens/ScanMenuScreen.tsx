@@ -110,7 +110,7 @@ export default function ScanMenuScreen() {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 3000,
           system: `You are a fitness nutrition expert analyzing a restaurant menu. For each menu item visible, estimate macros and rate it for a high-protein fitness diet.
 

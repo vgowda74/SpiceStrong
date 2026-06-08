@@ -195,7 +195,9 @@
       "Bash(taskkill /F /FI \"WINDOWTITLE eq *eas*\")",
       "Bash(pkill -f \"eas build\")",
       "mcp__claude_ai_Supabase__list_projects",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(node -e \"const a=require\\('./app.json'\\); console.log\\(JSON.stringify\\(a.expo?.updates, null, 2\\)\\)\")",
+      "Bash(node -e \"const a=require\\('./app.json'\\); console.log\\(JSON.stringify\\({projectId: a.expo?.extra?.eas?.projectId, runtimeVersion: a.expo?.runtimeVersion, updates: a.expo?.updates}, null, 2\\)\\)\")"
     ]
   },
   "remote": {

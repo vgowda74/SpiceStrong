@@ -40,19 +40,15 @@ export function buildAlignmentResult(score: number, pose: ScanPose): AlignmentRe
 
 /**
  * Simulates a realistic alignment score ramp.
- * Starts ~8–12%, climbs to ~82% after ~9 seconds so audio guidance has
- * enough time to play before the hold countdown begins.
- * Returns the next score given elapsed ms since camera opened.
+ * Reaches ~80 in ~5-6 s — fast enough to not frustrate side-view users
+ * who can't see the screen while turned sideways.
  */
 export function simulateAlignmentScore(elapsedMs: number, previous: number): number {
-  // ~9 s to reach 80 — gives audio prompts time to guide the user
   const target = 88;
-  const progressRatio = Math.min(1, elapsedMs / 12000);
+  const progressRatio = Math.min(1, elapsedMs / 6000);
   const curved = target * (1 - Math.exp(-2.1 * progressRatio));
   const baseScore = 8 + curved;
-  // Small natural jitter ±3
-  const jitter = (Math.random() - 0.5) * 6;
+  const jitter = (Math.random() - 0.5) * 4;
   const next = baseScore + jitter;
-  // Don't drop more than 4 pts from previous (smooth)
-  return Math.max(previous - 4, Math.min(100, next));
+  return Math.max(previous - 2, Math.min(100, next));
 }

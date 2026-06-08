@@ -1298,7 +1298,7 @@ ${flatInstructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: CLASSIFICATION_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
