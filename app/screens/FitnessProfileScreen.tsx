@@ -2137,7 +2137,7 @@ const styles = StyleSheet.create({
       android: { elevation: 10 },
     }),
   },
-  premScanAIImage: { width: '100%', height: 180 },
+  premScanAIImage: { width: '100%', height: 240 },
 
   premScanManualCard: {
     flexDirection: 'row',
