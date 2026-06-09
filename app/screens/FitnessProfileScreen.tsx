@@ -414,9 +414,18 @@ Accept only if the full body from head to feet is visible, the person is centere
       setAlignmentScore(score);
       if (parsed.tip) setGuidanceText(parsed.tip);
 
-      if (score >= 80) setPoseStatus('perfect');
-      else if (score >= 50) setPoseStatus('almost');
-      else setPoseStatus('not-ready');
+      if (score >= 80) {
+        setPoseStatus('perfect');
+        // Outline is green — stop polling, user will tap when ready
+        if (alignmentIntervalRef.current) {
+          clearInterval(alignmentIntervalRef.current);
+          alignmentIntervalRef.current = null;
+        }
+      } else if (score >= 50) {
+        setPoseStatus('almost');
+      } else {
+        setPoseStatus('not-ready');
+      }
     } catch (err) {
       console.warn('[SpiceStrong] Vision alignment check failed:', err);
     } finally {
