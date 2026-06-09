@@ -1069,17 +1069,13 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                         </View>
                       </View>
 
-                      {/* Phone mockup */}
+                      {/* Phone mockup image */}
                       <View style={styles.premScanMockWrap}>
-                        <View style={styles.premScanMockFrame}>
-                          <View style={styles.premScanMockScreen}>
-                            <Text style={styles.premScanMockBody}>🧍</Text>
-                            <View style={styles.premScanMockTimer}>
-                              <Text style={styles.premScanMockTimerText}>10</Text>
-                            </View>
-                          </View>
-                        </View>
-                        <Text style={styles.premScanMockCaption}>AI analyzes your physique{'\n'}in under 10 seconds</Text>
+                        <Image
+                          source={require('../../assets/images/body-scan-mockup.png')}
+                          style={styles.premScanMockImage}
+                          contentFit="contain"
+                        />
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -2202,32 +2198,8 @@ const styles = StyleSheet.create({
   premScanFeatureCheck: { fontSize: 12, color: '#E85D26', fontWeight: '900' },
   premScanFeatureText: { fontSize: 13, color: 'rgba(255,255,255,0.72)' },
 
-  premScanMockWrap: { width: 88, alignItems: 'center' },
-  premScanMockFrame: {
-    width: 74, height: 136,
-    backgroundColor: '#0C0C0C',
-    borderRadius: 14,
-    borderWidth: 2.5,
-    borderColor: 'rgba(255,255,255,0.10)',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  premScanMockScreen: { flex: 1, width: '100%', backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center' },
-  premScanMockBody: { fontSize: 44 },
-  premScanMockTimer: {
-    position: 'absolute',
-    bottom: 10,
-    width: 34, height: 34,
-    borderRadius: 17,
-    borderWidth: 2.5,
-    borderColor: '#E85D26',
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  premScanMockTimerText: { fontSize: 11, fontWeight: '800', color: '#E85D26' },
-  premScanMockCaption: { fontSize: 9, color: 'rgba(255,255,255,0.40)', textAlign: 'center', marginTop: 8, lineHeight: 13 },
+  premScanMockWrap: { width: 130, alignItems: 'center', justifyContent: 'center' },
+  premScanMockImage: { width: 130, height: 160, borderRadius: 12 },
 
   premScanManualCard: {
     flexDirection: 'row',
