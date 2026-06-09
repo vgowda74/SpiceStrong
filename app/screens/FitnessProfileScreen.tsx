@@ -1163,7 +1163,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                       </View>
                     ) : (
                       <View style={styles.scanCameraPlaceholder}>
-                        <TouchableOpacity style={styles.scanCameraBtn} onPress={() => { setScanInstructionPose('front'); setInstrSlide(0); }} activeOpacity={0.8}>
+                        <TouchableOpacity style={styles.scanCameraBtn} onPress={() => openGuidedBodyScan('front')} activeOpacity={0.8}>
                           <Text style={styles.scanCameraBtnIcon}>📷</Text>
                           <Text style={styles.scanCameraBtnText}>Take Photo</Text>
                         </TouchableOpacity>
@@ -1203,7 +1203,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                       <View style={styles.scanCameraPlaceholder}>
                         <TouchableOpacity
                           style={[styles.scanCameraBtn, !scanFrontUri && { opacity: 0.4 }]}
-                          onPress={() => { if (scanFrontUri) { setScanInstructionPose('side'); setInstrSlide(0); } }}
+                          onPress={() => { if (scanFrontUri) openGuidedBodyScan('side'); }}
                           activeOpacity={0.8}
                           disabled={!scanFrontUri}
                         >
@@ -1555,175 +1555,166 @@ Use the photos, user stats, and measurements together. Prefer a range over false
         </View>
       </Modal>
 
-      <Modal visible={scanCameraOpen} animationType="slide" onRequestClose={() => { Speech.stop(); setScanCameraOpen(false); setHoldingStill(false); setCapturing(false); }}>
+      <Modal visible={scanCameraOpen} animationType="slide" statusBarTranslucent onRequestClose={() => { Speech.stop(); setScanCameraOpen(false); setHoldingStill(false); setCapturing(false); }}>
         <View style={styles.bodyCameraWrap}>
           <CameraView ref={scanCameraRef} style={styles.bodyCamera} facing="front" mute onCameraReady={() => setScanCameraReady(true)} />
 
           <View style={styles.bodyCameraOverlay}>
 
-            {/* ── Title + pose label ── */}
-            <View style={styles.outlineHeader}>
-              <Text style={styles.outlinePoseLabel}>
-                {scanPose === 'front' ? 'FRONT VIEW' : 'SIDE VIEW'}
+            {/* ── Header ── */}
+            <View style={styles.scanHdrWrap}>
+              <Text style={styles.scanHdrTitle}>{scanPose === 'front' ? 'Front View' : 'Side View'}</Text>
+              <Text style={styles.scanHdrSub}>
+                {scanPose === 'front'
+                  ? 'Take a clear front photo in good lighting.\nRemove your shirt and stand as shown.'
+                  : 'Take a clear side photo.\nTurn 90° and show your full profile.'}
               </Text>
-              <Text style={styles.outlineSubLabel}>
-                {alignmentScore < 50
-                  ? scanPose === 'front'
-                    ? 'Step back — full body head-to-toe must be visible'
-                    : 'Turn sideways — show your full left or right profile'
-                  : alignmentScore < 80
-                    ? scanPose === 'front' ? 'Face forward, arms slightly away from body' : 'Keep your full side profile in view'
-                    : 'Looking good — tap the button when ready'}
-              </Text>
+              <View style={styles.scanHdrPrivacyRow}>
+                <Text style={styles.scanHdrPrivacyCheck}>✓</Text>
+                <Text style={styles.scanHdrPrivacyText}>Photos stay on your device</Text>
+              </View>
             </View>
 
-            {/* ── Body outline silhouette ── */}
-            {!photoReady && (
-              <Animated.View style={[
-                styles.outlineGlowWrap,
-                holdingStill && !capturing && {
-                  shadowColor: '#34C759',
-                  shadowOpacity: glowAnim,
-                  shadowRadius: 18,
-                  shadowOffset: { width: 0, height: 0 },
-                },
-              ]}>
-                <BodyOutline
-                  pose={scanPose}
-                  gender={gender}
-                  color={
-                    photoReady ? '#34C759'
-                    : holdingStill ? '#34C759'
-                    : alignmentScore >= 80 ? '#34C759'
-                    : alignmentScore >= 50 ? '#FFD60A'
-                    : '#FFFFFF'
-                  }
-                  opacity={
-                    alignmentScore >= 80 ? 0.9
-                    : alignmentScore >= 50 ? 0.75
-                    : scanPose === 'side' ? 0.65
-                    : 0.40
-                  }
-                  height={540}
-                />
-              </Animated.View>
-            )}
+            {/* ── Tips columns + outline ── */}
+            <View style={styles.scanTipOutlineRow}>
 
-            {/* ── Photo captured flash ── */}
-            {photoReady && (
-              <View style={styles.outlineCapturedBadge}>
-                <Text style={styles.outlineCapturedIcon}>✓</Text>
-                <Text style={styles.outlineCapturedText}>
-                  {scanPose === 'front' ? 'Front captured!' : 'Side captured!'}
-                </Text>
-                {scanPose === 'front' && <Text style={styles.outlineCapturedSub}>Preparing side view…</Text>}
+              {/* Left tips */}
+              <View style={styles.scanTipCol}>
+                {[
+                  { icon: '🧍', label: 'Stand\nstraight' },
+                  { icon: '☀️', label: 'Good\nlighting' },
+                  { icon: '👣', label: 'Feet shoulder\nwidth apart' },
+                ].map(t => (
+                  <View key={t.label} style={styles.scanTipItem}>
+                    <View style={styles.scanTipCircle}><Text style={styles.scanTipIconTxt}>{t.icon}</Text></View>
+                    <Text style={styles.scanTipLabel}>{t.label}</Text>
+                  </View>
+                ))}
               </View>
-            )}
 
+              {/* Outline center */}
+              <View style={styles.scanOutlineCenter}>
+                {/* Orange corner brackets */}
+                <View style={[styles.scanCornerBracket, { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 }]} />
+                <View style={[styles.scanCornerBracket, { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 }]} />
+                <View style={[styles.scanCornerBracket, { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }]} />
+                <View style={[styles.scanCornerBracket, { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }]} />
 
-            {/* ── Ready cue — shown when outline is green, waiting for tap ── */}
-            {alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
-              <View style={styles.outlineHoldWrap}>
-                <Text style={[styles.outlineHoldText, { color: '#34C759' }]}>Tap when ready</Text>
-              </View>
-            )}
+                {!photoReady && (
+                  <Animated.View style={[
+                    styles.outlineGlowWrap,
+                    holdingStill && !capturing && {
+                      shadowColor: '#34C759',
+                      shadowOpacity: glowAnim,
+                      shadowRadius: 18,
+                      shadowOffset: { width: 0, height: 0 },
+                    },
+                  ]}>
+                    <BodyOutline
+                      pose={scanPose}
+                      gender={gender}
+                      color={
+                        holdingStill || alignmentScore >= 80 ? '#34C759'
+                        : alignmentScore >= 50 ? '#FFD60A'
+                        : '#E85D26'
+                      }
+                      opacity={alignmentScore >= 80 ? 0.9 : alignmentScore >= 50 ? 0.75 : 0.85}
+                      height={460}
+                    />
+                  </Animated.View>
+                )}
 
-            {/* ── Hold still countdown (user-triggered tap path) ── */}
-            {holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
-              <View style={styles.outlineHoldWrap}>
-                <Text style={styles.outlineHoldText}>Hold still…</Text>
-                <View style={styles.outlineCountdownRow}>
-                  {[5, 4, 3, 2, 1].map((n) => (
-                    <View key={n} style={[styles.outlineCountdownDot, holdCountdown < n && styles.outlineCountdownDotFilled]} />
-                  ))}
-                </View>
-                <Text style={styles.outlineCountdownNum}>{holdCountdown}</Text>
-              </View>
-            )}
+                {/* Captured badge */}
+                {photoReady && (
+                  <View style={styles.outlineCapturedBadge}>
+                    <Text style={styles.outlineCapturedIcon}>✓</Text>
+                    <Text style={styles.outlineCapturedText}>{scanPose === 'front' ? 'Front captured!' : 'Side captured!'}</Text>
+                    {scanPose === 'front' && <Text style={styles.outlineCapturedSub}>Preparing side view…</Text>}
+                  </View>
+                )}
 
-            {/* ── Capturing / quality check ── */}
-            {(capturing || scanPhotoAssessing) && !photoReady && (
-              <View style={styles.outlineHoldWrap}>
-                <ActivityIndicator color="#34C759" size="large" />
-                <Text style={styles.outlineHoldText}>
-                  {scanPhotoAssessing ? 'Checking photo…' : 'Capturing…'}
-                </Text>
-                {!!scanPhotoFeedback && captureAttempts < 3 && (
-                  <Text style={styles.outlineRetakeText}>Retaking… {scanPhotoFeedback}</Text>
+                {/* Tap when ready */}
+                {alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
+                  <View style={styles.outlineHoldWrap}>
+                    <Text style={[styles.outlineHoldText, { color: '#34C759' }]}>Tap when ready</Text>
+                  </View>
+                )}
+
+                {/* Hold still countdown */}
+                {holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
+                  <View style={styles.outlineHoldWrap}>
+                    <Text style={styles.outlineHoldText}>Hold still…</Text>
+                    <View style={styles.outlineCountdownRow}>
+                      {[5, 4, 3, 2, 1].map((n) => (
+                        <View key={n} style={[styles.outlineCountdownDot, holdCountdown < n && styles.outlineCountdownDotFilled]} />
+                      ))}
+                    </View>
+                    <Text style={styles.outlineCountdownNum}>{holdCountdown}</Text>
+                  </View>
+                )}
+
+                {/* Capturing / checking */}
+                {(capturing || scanPhotoAssessing) && !photoReady && (
+                  <View style={styles.outlineHoldWrap}>
+                    <ActivityIndicator color="#34C759" size="large" />
+                    <Text style={styles.outlineHoldText}>{scanPhotoAssessing ? 'Checking photo…' : 'Capturing…'}</Text>
+                    {!!scanPhotoFeedback && captureAttempts < 3 && (
+                      <Text style={styles.outlineRetakeText}>Retaking… {scanPhotoFeedback}</Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Vision checking indicator */}
+                {visionCheckActive && !capturing && !photoReady && (
+                  <View style={styles.visionScanIndicator}>
+                    <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
+                    <Text style={styles.visionScanText}>Checking frame…</Text>
+                  </View>
                 )}
               </View>
-            )}
 
-            {/* ── Vision scanning indicator ── */}
-            {visionCheckActive && !capturing && !photoReady && (
-              <View style={styles.visionScanIndicator}>
-                <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
-                <Text style={styles.visionScanText}>Checking frame…</Text>
+              {/* Right tips */}
+              <View style={styles.scanTipCol}>
+                {[
+                  { icon: '👁️', label: 'Look\nstraight' },
+                  { icon: '👕', label: 'Shirt off' },
+                  { icon: '⛶', label: 'Fit your\nwhole body\nin the frame' },
+                ].map(t => (
+                  <View key={t.label} style={styles.scanTipItem}>
+                    <View style={styles.scanTipCircle}><Text style={styles.scanTipIconTxt}>{t.icon}</Text></View>
+                    <Text style={styles.scanTipLabel}>{t.label}</Text>
+                  </View>
+                ))}
               </View>
-            )}
-          </View>
-
-          {/* ── Zing-style bottom instruction bar ── */}
-          {!holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
-            <View style={[
-              styles.outlineInstrBar,
-              scanPose === 'side' && alignmentScore < 25 ? styles.outlineInstrBarLime : styles.outlineInstrBarDark,
-            ]}>
-              <View style={[
-                styles.outlineInstrIconCircle,
-                scanPose === 'side' && alignmentScore < 25 ? styles.outlineInstrIconDark : styles.outlineInstrIconLight,
-              ]}>
-                <Text style={styles.outlineInstrIconText}>
-                  {scanPose === 'side' && alignmentScore < 25 ? '↩' : '↕'}
-                </Text>
-              </View>
-              <Text style={[
-                styles.outlineInstrBarText,
-                scanPose === 'side' && alignmentScore < 25 ? { color: '#1A1A1A' } : { color: '#FFFFFF' },
-              ]}>
-                {alignmentScore < 50
-                  ? (scanPose === 'front'
-                      ? 'Move back until your body fits the outline'
-                      : 'Turn 90° — face one side toward the camera')
-                  : (scanPose === 'front'
-                      ? 'Face forward, arms slightly away from body'
-                      : 'Good — keep your side profile in view')}
-              </Text>
             </View>
-          )}
 
-          {/* ── Manual capture button ── */}
-          {!capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
-            <>
+            {/* ── Bottom bar: Gallery | Capture | Tips ── */}
+            <View style={styles.scanBottomBar}>
+              <TouchableOpacity style={styles.scanBottomSide} onPress={() => uploadBodyPhoto(scanPose)} activeOpacity={0.75}>
+                <View style={styles.scanBottomCircle}><Text style={styles.scanBottomSideIcon}>🖼️</Text></View>
+                <Text style={styles.scanBottomSideLabel}>Gallery</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity
-                style={[
-                  styles.bodyCaptureBtn,
-                  alignmentScore >= 80 && { borderColor: '#34C759', borderWidth: 3 },
-                ]}
+                style={[styles.scanNewCaptureBtn, (alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill) && styles.scanNewCaptureBtnGreen]}
                 onPress={captureGuidedBodyPhoto}
                 activeOpacity={0.8}
+                disabled={!!(capturing || scanPhotoAssessing || photoReady || holdingStill)}
               >
-                <View style={[
-                  styles.bodyCaptureBtnInner,
-                  alignmentScore >= 80 && { backgroundColor: '#34C759' },
-                ]} />
+                <View style={[styles.scanNewCaptureBtnInner, (alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill) && { backgroundColor: '#34C759' }]} />
               </TouchableOpacity>
-              <Text style={[
-                styles.bodyCaptureTapHint,
-                alignmentScore >= 80 && { color: '#34C759', fontWeight: '700' },
-              ]}>
-                {alignmentScore >= 80 ? '✓ tap to capture' : 'tap to capture now'}
-              </Text>
-            </>
-          )}
 
-          <TouchableOpacity
-            style={styles.bodyCameraClose}
-            onPress={() => { Speech.stop(); setHoldingStill(false); setCapturing(false); setScanCameraOpen(false); }}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.bodyCameraCloseText}>Close</Text>
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.scanBottomSide}
+                onPress={() => { setScanCameraOpen(false); setScanInstructionPose(scanPose); setInstrSlide(0); }}
+                activeOpacity={0.75}
+              >
+                <View style={styles.scanBottomCircle}><Text style={styles.scanBottomSideIcon}>❓</Text></View>
+                <Text style={styles.scanBottomSideLabel}>Tips</Text>
+              </TouchableOpacity>
+            </View>
+
+          </View>
         </View>
       </Modal>
 
@@ -2591,6 +2582,58 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255,255,255,0.70)',
     fontWeight: '500',
+  },
+
+  // New camera screen layout
+  scanHdrWrap: { alignItems: 'center', paddingTop: Platform.OS === 'ios' ? 56 : 36, paddingHorizontal: 16, paddingBottom: 8 },
+  scanHdrTitle: { fontSize: 30, fontWeight: '900', color: '#FFFFFF', marginBottom: 6, letterSpacing: -0.5 },
+  scanHdrSub: { fontSize: 13, color: 'rgba(255,255,255,0.62)', textAlign: 'center', lineHeight: 19, marginBottom: 8 },
+  scanHdrPrivacyRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  scanHdrPrivacyCheck: { fontSize: 14, color: '#34C759', fontWeight: '900' },
+  scanHdrPrivacyText: { fontSize: 12, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
+
+  scanTipOutlineRow: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 },
+  scanTipCol: { width: 78, alignItems: 'center', justifyContent: 'space-around', alignSelf: 'stretch', paddingVertical: 16 },
+  scanTipItem: { alignItems: 'center', gap: 5 },
+  scanTipCircle: {
+    width: 50, height: 50, borderRadius: 25,
+    borderWidth: 1.5, borderColor: 'rgba(232,93,38,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  scanTipIconTxt: { fontSize: 20 },
+  scanTipLabel: { fontSize: 10, color: 'rgba(255,255,255,0.72)', textAlign: 'center', lineHeight: 14 },
+
+  scanOutlineCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  scanCornerBracket: { position: 'absolute', width: 22, height: 22, borderColor: '#E85D26' },
+
+  scanBottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 36,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingTop: 12,
+  },
+  scanBottomSide: { alignItems: 'center', gap: 5, width: 64 },
+  scanBottomCircle: {
+    width: 52, height: 52, borderRadius: 26,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.28)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  scanBottomSideIcon: { fontSize: 22 },
+  scanBottomSideLabel: { fontSize: 12, color: 'rgba(255,255,255,0.68)', fontWeight: '500' },
+  scanNewCaptureBtn: {
+    width: 80, height: 80, borderRadius: 40,
+    borderWidth: 3, borderColor: '#FFFFFF',
+    backgroundColor: 'transparent',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  scanNewCaptureBtnGreen: { borderColor: '#34C759' },
+  scanNewCaptureBtnInner: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: '#FFFFFF',
   },
 
   bodyCaptureBtn: {
