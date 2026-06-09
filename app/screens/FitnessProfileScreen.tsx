@@ -1111,11 +1111,6 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                     ))}
                   </View>
 
-                  {/* CTA */}
-                  <TouchableOpacity style={styles.premScanCTA} onPress={() => setBodyScanMode('camera')} activeOpacity={0.85}>
-                    <Text style={styles.premScanCTAText}>Start AI Scan  ›</Text>
-                  </TouchableOpacity>
-
                   <Text style={styles.premScanFooter}>🔒 Secure  •  Private  •  256-bit Encrypted</Text>
 
                   <TouchableOpacity onPress={goNext} activeOpacity={0.7} style={{ marginTop: 4, marginBottom: 8 }}>
@@ -1761,8 +1756,8 @@ Use the photos, user stats, and measurements together. Prefer a range over false
         </View>
       </Modal>
 
-      {/* Next button (not shown on results) */}
-      {step !== 'results' && (
+      {/* Next button (not shown on results or body-fat selection) */}
+      {step !== 'results' && !(step === 'body_fat' && bodyScanMode === null) && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
           <TouchableOpacity style={styles.nextBtn} onPress={goNext} activeOpacity={0.8}>
             <Text style={styles.nextBtnText}>
@@ -2241,8 +2236,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#141414',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1.5,
+    borderColor: '#E85D26',
     padding: 15,
     marginBottom: 18,
     gap: 12,
