@@ -8,7 +8,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Dimensions,
   Keyboard,
   KeyboardAvoidingView,
@@ -120,24 +119,14 @@ export default function FitnessProfileScreen() {
   const [bodyScanMode, setBodyScanMode] = useState<null | 'manual' | 'camera'>(null);
   const [scanInstructionPose, setScanInstructionPose] = useState<'front' | 'side' | null>(null);
 
-  // Pose guidance state
-  const [poseStatus, setPoseStatus] = useState<'not-ready' | 'almost' | 'perfect'>('not-ready');
-  const [guidanceText, setGuidanceText] = useState('Position yourself in the outline');
-  const [poseScore, setPoseScore] = useState(0);
-
   // Outline-guided capture state
-  const [alignmentScore, setAlignmentScore] = useState(0);
+  const [scanTimer, setScanTimer] = useState(12);
   const [holdingStill, setHoldingStill] = useState(false);
-  const [holdCountdown, setHoldCountdown] = useState(5);
   const [capturing, setCapturing] = useState(false);
   const [captureAttempts, setCaptureAttempts] = useState(0);
   const [photoReady, setPhotoReady] = useState(false);
   const cameraOpenTimeRef = useRef<number>(0);
-  const alignmentIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const visionCheckInFlightRef = useRef(false);
-  const [visionCheckActive, setVisionCheckActive] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const glowAnim = useRef(new Animated.Value(0)).current;
   const [instrSlide, setInstrSlide] = useState(0);
   const instrScrollRef = useRef<ScrollView>(null);
   const [instrImages, setInstrImages] = useState<ScanInstrImages>({
@@ -270,20 +259,14 @@ export default function FitnessProfileScreen() {
     setScanCountdownActive(false);
     setScanPhotoAssessing(false);
     setScanPhotoFeedback('');
-    // Outline guidance reset
-    setPoseScore(0);
-    setPoseStatus('not-ready');
-    setGuidanceText('Position yourself in the outline');
-    setAlignmentScore(0);
     setHoldingStill(false);
-    setHoldCountdown(5);
     setCapturing(false);
     setPhotoReady(false);
     setCaptureAttempts(0);
+    setScanTimer(12);
     if (side === 'front') setScanFrontBad(false);
     else setScanSideBad(false);
     cameraOpenTimeRef.current = Date.now();
-    glowAnim.setValue(0);
     setScanCameraOpen(true);
   };
 
@@ -355,99 +338,14 @@ Accept only if the full body from head to feet is visible, the person is centere
     }
   };
 
-  // ── Real vision-based alignment check ──
-  // Takes a tiny silent preview frame, asks Claude Haiku whether the full body
-  // (head to feet) is visible, and updates the outline colour accordingly.
-  const checkAlignmentWithVision = useCallback(async () => {
-    if (!scanCameraRef.current || !scanCameraReady) return;
-    if (capturing || scanPhotoAssessing || photoReady || holdingStill) return;
-    if (visionCheckInFlightRef.current) return;
-
-    visionCheckInFlightRef.current = true;
-    setVisionCheckActive(true);
-    try {
-      const preview = await scanCameraRef.current.takePictureAsync({
-        quality: 0.25,
-        skipProcessing: true,
-      });
-      if (!preview?.uri) return;
-
-      const compressed = await ImageManipulator.manipulateAsync(
-        preview.uri,
-        [{ resize: { width: 320 } }],
-        { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true },
-      );
-      const b64 = compressed.base64 || '';
-      if (!b64 || b64.length < 100) return;
-
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) return;
-
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 80,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-              {
-                type: 'text',
-                text: `Body scan alignment — ${scanPose === 'front' ? 'front-facing' : 'side-profile'} pose.\nIs the person's COMPLETE body (head AND feet) visible in frame and centered?\nReturn ONLY JSON: {"score":0-100,"tip":"short instruction"}\n0=only face/torso, 35=upper body only, 65=mostly visible, 85=full body well framed, 95=perfect`,
-              },
-            ],
-          }],
-        }),
-      });
-
-      if (!res.ok) return;
-      const data = await res.json();
-      const text = data.content?.[0]?.text || '';
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      if (start === -1 || end === -1) return;
-      const parsed = JSON.parse(text.slice(start, end + 1));
-
-      const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
-      setAlignmentScore(score);
-      if (parsed.tip) setGuidanceText(parsed.tip);
-
-      if (score >= 80) {
-        setPoseStatus('perfect');
-        if (alignmentIntervalRef.current) {
-          clearInterval(alignmentIntervalRef.current);
-          alignmentIntervalRef.current = null;
-        }
-        // Auto-capture after 1.5s — gives user time to see green outline
-        setTimeout(() => captureGuidedBodyPhoto(), 1500);
-      } else if (score >= 50) {
-        setPoseStatus('almost');
-      } else {
-        setPoseStatus('not-ready');
-      }
-    } catch (err) {
-      console.warn('[SpiceStrong] Vision alignment check failed:', err);
-    } finally {
-      visionCheckInFlightRef.current = false;
-      setVisionCheckActive(false);
-    }
-  }, [scanCameraReady, capturing, scanPhotoAssessing, photoReady, holdingStill, scanPose]);
 
   const captureGuidedBodyPhoto = async () => {
     // Guard: camera must be mounted and ready
     if (!scanCameraRef.current || !scanCameraReady) {
       setCapturing(false);
       setHoldingStill(false);
-      setAlignmentScore(0);
+      setScanTimer(12);
       cameraOpenTimeRef.current = Date.now();
-      glowAnim.setValue(0);
       return;
     }
     try {
@@ -479,9 +377,8 @@ Accept only if the full body from head to feet is visible, the person is centere
           // Auto-retake: reset alignment engine
           setCapturing(false);
           setHoldingStill(false);
-          setAlignmentScore(0);
+          setScanTimer(12);
           cameraOpenTimeRef.current = Date.now();
-          glowAnim.setValue(0);
           setTimeout(() => setScanPhotoFeedback(''), 1800);
           return;
         }
@@ -600,113 +497,37 @@ Accept only if the full body from head to feet is visible, the person is centere
     return Math.round(86.01 * Math.log10(waistInches - neckInches) - 70.041 * Math.log10(heightInches) + 36.76);
   };
 
-  // ── Real-vision alignment engine ──
-  // Fires an actual Claude Haiku check ~3.5s after camera opens and every 3.5s
-  // after that. Green = Claude confirmed full body is visible in frame.
+  // ── 12-second countdown: starts when camera is ready, auto-captures at 0 ──
   useEffect(() => {
-    if (!scanCameraOpen || !scanCameraReady || holdingStill || capturing || scanPhotoAssessing) return;
+    if (!scanCameraOpen || !scanCameraReady || capturing || scanPhotoAssessing || photoReady) return;
 
-    const initial = setTimeout(() => { checkAlignmentWithVision(); }, 2000);
-    const interval = setInterval(() => { checkAlignmentWithVision(); }, 5000);
-
-    alignmentIntervalRef.current = interval;
-    return () => {
-      clearTimeout(initial);
-      clearInterval(interval);
-    };
-  }, [scanCameraOpen, scanCameraReady, holdingStill, capturing, scanPhotoAssessing, checkAlignmentWithVision]);
-
-  // ── Audio guidance while not yet aligned ──
-  useEffect(() => {
-    if (!scanCameraOpen || !scanCameraReady || holdingStill || capturing || scanPhotoAssessing) return;
-
-    const isSide = scanPose === 'side';
-
-    // Low score (<50): user needs basic positioning help
-    const MESSAGES_LOW = isSide ? [
-      'Turn ninety degrees and show your side profile to the camera.',
-      'Stand six to eight feet away and face your side toward the phone.',
-    ] : [
-      'Stand six to eight feet from the camera.',
-      'Make sure your full body is visible, head to toe.',
-      'Step back so your entire body fits inside the outline.',
-      'Face the camera straight on and stand tall.',
-    ];
-
-    // Mid score (50–79): user is close, fine-tune
-    const MESSAGES_MID = isSide ? [
-      'Good — keep your side profile visible and hold still.',
-      'Keep your arms at your sides and stand tall.',
-    ] : [
-      'Almost there. Adjust your position slightly.',
-      'Face forward with your arms slightly away from your body.',
-      'Keep your feet together and stand tall.',
-    ];
-
-    let msgIndex = 0;
-
-    const speakNext = (score: number) => {
-      Speech.stop();
-      const pool = score < 50 ? MESSAGES_LOW : MESSAGES_MID;
-      Speech.speak(pool[msgIndex % pool.length], { rate: 0.92, pitch: 1.0 });
-      msgIndex += 1;
-    };
-
-    // Speak immediately when camera is ready
-    speakNext(0);
-
-    const interval = setInterval(() => {
-      setAlignmentScore((current) => {
-        if (current < 80) speakNext(current);
-        return current;
-      });
-    }, 4000);
-
-    return () => {
-      clearInterval(interval);
-      Speech.stop();
-    };
-  }, [scanCameraOpen, scanCameraReady, holdingStill, capturing, scanPhotoAssessing, scanPose]);
-
-  // ── Announce alignment achieved ──
-  useEffect(() => {
-    if (!holdingStill) return;
+    // Brief opening hint
     Speech.stop();
-    Speech.speak('Perfect! Hold very still.', { rate: 0.92 });
-  }, [holdingStill]);
+    Speech.speak(
+      scanPose === 'front'
+        ? 'Step back until your full body fits the outline.'
+        : 'Turn sideways until your full profile fits the outline.',
+      { rate: 0.92 }
+    );
 
-  // ── Hold-still countdown + auto-capture ──
-  useEffect(() => {
-    if (!holdingStill || capturing || scanPhotoAssessing) return;
-
-    // Start glow pulse
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(glowAnim, { toValue: 0.4, duration: 700, useNativeDriver: true }),
-      ])
-    ).start();
-
-    setHoldCountdown(5);
-    let count = 5;
+    setScanTimer(12);
+    let count = 12;
     const tick = setInterval(() => {
       count -= 1;
-      setHoldCountdown(count);
+      setScanTimer(count);
       if (count <= 0) {
         clearInterval(tick);
-        glowAnim.stopAnimation();
-        setCapturing(true);
         captureGuidedBodyPhoto();
       }
     }, 1000);
 
     return () => {
       clearInterval(tick);
-      glowAnim.stopAnimation();
+      Speech.stop();
     };
-  }, [holdingStill, capturing, scanPhotoAssessing]);
+  }, [scanCameraOpen, scanCameraReady, scanPose]);
 
-  // ── Old countdown fallback (kept for manual-tap path) ──
+  // ── Old countdown fallback — keep for legacy ref but never fires ──
   useEffect(() => {
     if (!scanCameraOpen || !scanCountdownActive || scanPhotoAssessing) return;
     setScanCountdown(3);
@@ -1601,28 +1422,19 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                 <View style={[styles.scanCornerBracket, { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }]} />
                 <View style={[styles.scanCornerBracket, { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }]} />
 
+                {/* Static orange outline — no scoring, no polling */}
                 {!photoReady && (
-                  <Animated.View style={[
-                    styles.outlineGlowWrap,
-                    holdingStill && !capturing && {
-                      shadowColor: '#34C759',
-                      shadowOpacity: glowAnim,
-                      shadowRadius: 18,
-                      shadowOffset: { width: 0, height: 0 },
-                    },
-                  ]}>
-                    <BodyOutline
-                      pose={scanPose}
-                      gender={gender}
-                      color={
-                        holdingStill || alignmentScore >= 80 ? '#34C759'
-                        : alignmentScore >= 50 ? '#FFD60A'
-                        : '#E85D26'
-                      }
-                      opacity={alignmentScore >= 80 ? 0.9 : alignmentScore >= 50 ? 0.75 : 0.85}
-                      height={460}
-                    />
-                  </Animated.View>
+                  <View style={styles.outlineGlowWrap}>
+                    <BodyOutline pose={scanPose} gender={gender} color="#E85D26" opacity={0.9} height={460} />
+                  </View>
+                )}
+
+                {/* Countdown ring */}
+                {!photoReady && !capturing && !scanPhotoAssessing && (
+                  <View style={styles.scanTimerBadge}>
+                    <Text style={styles.scanTimerNum}>{scanTimer}</Text>
+                    <Text style={styles.scanTimerSec}>sec</Text>
+                  </View>
                 )}
 
                 {/* Captured badge */}
@@ -1634,42 +1446,14 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                   </View>
                 )}
 
-                {/* Auto-capture cue */}
-                {alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
-                  <View style={styles.outlineHoldWrap}>
-                    <Text style={[styles.outlineHoldText, { color: '#34C759' }]}>✓ Hold still…</Text>
-                  </View>
-                )}
-
-                {/* Hold still countdown */}
-                {holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
-                  <View style={styles.outlineHoldWrap}>
-                    <Text style={styles.outlineHoldText}>Hold still…</Text>
-                    <View style={styles.outlineCountdownRow}>
-                      {[5, 4, 3, 2, 1].map((n) => (
-                        <View key={n} style={[styles.outlineCountdownDot, holdCountdown < n && styles.outlineCountdownDotFilled]} />
-                      ))}
-                    </View>
-                    <Text style={styles.outlineCountdownNum}>{holdCountdown}</Text>
-                  </View>
-                )}
-
                 {/* Capturing / checking */}
                 {(capturing || scanPhotoAssessing) && !photoReady && (
                   <View style={styles.outlineHoldWrap}>
-                    <ActivityIndicator color="#34C759" size="large" />
+                    <ActivityIndicator color="#E85D26" size="large" />
                     <Text style={styles.outlineHoldText}>{scanPhotoAssessing ? 'Checking photo…' : 'Capturing…'}</Text>
                     {!!scanPhotoFeedback && captureAttempts < 3 && (
                       <Text style={styles.outlineRetakeText}>Retaking… {scanPhotoFeedback}</Text>
                     )}
-                  </View>
-                )}
-
-                {/* Vision checking indicator */}
-                {visionCheckActive && !capturing && !photoReady && (
-                  <View style={styles.visionScanIndicator}>
-                    <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
-                    <Text style={styles.visionScanText}>Checking frame…</Text>
                   </View>
                 )}
               </View>
@@ -1697,12 +1481,12 @@ Use the photos, user stats, and measurements together. Prefer a range over false
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.scanNewCaptureBtn, (alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill) && styles.scanNewCaptureBtnGreen]}
+                style={styles.scanNewCaptureBtn}
                 onPress={captureGuidedBodyPhoto}
                 activeOpacity={0.8}
-                disabled={!!(capturing || scanPhotoAssessing || photoReady || holdingStill)}
+                disabled={!!(capturing || scanPhotoAssessing || photoReady)}
               >
-                <View style={[styles.scanNewCaptureBtnInner, (alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill) && { backgroundColor: '#34C759' }]} />
+                <View style={styles.scanNewCaptureBtnInner} />
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -2607,6 +2391,19 @@ const styles = StyleSheet.create({
 
   scanOutlineCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scanCornerBracket: { position: 'absolute', width: 22, height: 22, borderColor: '#E85D26' },
+  scanTimerBadge: {
+    position: 'absolute',
+    bottom: 16,
+    width: 56, height: 56,
+    borderRadius: 28,
+    borderWidth: 3,
+    borderColor: '#E85D26',
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanTimerNum: { fontSize: 20, fontWeight: '900', color: '#E85D26', lineHeight: 22 },
+  scanTimerSec: { fontSize: 9, color: 'rgba(255,255,255,0.6)', fontWeight: '600' },
 
   scanBottomBar: {
     flexDirection: 'row',
