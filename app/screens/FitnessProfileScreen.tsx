@@ -1017,31 +1017,108 @@ Use the photos, user stats, and measurements together. Prefer a range over false
           {/* STEP 7: Body Fat */}
           {step === 'body_fat' && (
             <>
-              <Text style={styles.stepTitle}>Progress Scan</Text>
-              <Text style={styles.stepHint}>How would you like to set your body composition?</Text>
+              {bodyScanMode !== null && (
+                <>
+                  <Text style={styles.stepTitle}>Progress Scan</Text>
+                  <Text style={styles.stepHint}>How would you like to set your body composition?</Text>
+                </>
+              )}
 
-              {/* ── Option selection ── */}
+              {/* ── Premium option selection ── */}
               {bodyScanMode === null && (
                 <>
-                  <TouchableOpacity style={styles.scanModeCard} onPress={() => setBodyScanMode('manual')} activeOpacity={0.75}>
-                    <Text style={styles.scanModeIcon}>✏️</Text>
-                    <View style={styles.scanModeText}>
-                      <Text style={styles.scanModeTitle}>Enter Manually</Text>
-                      <Text style={styles.scanModeDesc}>Type in your body fat % and optional tape measurements</Text>
+                  {/* Hero */}
+                  <View style={styles.premScanHero}>
+                    <View style={styles.premScanHeroText}>
+                      <Text style={styles.premScanHeroTitle}>
+                        {'Track Your\n'}
+                        <Text style={styles.premScanHeroAccent}>Transformation</Text>
+                      </Text>
+                      <Text style={styles.premScanHeroSub}>
+                        Choose how you'd like SpiceStrong to estimate your body fat and track progress.
+                      </Text>
                     </View>
-                    <Text style={styles.scanModeArrow}>›</Text>
+                    <View style={styles.premScanBodyVis}>
+                      <Text style={styles.premScanBodyVisEmoji}>🏋️</Text>
+                    </View>
+                  </View>
+
+                  {/* AI Body Scan card — primary */}
+                  <TouchableOpacity style={styles.premScanAICard} onPress={() => setBodyScanMode('camera')} activeOpacity={0.85}>
+                    <View style={styles.premScanBadgeRow}>
+                      <View style={styles.premScanBadge}>
+                        <Text style={styles.premScanBadgeText}>✦  RECOMMENDED</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.premScanAIInner}>
+                      <View style={styles.premScanAILeft}>
+                        <View style={styles.premScanAIIconBox}>
+                          <Text style={styles.premScanAIIconEmoji}>⚡</Text>
+                        </View>
+                        <Text style={styles.premScanAITitle}>AI Body Scan</Text>
+                        <Text style={styles.premScanAISub}>Take 2 photos</Text>
+                        <Text style={styles.premScanAIInstant}>Get instant analysis</Text>
+                        <View style={styles.premScanFeatures}>
+                          {['Body Fat %', 'Lean Mass', 'Visual Progress', 'Future Comparisons'].map(feat => (
+                            <View key={feat} style={styles.premScanFeatureRow}>
+                              <Text style={styles.premScanFeatureCheck}>✓</Text>
+                              <Text style={styles.premScanFeatureText}>{feat}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+
+                      {/* Phone mockup */}
+                      <View style={styles.premScanMockWrap}>
+                        <View style={styles.premScanMockFrame}>
+                          <View style={styles.premScanMockScreen}>
+                            <Text style={styles.premScanMockBody}>🧍</Text>
+                            <View style={styles.premScanMockTimer}>
+                              <Text style={styles.premScanMockTimerText}>10</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <Text style={styles.premScanMockCaption}>AI analyzes your physique{'\n'}in under 10 seconds</Text>
+                      </View>
+                    </View>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={[styles.scanModeCard, styles.scanModeCardHighlight]} onPress={() => setBodyScanMode('camera')} activeOpacity={0.75}>
-                    <Text style={styles.scanModeIcon}>📸</Text>
-                    <View style={styles.scanModeText}>
-                      <Text style={[styles.scanModeTitle, { color: '#FFFFFF' }]}>Body Scan</Text>
-                      <Text style={styles.scanModeDesc}>Take front & side photos — AI estimates your body composition</Text>
+                  {/* Enter Manually card — secondary */}
+                  <TouchableOpacity style={styles.premScanManualCard} onPress={() => setBodyScanMode('manual')} activeOpacity={0.8}>
+                    <View style={styles.premScanManualIconBox}>
+                      <Text style={styles.premScanManualIconEmoji}>📋</Text>
                     </View>
-                    <Text style={styles.scanModeArrow}>›</Text>
+                    <View style={styles.premScanManualText}>
+                      <Text style={styles.premScanManualTitle}>Enter Manually</Text>
+                      <Text style={styles.premScanManualDesc}>{'Use DEXA, InBody, or tape measurements\nEnter your numbers manually.'}</Text>
+                    </View>
+                    <Text style={styles.premScanManualChevron}>›</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
+                  {/* Trust badges */}
+                  <View style={styles.premScanTrustRow}>
+                    {[
+                      { icon: '🔐', title: 'Your Data', sub: 'Always private\n& secure' },
+                      { icon: '🤖', title: 'AI-Powered', sub: 'Advanced computer\nvision technology' },
+                      { icon: '📈', title: 'Track Progress', sub: 'See real changes\nover time' },
+                    ].map(b => (
+                      <View key={b.title} style={styles.premScanTrustBadge}>
+                        <Text style={styles.premScanTrustIcon}>{b.icon}</Text>
+                        <Text style={styles.premScanTrustTitle}>{b.title}</Text>
+                        <Text style={styles.premScanTrustSub}>{b.sub}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* CTA */}
+                  <TouchableOpacity style={styles.premScanCTA} onPress={() => setBodyScanMode('camera')} activeOpacity={0.85}>
+                    <Text style={styles.premScanCTAText}>Start AI Scan  ›</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.premScanFooter}>🔒 Secure  •  Private  •  256-bit Encrypted</Text>
+
+                  <TouchableOpacity onPress={goNext} activeOpacity={0.7} style={{ marginTop: 4, marginBottom: 8 }}>
                     <Text style={styles.skipText}>Skip this step</Text>
                   </TouchableOpacity>
                 </>
@@ -2070,6 +2147,146 @@ const styles = StyleSheet.create({
   scanModeArrow: { fontSize: 26, color: 'rgba(255,255,255,0.30)', fontWeight: '300' },
   scanModeBack: { marginBottom: 20 },
   scanModeBackText: { fontSize: 14, color: 'rgba(255,255,255,0.50)', fontWeight: '600' },
+
+  // Premium body-scan mode selection
+  premScanHero: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 22, marginTop: -4 },
+  premScanHeroText: { flex: 1, paddingRight: 10 },
+  premScanHeroTitle: { fontSize: 26, fontWeight: '900', color: '#FFFFFF', lineHeight: 32, marginBottom: 10 },
+  premScanHeroAccent: { color: '#E85D26' },
+  premScanHeroSub: { fontSize: 13, color: 'rgba(255,255,255,0.52)', lineHeight: 18 },
+  premScanBodyVis: {
+    width: 70, height: 70,
+    backgroundColor: 'rgba(232,93,38,0.12)',
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.28)',
+  },
+  premScanBodyVisEmoji: { fontSize: 36 },
+
+  premScanAICard: {
+    backgroundColor: '#1B1208',
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#E85D26',
+    padding: 18,
+    marginBottom: 14,
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.3, shadowRadius: 14 },
+      android: { elevation: 10 },
+    }),
+  },
+  premScanBadgeRow: { marginBottom: 14 },
+  premScanBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(232,93,38,0.18)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.45)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  premScanBadgeText: { fontSize: 10, fontWeight: '800', color: '#E85D26', letterSpacing: 1.4 },
+  premScanAIInner: { flexDirection: 'row', alignItems: 'flex-start' },
+  premScanAILeft: { flex: 1, paddingRight: 12 },
+  premScanAIIconBox: {
+    width: 44, height: 44,
+    backgroundColor: 'rgba(232,93,38,0.15)',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(232,93,38,0.3)',
+  },
+  premScanAIIconEmoji: { fontSize: 22 },
+  premScanAITitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 2 },
+  premScanAISub: { fontSize: 13, color: 'rgba(255,255,255,0.50)', marginBottom: 4 },
+  premScanAIInstant: { fontSize: 13, color: '#E85D26', fontWeight: '700', marginBottom: 14 },
+  premScanFeatures: { gap: 7 },
+  premScanFeatureRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  premScanFeatureCheck: { fontSize: 12, color: '#E85D26', fontWeight: '900' },
+  premScanFeatureText: { fontSize: 13, color: 'rgba(255,255,255,0.72)' },
+
+  premScanMockWrap: { width: 88, alignItems: 'center' },
+  premScanMockFrame: {
+    width: 74, height: 136,
+    backgroundColor: '#0C0C0C',
+    borderRadius: 14,
+    borderWidth: 2.5,
+    borderColor: 'rgba(255,255,255,0.10)',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premScanMockScreen: { flex: 1, width: '100%', backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center' },
+  premScanMockBody: { fontSize: 44 },
+  premScanMockTimer: {
+    position: 'absolute',
+    bottom: 10,
+    width: 34, height: 34,
+    borderRadius: 17,
+    borderWidth: 2.5,
+    borderColor: '#E85D26',
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premScanMockTimerText: { fontSize: 11, fontWeight: '800', color: '#E85D26' },
+  premScanMockCaption: { fontSize: 9, color: 'rgba(255,255,255,0.40)', textAlign: 'center', marginTop: 8, lineHeight: 13 },
+
+  premScanManualCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#141414',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+    padding: 15,
+    marginBottom: 18,
+    gap: 12,
+  },
+  premScanManualIconBox: {
+    width: 40, height: 40,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premScanManualIconEmoji: { fontSize: 20 },
+  premScanManualText: { flex: 1 },
+  premScanManualTitle: { fontSize: 16, fontWeight: '700', color: 'rgba(255,255,255,0.82)', marginBottom: 3 },
+  premScanManualDesc: { fontSize: 12, color: 'rgba(255,255,255,0.38)', lineHeight: 17 },
+  premScanManualChevron: { fontSize: 22, color: 'rgba(255,255,255,0.22)', fontWeight: '300' },
+
+  premScanTrustRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  premScanTrustBadge: {
+    flex: 1,
+    backgroundColor: '#111',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 10,
+    alignItems: 'center',
+  },
+  premScanTrustIcon: { fontSize: 18, marginBottom: 4 },
+  premScanTrustTitle: { fontSize: 10, fontWeight: '800', color: 'rgba(255,255,255,0.72)', textAlign: 'center', marginBottom: 3 },
+  premScanTrustSub: { fontSize: 9, color: 'rgba(255,255,255,0.38)', textAlign: 'center', lineHeight: 13 },
+
+  premScanCTA: {
+    backgroundColor: '#E85D26',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+    ...Platform.select({
+      ios: { shadowColor: '#E85D26', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.45, shadowRadius: 10 },
+      android: { elevation: 6 },
+    }),
+  },
+  premScanCTAText: { fontSize: 17, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.4 },
+  premScanFooter: { fontSize: 11, color: 'rgba(255,255,255,0.32)', textAlign: 'center', marginBottom: 6 },
 
   // Camera capture cards
   scanCameraHint: { fontSize: 14, color: 'rgba(255,255,255,0.50)', lineHeight: 20, marginBottom: 20, textAlign: 'center' },
