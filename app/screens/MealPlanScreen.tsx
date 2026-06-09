@@ -44,7 +44,6 @@ import { getRecipeById, getCompletionStats, type SavedRecipe } from '../../src/s
 import { getRecipeImageUrls, saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
-import { analyzeMultipleImagesWithEdamam, isEdamamVisionAvailable } from '../../services/edamamVisionService';
 import { getFitnessProfile, calculateMacroTargets, type MacroTargets } from '../../services/fitnessProfileService';
 import Svg, { Circle } from 'react-native-svg';
 import { PremiumScreen } from '../../components/PremiumScreen';
@@ -127,7 +126,7 @@ async function recalculateFromComponentsList(components: string[]): Promise<{
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 250,
+      max_tokens: 400,
       messages: [{
         role: 'user',
         content: `You are a nutrition expert. Calculate total macros for these food items:\n${list}\n\nReturn ONLY this JSON:\n{"calories":0,"caloriesMin":0,"caloriesMax":0,"proteinG":0,"carbsG":0,"fatG":0,"confidence":"medium"}`,
@@ -683,8 +682,6 @@ export default function MealPlanScreen() {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddSlot, setQuickAddSlot] = useState<MealSlot>('lunch_dinner');
   const [quickAddName, setQuickAddName] = useState('');
-  const [quickAddPhoto, setQuickAddPhoto] = useState<string | null>(null);
-  const [quickAddBase64, setQuickAddBase64] = useState<string>('');
   const [quickAddPhotos, setQuickAddPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [quickAddScanning, setQuickAddScanning] = useState(false);
   const [quickAddManualMode, setQuickAddManualMode] = useState(false);
@@ -705,8 +702,6 @@ export default function MealPlanScreen() {
   const openQuickAdd = (slot: MealSlot) => {
     setQuickAddSlot(slot);
     setQuickAddName('');
-    setQuickAddPhoto(null);
-    setQuickAddBase64('');
     setQuickAddPhotos([]);
     setQuickAddScanning(false);
     setQuickAddManualMode(false);
@@ -767,8 +762,6 @@ export default function MealPlanScreen() {
     if (b64.includes(',')) b64 = b64.split(',')[1];
 
     setQuickAddEstimated(false);
-    setQuickAddPhoto(`${asset.uri}?t=${Date.now()}`);
-    setQuickAddBase64(b64);
     setQuickAddPhotos((prev) => [...prev, { uri: `${asset.uri}?t=${Date.now()}`, base64: b64 }]);
 
     // Auto-scan immediately after first photo
@@ -870,7 +863,7 @@ export default function MealPlanScreen() {
 
   const recalculateQuickAddMacros = async () => {
     const newItem = quickAddNewIngredient.trim();
-    const components = newItem ? [...quickAddEditableComponents, newItem] : [...quickAddEditableComponents];
+    const components = (newItem ? [...quickAddEditableComponents, newItem] : [...quickAddEditableComponents]).filter((c) => c.trim());
     if (components.length === 0) return;
     setQuickAddRecalculating(true);
     try {
@@ -903,7 +896,7 @@ export default function MealPlanScreen() {
 
   const recalculateCorrectionMacros = async () => {
     const newItem = correctionNewIngredient.trim();
-    const components = newItem ? [...correctionEditableComponents, newItem] : [...correctionEditableComponents];
+    const components = (newItem ? [...correctionEditableComponents, newItem] : [...correctionEditableComponents]).filter((c) => c.trim());
     if (components.length === 0) return;
     setCorrectionRecalculating(true);
     try {
@@ -952,14 +945,11 @@ export default function MealPlanScreen() {
       return;
     }
 
-    // Save macros + photo as override
+    // Save macros + photo as override using the entry ID returned by the service
     const photoUris = await persistMealPhotoUris(quickAddPhotos, `quick_${Date.now()}`);
     const override: MacroOverride = { ...macros, photoUri: photoUris[0] ?? '', photoUris };
-    // Need the actual entry ID from the service — use the same ID format
-    const entries = await getMealPlanForDate(currentDate);
-    const newEntry = entries.find((e) => e.recipeName === name && e.slot === quickAddSlot);
-    if (newEntry) {
-      await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${newEntry.id}`, JSON.stringify(override));
+    if (result.entryId) {
+      await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${result.entryId}`, JSON.stringify(override));
     }
 
     closeQuickAdd();
@@ -1098,8 +1088,6 @@ export default function MealPlanScreen() {
     setGeneratingIds((prev) => new Set(prev).add(entry.id));
 
     try {
-      // Dynamically import the AI builder's callClaudeAPI + saveRecipeFromAI
-      const { callClaudeAPI, saveRecipeFromAI } = require('./AIRecipeBuilderScreen');
 
       // Determine protein from entry name/description or default
       const proteinId = entry.recipe?.proteinId || 'chicken';
@@ -1107,8 +1095,6 @@ export default function MealPlanScreen() {
       const proteinEmoji = entry.proteinEmoji || '🍗';
       const mealSlot = entry.slot;
 
-      // Use the spiceBuilderPrompt via a simplified Claude call
-      const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
       if (!ANTHROPIC_KEY) throw new Error('No API key');
 
       const { SPICEBUILDER_SYSTEM_PROMPT } = require('../../src/prompts/spiceBuilderPrompt');
@@ -1339,7 +1325,6 @@ export default function MealPlanScreen() {
                 }
 
                 for (let day = 1; day <= daysInMonth; day++) {
-                  const cellDate = new Date(calMonth.year, calMonth.month, day);
                   const isSelected =
                     selectedD.getFullYear() === calMonth.year &&
                     selectedD.getMonth() === calMonth.month &&
@@ -1689,25 +1674,6 @@ export default function MealPlanScreen() {
             {(quickAddManualMode || quickAddEstimated) && !quickAddScanning && (
               <>
 
-            {/* Photo section */}
-            {false ? (
-              <View style={styles.cmBtnRow}>
-                <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(true)} activeOpacity={0.75}>
-                  <Text style={styles.cmPhotoBtnText}>📷 Camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(false)} activeOpacity={0.75}>
-                  <Text style={styles.cmPhotoBtnText}>🖼 Gallery</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.qaPhotoRow}>
-                <Image source={{ uri: quickAddPhoto ?? '' }} style={styles.qaPhotoThumb} contentFit="cover" />
-                <TouchableOpacity onPress={() => { setQuickAddPhoto(null); setQuickAddBase64(''); }} activeOpacity={0.7}>
-                  <Text style={styles.qaPhotoChange}>Change</Text>
-                </TouchableOpacity>
-                {quickAddScanning && <ActivityIndicator color={ORANGE} size="small" style={{ marginLeft: 8 }} />}
-              </View>
-            )}
 
             {/* Cal AI breakdown card */}
             {quickAddEstimated && quickAddComponents.length > 0 && (

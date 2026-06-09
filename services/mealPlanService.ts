@@ -134,7 +134,7 @@ export async function addToMealPlan(
   date: string,
   slot: MealSlot,
   recipe: { id: string; name: string; proteinName: string; proteinEmoji: string; mealType?: string; servingCount?: number }
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; entryId?: string; error?: string }> {
   // Check slot capacity
   const existing = await getMealPlanForDate(date);
   const slotEntries = existing.filter((e) => e.slot === slot);
@@ -185,7 +185,7 @@ export async function addToMealPlan(
     });
   } catch {}
 
-  return { success: true };
+  return { success: true, entryId: newEntry.id };
 }
 
 /** Remove a meal plan entry by ID. */
