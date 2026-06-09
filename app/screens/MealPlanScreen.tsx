@@ -45,7 +45,8 @@ import { getRecipeImageUrls, saveAIRecipe, uploadRecipeHeroImage, updateRecipeSt
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { analyzeMultipleImagesWithEdamam, isEdamamVisionAvailable } from '../../services/edamamVisionService';
-import { analyzeNutrition } from '../../services/nutritionService';
+import { getFitnessProfile, calculateMacroTargets, type MacroTargets } from '../../services/fitnessProfileService';
+import Svg, { Circle } from 'react-native-svg';
 import { PremiumScreen } from '../../components/PremiumScreen';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
@@ -109,17 +110,100 @@ async function persistMealPhotoUris(photos: { uri: string; base64: string }[], p
   return saved;
 }
 
-/**
- * Step 1: Claude Vision identifies the image type and extracts info.
- * - Nutrition label → returns exact macros directly
- * - Food photo → returns estimated ingredient list with quantities
- */
-async function identifyFoodImage(base64: string, recipeName: string): Promise<{
-  type: 'label' | 'food';
-  macros?: { calories: number; proteinG: number; carbsG: number; fatG: number };
-  ingredients?: string[];
+async function recalculateFromComponentsList(components: string[]): Promise<{
+  calories: number; caloriesMin: number; caloriesMax: number;
+  proteinG: number; carbsG: number; fatG: number;
+  confidence: 'high' | 'medium' | 'low';
 }> {
+  if (!ANTHROPIC_KEY) throw new Error('No API key');
+  const list = components.map((c, i) => `${i + 1}. ${c}`).join('\n');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 250,
+      messages: [{
+        role: 'user',
+        content: `You are a nutrition expert. Calculate total macros for these food items:\n${list}\n\nReturn ONLY this JSON:\n{"calories":0,"caloriesMin":0,"caloriesMax":0,"proteinG":0,"carbsG":0,"fatG":0,"confidence":"medium"}`,
+      }],
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  const data = await res.json();
+  const parsed = extractFirstJson(data.content?.[0]?.text || '');
+  const calories = Math.round(Number(parsed.calories) || 0);
+  return {
+    calories,
+    caloriesMin: Math.round(Number(parsed.caloriesMin) || Math.round(calories * 0.85)),
+    caloriesMax: Math.round(Number(parsed.caloriesMax) || Math.round(calories * 1.15)),
+    proteinG: Math.round(Number(parsed.proteinG) || 0),
+    carbsG: Math.round(Number(parsed.carbsG) || 0),
+    fatG: Math.round(Number(parsed.fatG) || 0),
+    confidence: parsed.confidence ?? 'medium',
+  };
+}
+
+function extractFirstJson(text: string): any {
+  const start = text.indexOf('{');
+  if (start === -1) throw new Error('No JSON in response');
+  let depth = 0, end = -1;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  if (end === -1) throw new Error('Incomplete JSON');
+  return JSON.parse(text.slice(start, end));
+}
+
+interface FoodPhotoAnalysis {
+  calories: number;
+  caloriesMin: number;
+  caloriesMax: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  confidence: 'high' | 'medium' | 'low';
+  components: string[];
+  isRestaurantPortion: boolean;
+}
+
+/**
+ * Cal AI-style: single Claude Vision call directly estimates macros, range, and confidence.
+ * Handles nutrition labels (exact read) and food photos (visual portion estimation).
+ * Accepts multiple photos — multi-angle of the same meal or main + sides.
+ */
+async function analyzeFoodPhotosDirect(
+  images: { base64: string }[],
+  mealName: string,
+  options?: {
+    portionType?: 'restaurant' | 'home' | null;
+    feedbackHint?: 'too_low' | 'too_high' | null;
+  },
+): Promise<FoodPhotoAnalysis> {
   if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
+
+  const imageBlocks = images.map((img) => ({
+    type: 'image',
+    source: { type: 'base64', media_type: detectMediaType(img.base64), data: img.base64 },
+  }));
+
+  const portionContext = options?.portionType === 'restaurant'
+    ? '\n\nCONTEXT: User confirmed RESTAURANT MEAL — apply restaurant sizing (1.5–2× home portions, generous oils/butter, larger portions).'
+    : options?.portionType === 'home'
+    ? '\n\nCONTEXT: User confirmed HOME COOKED — use standard home serving sizes, typical oil amounts.'
+    : '';
+
+  const feedbackContext = options?.feedbackHint === 'too_high'
+    ? '\n\nREVISION: User says the previous estimate was too HIGH. Recheck portion size carefully — it may be smaller than it looks, or you overestimated oil/sauce. Be more conservative.'
+    : options?.feedbackHint === 'too_low'
+    ? '\n\nREVISION: User says the previous estimate was too LOW. Look harder for hidden calories — denser portions, extra oil/sauce, or items initially missed. Revise meaningfully upward.'
+    : '';
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -131,26 +215,67 @@ async function identifyFoodImage(base64: string, recipeName: string): Promise<{
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 500,
-      system: `You are a food identification AI for a fitness cooking app.
+      max_tokens: 700,
+      system: `You are an expert nutritionist and visual portion estimator for a high-protein fitness app.
+Analyze food photos and estimate nutrition accurately using visual cues, like Cal AI.
 
-Analyze the image and determine if it is:
-1. A NUTRITION FACTS LABEL — read exact per-serving values
-2. A FOOD PHOTO — identify each visible food item with estimated quantity
+VISUAL REFERENCE SIZES:
+- Standard dinner plate = 26cm; food fills 60–80% of the plate
+- Side plate = 20cm, Lunch bowl ≈ 400ml, Large bowl ≈ 600ml
+- Palm-sized cooked protein = 85–115g (3–4 oz)
+- Fist-sized cooked carbs = 150g rice/pasta
+- Thumb-tip = 1 tsp oil (~40 cal), Thumb = 1 tbsp (~120 cal)
 
-For a NUTRITION LABEL, return:
-{"type": "label", "macros": {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}}
+PROTEIN REFERENCES:
+- Chicken breast fillet = 120–165g cooked = 35–50g protein
+- Chicken thigh (boneless) = 100–130g cooked = 22–28g protein + more fat
+- Ground beef patty (restaurant) = 150–200g = 30–40g protein
+- Salmon fillet = 150–180g = 30–38g protein
+- Large egg = 70 cal, 6g protein
 
-For a FOOD PHOTO, return an ingredient list with quantities that Edamam nutrition API can parse.
-Example: {"type": "food", "ingredients": ["200g grilled chicken breast", "1 cup steamed rice", "100g steamed broccoli", "1 tbsp olive oil"]}
+HIDDEN CALORIES (critical):
+- Deep fried: +80–120 cal/100g vs baked (oil absorption)
+- Pan-fried with visible oil sheen: +40–80 cal/100g
+- Creamy sauce/gravy (2–3 tbsp): +80–150 cal
+- Butter on top: +50–150 cal
+- Cheese slice: +70–120 cal
+- Visible dressing/mayo: +50–200 cal
 
-Be specific with quantities (grams, cups, tbsp) and cooking methods. Estimate portion sizes from the photo.
-Return ONLY the JSON, no other text.`,
+RESTAURANT vs HOME:
+- Restaurant portions: typically 1.5–2× home portions
+- Burger bun: ~200 cal alone; patty: 300–500 cal
+- Restaurant pasta/rice: 300–500g cooked vs home 150–200g
+
+MULTIPLE PHOTOS:
+- Same meal from different angles: analyze as one meal
+- Different dishes in different photos: sum the macros
+
+NUTRITION FACTS LABEL: if any image shows a printed label, read exact values, mark confidence "high", ignore food photos.
+
+Return ONLY this JSON, no other text:
+{
+  "type": "label" | "food",
+  "calories": <best single estimate as integer>,
+  "caloriesMin": <lower bound — lighter portion, less oil>,
+  "caloriesMax": <upper bound — larger portion, more sauce/oil>,
+  "proteinG": <integer>,
+  "carbsG": <integer>,
+  "fatG": <integer>,
+  "confidence": "high" | "medium" | "low",
+  "components": [
+    "Grilled chicken breast ~150g — ~250 cal, 35g protein",
+    "Steamed rice ~180g — ~230 cal",
+    "Sesame sauce ~2 tbsp — ~60 cal"
+  ],
+  "isRestaurantPortion": true | false
+}
+
+CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish; "low" = blurry/complex/obscured.${portionContext}${feedbackContext}`,
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: detectMediaType(base64), data: base64 } },
-          { type: 'text', text: `This meal is "${recipeName}". Identify the contents and return the JSON.` },
+          ...imageBlocks,
+          { type: 'text', text: `Analyze this meal: "${mealName || 'meal'}". Return the nutrition JSON.` },
         ],
       }],
     }),
@@ -158,104 +283,27 @@ Return ONLY the JSON, no other text.`,
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
-    console.error(`[SpiceStrong] Vision API error ${res.status}:`, errBody);
-    throw new Error(`API returned ${res.status}`);
+    console.error(`[SpiceStrong] Cal AI vision error ${res.status}:`, errBody);
+    throw new Error(`API ${res.status}`);
   }
 
   const data = await res.json();
   const text = data.content?.[0]?.text || '';
-  console.log('[SpiceStrong] Vision response:', text);
+  console.log('[SpiceStrong] Cal AI vision response:', text);
 
-  // Extract complete JSON object by matching balanced braces
-  const start = text.indexOf('{');
-  if (start === -1) throw new Error('Could not parse vision response');
-  let depth = 0;
-  let end = -1;
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === '{') depth++;
-    if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-  }
-  if (end === -1) throw new Error('Incomplete JSON in response');
-  return JSON.parse(text.slice(start, end));
-}
+  const parsed = extractFirstJson(text);
+  const calories = Math.round(Number(parsed.calories) || 0);
 
-/**
- * Step 2: Full analysis pipeline.
- * - Nutrition label → Claude reads exact values (done)
- * - Food photo → Claude identifies ingredients → Edamam returns accurate macros
- */
-async function analyzeFoodPhoto(base64: string, recipeName: string): Promise<{ calories: number; proteinG: number; carbsG: number; fatG: number }> {
-  const result = await identifyFoodImage(base64, recipeName);
-
-  if (result.type === 'label' && result.macros) {
-    console.log('[SpiceStrong] Nutrition label detected, using exact values');
-    return {
-      calories: Math.round(Number(result.macros.calories) || 0),
-      proteinG: Math.round(Number(result.macros.proteinG) || 0),
-      carbsG: Math.round(Number(result.macros.carbsG) || 0),
-      fatG: Math.round(Number(result.macros.fatG) || 0),
-    };
-  }
-
-  if (result.type === 'food' && result.ingredients?.length) {
-    console.log('[SpiceStrong] Food photo detected, ingredients:', result.ingredients);
-
-    // Feed identified ingredients to Edamam for accurate nutrition
-    const edamamIngredients = result.ingredients.map((s) => ({ name: s, quantity: '' }));
-    const edamamResult = await analyzeNutrition(edamamIngredients, 1);
-
-    if (edamamResult) {
-      console.log('[SpiceStrong] Edamam nutrition result:', edamamResult);
-      return {
-        calories: Math.round(edamamResult.calories),
-        proteinG: Math.round(edamamResult.proteinG),
-        carbsG: Math.round(edamamResult.carbsG),
-        fatG: Math.round(edamamResult.fatG),
-      };
-    }
-    console.warn('[SpiceStrong] Edamam failed, falling back to Claude estimation');
-  }
-
-  // Fallback: ask Claude to estimate directly
-  console.log('[SpiceStrong] Using Claude estimation fallback');
-  if (!ANTHROPIC_KEY) throw new Error('No API key');
-  const fallback = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 200,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: detectMediaType(base64), data: base64 } },
-          { type: 'text', text: `Estimate macros for this "${recipeName}" portion. Return ONLY: {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}` },
-        ],
-      }],
-    }),
-  });
-  if (!fallback.ok) throw new Error(`Fallback API returned ${fallback.status}`);
-  const fbData = await fallback.json();
-  const fbText = fbData.content?.[0]?.text || '';
-  const fbStart = fbText.indexOf('{');
-  if (fbStart === -1) throw new Error('Could not parse nutrition');
-  let fbDepth = 0, fbEnd = -1;
-  for (let i = fbStart; i < fbText.length; i++) {
-    if (fbText[i] === '{') fbDepth++;
-    if (fbText[i] === '}') { fbDepth--; if (fbDepth === 0) { fbEnd = i + 1; break; } }
-  }
-  if (fbEnd === -1) throw new Error('Incomplete nutrition JSON');
-  const parsed = JSON.parse(fbText.slice(fbStart, fbEnd));
   return {
-    calories: Math.round(Number(parsed.calories) || 0),
+    calories,
+    caloriesMin: Math.round(Number(parsed.caloriesMin) || Math.round(calories * 0.8)),
+    caloriesMax: Math.round(Number(parsed.caloriesMax) || Math.round(calories * 1.2)),
     proteinG: Math.round(Number(parsed.proteinG) || 0),
     carbsG: Math.round(Number(parsed.carbsG) || 0),
     fatG: Math.round(Number(parsed.fatG) || 0),
+    confidence: parsed.confidence ?? 'medium',
+    components: Array.isArray(parsed.components) ? parsed.components : [],
+    isRestaurantPortion: !!parsed.isRestaurantPortion,
   };
 }
 
@@ -279,6 +327,71 @@ function getDaysInMonth(year: number, month: number): number {
 }
 function getFirstDayOfWeek(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
+}
+
+const RING_SIZE = Math.floor((Dimensions.get('window').width - 48) / 3);
+const RING_STROKE = 11;
+const RING_R = RING_SIZE / 2 - RING_STROKE / 2 - 2;
+const RING_CIRC = 2 * Math.PI * RING_R;
+
+function MacroRing({
+  label, color, target, consumed,
+}: {
+  label: string; color: string; target: number; consumed: number;
+}) {
+  const ratio = target > 0 ? Math.min(consumed / target, 1) : 0;
+  const dashOffset = RING_CIRC * (1 - ratio);
+  const diff = consumed - target;
+  const cx = RING_SIZE / 2;
+  const cy = RING_SIZE / 2;
+
+  return (
+    <View style={{ alignItems: 'center', width: RING_SIZE }}>
+      <Text style={{ color, fontSize: 10, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6, textTransform: 'uppercase' }}>
+        {label} (g)
+      </Text>
+      <View style={{ width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' }}>
+        <Svg width={RING_SIZE} height={RING_SIZE} style={{ position: 'absolute' }}>
+          <Circle
+            cx={cx} cy={cy} r={RING_R}
+            fill="none"
+            stroke="rgba(255,255,255,0.10)"
+            strokeWidth={RING_STROKE}
+          />
+          <Circle
+            cx={cx} cy={cy} r={RING_R}
+            fill="none"
+            stroke={color}
+            strokeWidth={RING_STROKE}
+            strokeDasharray={RING_CIRC}
+            strokeDashoffset={dashOffset}
+            strokeLinecap="round"
+            rotation="-90"
+            origin={`${cx},${cy}`}
+          />
+        </Svg>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={{ fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.9 }}>TARGET</Text>
+          <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', lineHeight: 22 }}>{target}g</Text>
+          <View style={{ width: 28, height: 1, backgroundColor: 'rgba(255,255,255,0.18)', marginVertical: 3 }} />
+          <Text style={{ fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.9 }}>CONSUMED</Text>
+          <Text style={{ fontSize: 18, fontWeight: '800', color, lineHeight: 22 }}>{consumed}g</Text>
+        </View>
+      </View>
+      <View style={{
+        backgroundColor: color,
+        borderRadius: 12,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        marginTop: 8,
+        opacity: 0.92,
+      }}>
+        <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.4 }}>
+          DIFF {diff >= 0 ? '+' : ''}{diff}g
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 interface EnrichedEntry extends MealPlanEntry {
@@ -329,6 +442,7 @@ export default function MealPlanScreen() {
   const [currentDate, setCurrentDate] = useState(today);
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -337,6 +451,16 @@ export default function MealPlanScreen() {
   const [correcting, setCorrecting] = useState(false);
   const [correctedMacros, setCorrectedMacros] = useState<{ calories: number; proteinG: number; carbsG: number; fatG: number } | null>(null);
   const [correctionPhotos, setCorrectionPhotos] = useState<{ uri: string; base64: string }[]>([]);
+  const [correctionComponents, setCorrectionComponents] = useState<string[]>([]);
+  const [correctionCalRange, setCorrectionCalRange] = useState<{ min: number; max: number } | null>(null);
+  const [correctionConfidence, setCorrectionConfidence] = useState<'high' | 'medium' | 'low' | null>(null);
+  const [correctionPortionType, setCorrectionPortionType] = useState<'restaurant' | 'home' | null>(null);
+  const [correctionFeedback, setCorrectionFeedback] = useState<'too_low' | 'ok' | 'too_high' | null>(null);
+  const [correctionReanalyzing, setCorrectionReanalyzing] = useState(false);
+  const [correctionComponentEditMode, setCorrectionComponentEditMode] = useState(false);
+  const [correctionEditableComponents, setCorrectionEditableComponents] = useState<string[]>([]);
+  const [correctionNewIngredient, setCorrectionNewIngredient] = useState('');
+  const [correctionRecalculating, setCorrectionRecalculating] = useState(false);
   const [manualMode, setManualMode] = useState(false);
   const [manualCal, setManualCal] = useState('');
   const [manualProtein, setManualProtein] = useState('');
@@ -357,6 +481,16 @@ export default function MealPlanScreen() {
     setCorrectionPhotos(savedPhotoUris.slice(0, MAX_MEAL_PHOTOS).map((uri) => ({ uri, base64: '' })));
     setCorrecting(false);
     setManualMode(false);
+    setCorrectionComponents([]);
+    setCorrectionCalRange(null);
+    setCorrectionConfidence(null);
+    setCorrectionPortionType(null);
+    setCorrectionFeedback(null);
+    setCorrectionReanalyzing(false);
+    setCorrectionComponentEditMode(false);
+    setCorrectionEditableComponents([]);
+    setCorrectionNewIngredient('');
+    setCorrectionRecalculating(false);
     setManualCal(''); setManualProtein(''); setManualCarbs(''); setManualFat('');
   };
 
@@ -366,6 +500,16 @@ export default function MealPlanScreen() {
     setCorrectionPhotos([]);
     setCorrecting(false);
     setManualMode(false);
+    setCorrectionComponents([]);
+    setCorrectionCalRange(null);
+    setCorrectionConfidence(null);
+    setCorrectionPortionType(null);
+    setCorrectionFeedback(null);
+    setCorrectionReanalyzing(false);
+    setCorrectionComponentEditMode(false);
+    setCorrectionEditableComponents([]);
+    setCorrectionNewIngredient('');
+    setCorrectionRecalculating(false);
   };
 
   const addMealPhoto = async (useCamera: boolean) => {
@@ -419,161 +563,55 @@ export default function MealPlanScreen() {
     try {
       const validPhotos = await hydrateMealPhotos(correctionPhotos);
       if (validPhotos.length === 0) throw new Error('No valid photos to analyze');
-      console.log(`[SpiceStrong] Hybrid analysis: ${validPhotos.length} photos`);
+      console.log(`[SpiceStrong] Cal AI analysis: ${validPhotos.length} photos`);
 
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key configured');
+      const analysis = await analyzeFoodPhotosDirect(validPhotos, correctEntry?.recipeName || 'meal', { portionType: correctionPortionType });
+      console.log(`[SpiceStrong] Result: ${analysis.calories} cal (${analysis.caloriesMin}–${analysis.caloriesMax}), ${analysis.proteinG}g P, confidence: ${analysis.confidence}`);
 
-      // ── Step 1: Claude Vision identifies food items with quantities ──
-      console.log('[SpiceStrong] Step 1: Claude identifying food items...');
-      const imageBlocks: any[] = validPhotos.map((p) => {
-        let mediaType = 'image/jpeg';
-        if (p.base64.startsWith('iVBOR')) mediaType = 'image/png';
-        else if (p.base64.startsWith('UklGR')) mediaType = 'image/webp';
-        return { type: 'image', source: { type: 'base64', media_type: mediaType, data: p.base64 } };
+      setCorrectedMacros({
+        calories: analysis.calories,
+        proteinG: analysis.proteinG,
+        carbsG: analysis.carbsG,
+        fatG: analysis.fatG,
       });
-
-      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 500,
-          system: `You are a food and nutrition label analysis expert for a nutrition tracking app.
-
-For each photo, determine if it is:
-A) A NUTRITION FACTS LABEL — read exact per-serving values directly
-B) A FOOD PHOTO — identify food items with quantities
-
-Return ONLY this JSON:
-{
-  "labels": [{"calories": 200, "proteinG": 15, "carbsG": 10, "fatG": 8}],
-  "ingredients": ["1 large fried egg", "150g paneer", "0.5 avocado"]
-}
-
-RULES:
-- "labels" array: one entry per nutrition label photo with exact values read from the label. Empty array if no labels.
-- "ingredients" array: one entry per food item from food photos. Empty array if only labels.
-- For food items: start with quantity + unit (150g, 1 large, 0.5 cup), use simple food names
-- Separate cooking fat: if food is fried, add oil separately (e.g. "1 tbsp olive oil")
-- Be precise with portion sizes — estimate from plate size and depth
-- If a label shows "per serving" and "per container", use the PER SERVING values`,
-          messages: [{ role: 'user', content: [...imageBlocks, { type: 'text', text: `Identify all food items in these ${validPhotos.length} photo(s) of a meal.` }] }],
-        }),
-      });
-
-      if (!claudeRes.ok) throw new Error(`Claude API ${claudeRes.status}`);
-      const claudeData = await claudeRes.json();
-      const claudeText = claudeData.content?.[0]?.text || '';
-
-      // Parse ingredients list
-      const jsonStart = claudeText.indexOf('{');
-      let depth = 0, jsonEnd = -1;
-      for (let i = jsonStart; i < claudeText.length; i++) {
-        if (claudeText[i] === '{') depth++;
-        if (claudeText[i] === '}') { depth--; if (depth === 0) { jsonEnd = i + 1; break; } }
-      }
-
-      let labels: { calories: number; proteinG: number; carbsG: number; fatG: number }[] = [];
-      let ingredients: string[] = [];
-      if (jsonEnd > jsonStart) {
-        const parsed = JSON.parse(claudeText.slice(jsonStart, jsonEnd));
-        labels = (parsed.labels || []).filter((l: any) => l && l.calories > 0);
-        ingredients = parsed.ingredients || [];
-      }
-
-      if (labels.length === 0 && ingredients.length === 0) throw new Error('Could not identify food items or labels');
-
-      // ── Sum nutrition from labels (exact values) ──
-      let labelMacros = { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
-      if (labels.length > 0) {
-        for (const l of labels) {
-          labelMacros.calories += Math.round(Number(l.calories) || 0);
-          labelMacros.proteinG += Math.round(Number(l.proteinG) || 0);
-          labelMacros.carbsG += Math.round(Number(l.carbsG) || 0);
-          labelMacros.fatG += Math.round(Number(l.fatG) || 0);
-        }
-        console.log(`[SpiceStrong] Labels found: ${labels.length} — ${labelMacros.calories} cal, ${labelMacros.proteinG}g P`);
-      }
-
-      if (ingredients.length > 0) {
-        console.log(`[SpiceStrong] Food items identified: ${ingredients.join(', ')}`);
-      }
-
-      // ── Step 2: Get nutrition for food items via Edamam ──
-      let foodMacros = { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
-
-      if (ingredients.length > 0) {
-        const edamamNutrition = await analyzeNutrition(
-          ingredients.map((s) => ({ name: s, quantity: '' })),
-          1,
-        );
-
-        if (edamamNutrition && edamamNutrition.calories > 0) {
-          console.log(`[SpiceStrong] Edamam nutrition: ${edamamNutrition.calories} cal, ${edamamNutrition.proteinG}g P`);
-          foodMacros = {
-            calories: Math.round(edamamNutrition.calories),
-            proteinG: Math.round(edamamNutrition.proteinG),
-            carbsG: Math.round(edamamNutrition.carbsG),
-            fatG: Math.round(edamamNutrition.fatG),
-          };
-        } else {
-          // Edamam failed — Claude estimates from ingredient list
-          console.warn('[SpiceStrong] Edamam failed, using Claude text estimation');
-          const fallbackRes = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
-            },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 200,
-              messages: [{ role: 'user', content: `Estimate total nutrition for: ${ingredients.join(', ')}. Return ONLY: {"calories": number, "proteinG": number, "carbsG": number, "fatG": number}` }],
-            }),
-          });
-          if (!fallbackRes.ok) throw new Error('Fallback estimation failed');
-          const fbData = await fallbackRes.json();
-          const fbText = fbData.content?.[0]?.text || '';
-          const fbStart = fbText.indexOf('{');
-          let fbDepth = 0, fbEnd = -1;
-          for (let i = fbStart; i < fbText.length; i++) {
-            if (fbText[i] === '{') fbDepth++;
-            if (fbText[i] === '}') { fbDepth--; if (fbDepth === 0) { fbEnd = i + 1; break; } }
-          }
-          if (fbEnd === -1) throw new Error('Could not parse fallback');
-          const fbParsed = JSON.parse(fbText.slice(fbStart, fbEnd));
-          foodMacros = {
-            calories: Math.round(Number(fbParsed.calories) || 0),
-            proteinG: Math.round(Number(fbParsed.proteinG) || 0),
-            carbsG: Math.round(Number(fbParsed.carbsG) || 0),
-            fatG: Math.round(Number(fbParsed.fatG) || 0),
-          };
-        }
-      }
-
-      // ── Combine label macros + food macros ──
-      const macros = {
-        calories: labelMacros.calories + foodMacros.calories,
-        proteinG: labelMacros.proteinG + foodMacros.proteinG,
-        carbsG: labelMacros.carbsG + foodMacros.carbsG,
-        fatG: labelMacros.fatG + foodMacros.fatG,
-      };
-      console.log(`[SpiceStrong] Final total: ${macros.calories} cal, ${macros.proteinG}g P, ${macros.carbsG}g C, ${macros.fatG}g F`);
-
-      setCorrectedMacros(macros);
+      setCorrectionComponents(analysis.components);
+      setCorrectionCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
+      setCorrectionConfidence(analysis.confidence);
+      setCorrectionFeedback(null);
     } catch (err: any) {
-      console.error('[SpiceStrong] Hybrid analysis failed:', err);
+      console.error('[SpiceStrong] Cal AI analysis failed:', err);
       Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again or enter manually.`);
     } finally {
       setCorrecting(false);
+    }
+  };
+
+  const handleCorrectionFeedback = async (feedback: 'too_low' | 'ok' | 'too_high') => {
+    setCorrectionFeedback(feedback);
+    if (feedback === 'ok') return;
+
+    setCorrectionReanalyzing(true);
+    try {
+      const validPhotos = await hydrateMealPhotos(correctionPhotos);
+      if (validPhotos.length === 0) return;
+      const analysis = await analyzeFoodPhotosDirect(validPhotos, correctEntry?.recipeName || 'meal', {
+        portionType: correctionPortionType,
+        feedbackHint: feedback,
+      });
+      setCorrectedMacros({
+        calories: analysis.calories,
+        proteinG: analysis.proteinG,
+        carbsG: analysis.carbsG,
+        fatG: analysis.fatG,
+      });
+      setCorrectionComponents(analysis.components);
+      setCorrectionCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
+      setCorrectionConfidence(analysis.confidence);
+      setCorrectionFeedback(null);
+    } catch (err: any) {
+      console.warn('[SpiceStrong] Correction feedback re-analysis failed:', err);
+    } finally {
+      setCorrectionReanalyzing(false);
     }
   };
 
@@ -652,6 +690,16 @@ RULES:
   const [quickAddManualMode, setQuickAddManualMode] = useState(false);
   const [quickAddEstimated, setQuickAddEstimated] = useState(false);
   const [quickAddMacros, setQuickAddMacros] = useState<{ calories: string; proteinG: string; carbsG: string; fatG: string }>({ calories: '', proteinG: '', carbsG: '', fatG: '' });
+  const [quickAddCalRange, setQuickAddCalRange] = useState<{ min: number; max: number } | null>(null);
+  const [quickAddComponents, setQuickAddComponents] = useState<string[]>([]);
+  const [quickAddConfidence, setQuickAddConfidence] = useState<'high' | 'medium' | 'low' | null>(null);
+  const [quickAddPortionType, setQuickAddPortionType] = useState<'restaurant' | 'home' | null>(null);
+  const [quickAddFeedback, setQuickAddFeedback] = useState<'too_low' | 'ok' | 'too_high' | null>(null);
+  const [quickAddReanalyzing, setQuickAddReanalyzing] = useState(false);
+  const [quickAddComponentEditMode, setQuickAddComponentEditMode] = useState(false);
+  const [quickAddEditableComponents, setQuickAddEditableComponents] = useState<string[]>([]);
+  const [quickAddNewIngredient, setQuickAddNewIngredient] = useState('');
+  const [quickAddRecalculating, setQuickAddRecalculating] = useState(false);
   const [browseHelpVisible, setBrowseHelpVisible] = useState(false);
 
   const openQuickAdd = (slot: MealSlot) => {
@@ -664,6 +712,16 @@ RULES:
     setQuickAddManualMode(false);
     setQuickAddEstimated(false);
     setQuickAddMacros({ calories: '', proteinG: '', carbsG: '', fatG: '' });
+    setQuickAddCalRange(null);
+    setQuickAddComponents([]);
+    setQuickAddConfidence(null);
+    setQuickAddPortionType(null);
+    setQuickAddFeedback(null);
+    setQuickAddReanalyzing(false);
+    setQuickAddComponentEditMode(false);
+    setQuickAddEditableComponents([]);
+    setQuickAddNewIngredient('');
+    setQuickAddRecalculating(false);
     setQuickAddOpen(true);
   };
 
@@ -713,17 +771,21 @@ RULES:
     setQuickAddBase64(b64);
     setQuickAddPhotos((prev) => [...prev, { uri: `${asset.uri}?t=${Date.now()}`, base64: b64 }]);
 
-    // Auto-scan if we have base64
+    // Auto-scan immediately after first photo
     if (b64 && b64.length > 100) {
       setQuickAddScanning(true);
       try {
-        const macros = await analyzeFoodPhoto(b64, quickAddName || 'meal');
+        const analysis = await analyzeFoodPhotosDirect([{ base64: b64 }], quickAddName || 'meal', { portionType: quickAddPortionType });
         setQuickAddMacros({
-          calories: String(macros.calories),
-          proteinG: String(macros.proteinG),
-          carbsG: String(macros.carbsG),
-          fatG: String(macros.fatG),
+          calories: String(analysis.calories),
+          proteinG: String(analysis.proteinG),
+          carbsG: String(analysis.carbsG),
+          fatG: String(analysis.fatG),
         });
+        setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
+        setQuickAddComponents(analysis.components);
+        setQuickAddConfidence(analysis.confidence);
+        setQuickAddFeedback(null);
         setQuickAddEstimated(true);
       } catch (err: any) {
         console.warn('[SpiceStrong] Quick add scan failed:', err);
@@ -736,6 +798,10 @@ RULES:
 
   const removeQuickAddPhoto = (idx: number) => {
     setQuickAddEstimated(false);
+    setQuickAddCalRange(null);
+    setQuickAddComponents([]);
+    setQuickAddConfidence(null);
+    setQuickAddFeedback(null);
     setQuickAddPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
@@ -745,26 +811,120 @@ RULES:
     try {
       const validPhotos = await hydrateMealPhotos(quickAddPhotos);
       if (validPhotos.length === 0) throw new Error('No valid photos to analyze');
-      const totals = { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
-      for (const photo of validPhotos) {
-        const macros = await analyzeFoodPhoto(photo.base64, quickAddName || 'meal');
-        totals.calories += macros.calories;
-        totals.proteinG += macros.proteinG;
-        totals.carbsG += macros.carbsG;
-        totals.fatG += macros.fatG;
-      }
+      // Send all photos in one Claude call — it handles multi-angle and multi-dish
+      const analysis = await analyzeFoodPhotosDirect(validPhotos, quickAddName || 'meal', { portionType: quickAddPortionType });
       setQuickAddMacros({
-        calories: String(totals.calories),
-        proteinG: String(totals.proteinG),
-        carbsG: String(totals.carbsG),
-        fatG: String(totals.fatG),
+        calories: String(analysis.calories),
+        proteinG: String(analysis.proteinG),
+        carbsG: String(analysis.carbsG),
+        fatG: String(analysis.fatG),
       });
+      setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
+      setQuickAddComponents(analysis.components);
+      setQuickAddConfidence(analysis.confidence);
+      setQuickAddFeedback(null);
       setQuickAddEstimated(true);
     } catch (err: any) {
       console.warn('[SpiceStrong] Quick add scan failed:', err);
       Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again or enter manually.`);
     } finally {
       setQuickAddScanning(false);
+    }
+  };
+
+  const handleQuickAddFeedback = async (feedback: 'too_low' | 'ok' | 'too_high') => {
+    setQuickAddFeedback(feedback);
+    if (feedback === 'ok') return;
+
+    // Re-analyze with the user's correction hint
+    setQuickAddReanalyzing(true);
+    try {
+      const validPhotos = await hydrateMealPhotos(quickAddPhotos);
+      if (validPhotos.length === 0) return;
+      const analysis = await analyzeFoodPhotosDirect(validPhotos, quickAddName || 'meal', {
+        portionType: quickAddPortionType,
+        feedbackHint: feedback,
+      });
+      setQuickAddMacros({
+        calories: String(analysis.calories),
+        proteinG: String(analysis.proteinG),
+        carbsG: String(analysis.carbsG),
+        fatG: String(analysis.fatG),
+      });
+      setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
+      setQuickAddComponents(analysis.components);
+      setQuickAddConfidence(analysis.confidence);
+      setQuickAddFeedback(null); // reset so user can give feedback again on revised estimate
+    } catch (err: any) {
+      console.warn('[SpiceStrong] Feedback re-analysis failed:', err);
+    } finally {
+      setQuickAddReanalyzing(false);
+    }
+  };
+
+  const enterQuickAddEditMode = () => {
+    setQuickAddEditableComponents([...quickAddComponents]);
+    setQuickAddNewIngredient('');
+    setQuickAddComponentEditMode(true);
+  };
+
+  const recalculateQuickAddMacros = async () => {
+    const newItem = quickAddNewIngredient.trim();
+    const components = newItem ? [...quickAddEditableComponents, newItem] : [...quickAddEditableComponents];
+    if (components.length === 0) return;
+    setQuickAddRecalculating(true);
+    try {
+      const result = await recalculateFromComponentsList(components);
+      setQuickAddMacros({
+        calories: String(result.calories),
+        proteinG: String(result.proteinG),
+        carbsG: String(result.carbsG),
+        fatG: String(result.fatG),
+      });
+      setQuickAddCalRange({ min: result.caloriesMin, max: result.caloriesMax });
+      setQuickAddConfidence(result.confidence);
+      setQuickAddComponents(components);
+      setQuickAddFeedback(null);
+      setQuickAddNewIngredient('');
+      setQuickAddComponentEditMode(false);
+    } catch (err: any) {
+      console.warn('[SpiceStrong] Recalculate failed:', err);
+      Alert.alert('Failed', 'Could not recalculate. Try again.');
+    } finally {
+      setQuickAddRecalculating(false);
+    }
+  };
+
+  const enterCorrectionEditMode = () => {
+    setCorrectionEditableComponents([...correctionComponents]);
+    setCorrectionNewIngredient('');
+    setCorrectionComponentEditMode(true);
+  };
+
+  const recalculateCorrectionMacros = async () => {
+    const newItem = correctionNewIngredient.trim();
+    const components = newItem ? [...correctionEditableComponents, newItem] : [...correctionEditableComponents];
+    if (components.length === 0) return;
+    setCorrectionRecalculating(true);
+    try {
+      const result = await recalculateFromComponentsList(components);
+      setCorrectedMacros({
+        calories: result.calories,
+        proteinG: result.proteinG,
+        carbsG: result.carbsG,
+        fatG: result.fatG,
+      });
+      setCorrectionCalRange({ min: result.caloriesMin, max: result.caloriesMax });
+      setCorrectionConfidence(result.confidence);
+      setCorrectionComponents(components);
+      setCorrectionFeedback(null);
+      setCorrectionNewIngredient('');
+      setCorrectionComponentEditMode(false);
+    } catch (err: any) {
+      console.warn('[SpiceStrong] Correction recalculate failed:', err);
+      Alert.alert('Failed', 'Could not recalculate. Try again.');
+    } finally {
+      setCorrectionRecalculating(false);
     }
   };
 
@@ -916,6 +1076,9 @@ RULES:
 
   useFocusEffect(useCallback(() => {
     loadEntries(currentDate);
+    getFitnessProfile().then((profile) => {
+      if (profile) setMacroTargets(calculateMacroTargets(profile));
+    }).catch(() => {});
   }, [currentDate, loadEntries]));
 
   const goToPrev = () => {
@@ -1111,7 +1274,7 @@ RULES:
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Meal Calendar</Text>
+        <Text style={styles.headerTitle}>Daily Tracker</Text>
         <View style={{ width: 30 }} />
       </View>
 
@@ -1232,31 +1395,55 @@ RULES:
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Daily macro summary — per serving, always visible */}
-          <View style={styles.macroBar}>
-            <Text style={styles.macroBarTitle}>Your Daily Total</Text>
-              <View style={styles.macroRow}>
-                <View style={styles.macroItem}>
-                  <Text style={styles.macroValue}>{totals.calories}</Text>
-                  <Text style={styles.macroLabel}>kcal</Text>
-                </View>
-                <View style={styles.macroDivider} />
-                <View style={styles.macroItem}>
-                  <Text style={[styles.macroValue, styles.macroProtein]}>{totals.proteinG}g</Text>
-                  <Text style={styles.macroLabel}>Protein</Text>
-                </View>
-                <View style={styles.macroDivider} />
-                <View style={styles.macroItem}>
-                  <Text style={styles.macroValue}>{totals.carbsG}g</Text>
-                  <Text style={styles.macroLabel}>Carbs</Text>
-                </View>
-                <View style={styles.macroDivider} />
-                <View style={styles.macroItem}>
-                  <Text style={styles.macroValue}>{totals.fatG}g</Text>
-                  <Text style={styles.macroLabel}>Fat</Text>
+          {/* Macro progress rings */}
+          <View style={styles.ringsRow}>
+            <MacroRing
+              label="Protein"
+              color="#E8671A"
+              target={macroTargets?.proteinG ?? 120}
+              consumed={totals.proteinG}
+            />
+            <MacroRing
+              label="Carbs"
+              color="#3B82F6"
+              target={macroTargets?.carbsG ?? 150}
+              consumed={totals.carbsG}
+            />
+            <MacroRing
+              label="Fat"
+              color="#22C55E"
+              target={macroTargets?.fatG ?? 80}
+              consumed={totals.fatG}
+            />
+          </View>
+
+          {/* Calorie equation — Target − Consumed = Diff */}
+          {(() => {
+            const calTarget = macroTargets?.calories ?? 2000;
+            const diff = calTarget - totals.calories;
+            const isOver = diff < 0;
+            const diffColor = isOver ? '#EF4444' : '#22C55E';
+            return (
+              <View style={styles.calEqCard}>
+                <View style={styles.calEqRow}>
+                  <View style={styles.calEqItem}>
+                    <Text style={styles.calEqNum}>{calTarget}</Text>
+                    <Text style={styles.calEqLabel}>Target</Text>
+                  </View>
+                  <Text style={styles.calEqOp}>−</Text>
+                  <View style={styles.calEqItem}>
+                    <Text style={styles.calEqNum}>{totals.calories}</Text>
+                    <Text style={styles.calEqLabel}>Consumed</Text>
+                  </View>
+                  <Text style={styles.calEqOp}>=</Text>
+                  <View style={styles.calEqItem}>
+                    <Text style={[styles.calEqNum, { color: diffColor }]}>{Math.abs(diff)}</Text>
+                    <Text style={[styles.calEqLabel, { color: diffColor }]}>{isOver ? 'Over' : 'Diff'}</Text>
+                  </View>
                 </View>
               </View>
-          </View>
+            );
+          })()}
 
           {SLOT_ORDER.map((slot) => {
             const slotEntries = grouped[slot];
@@ -1428,7 +1615,7 @@ RULES:
 
             {!quickAddManualMode && !quickAddEstimated && !quickAddScanning && (
               <>
-            <Text style={styles.cmPhotoHintText}>Snap each item in your meal</Text>
+            <Text style={styles.qaScaleTip}>Tip: hold a fork or your hand next to the food — it helps estimate portion size</Text>
             <View style={styles.cmFrameGrid}>
               {[0, 1, 2, 3].map((idx) => {
                 const photo = quickAddPhotos[idx];
@@ -1459,6 +1646,28 @@ RULES:
                 );
               })}
             </View>
+
+            {/* Restaurant vs home toggle */}
+            <View style={styles.qaPortionRow}>
+              <Text style={styles.qaPortionHint}>Portion type</Text>
+              <View style={styles.qaPortionBtns}>
+                <TouchableOpacity
+                  style={[styles.qaPortionBtn, quickAddPortionType === 'home' && styles.qaPortionBtnActive]}
+                  onPress={() => setQuickAddPortionType(quickAddPortionType === 'home' ? null : 'home')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.qaPortionBtnText, quickAddPortionType === 'home' && styles.qaPortionBtnTextActive]}>🏠 Home</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.qaPortionBtn, quickAddPortionType === 'restaurant' && styles.qaPortionBtnActive]}
+                  onPress={() => setQuickAddPortionType(quickAddPortionType === 'restaurant' ? null : 'restaurant')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.qaPortionBtnText, quickAddPortionType === 'restaurant' && styles.qaPortionBtnTextActive]}>🍴 Restaurant</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             {quickAddPhotos.length > 0 && (
               <TouchableOpacity style={styles.cmAnalyzeBtn} onPress={analyzeQuickAddPhotos} activeOpacity={0.8}>
                 <Text style={styles.cmAnalyzeBtnText}>{quickAddScanning ? 'Analyzing...' : `Analyze Meal (${quickAddPhotos.length} photo${quickAddPhotos.length > 1 ? 's' : ''})`}</Text>
@@ -1500,6 +1709,120 @@ RULES:
               </View>
             )}
 
+            {/* Cal AI breakdown card */}
+            {quickAddEstimated && quickAddComponents.length > 0 && (
+              <View style={styles.qaBreakdownCard}>
+                <View style={styles.qaBreakdownHeader}>
+                  <Text style={styles.qaBreakdownTitle}>What we found</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={[styles.qaConfBadge, {
+                      backgroundColor:
+                        quickAddConfidence === 'high' ? 'rgba(34,197,94,0.18)' :
+                        quickAddConfidence === 'low'  ? 'rgba(239,68,68,0.18)' :
+                                                        'rgba(245,158,11,0.18)',
+                    }]}>
+                      <Text style={[styles.qaConfText, {
+                        color:
+                          quickAddConfidence === 'high' ? '#22C55E' :
+                          quickAddConfidence === 'low'  ? '#EF4444' : '#F59E0B',
+                      }]}>
+                        {quickAddConfidence === 'high' ? 'High' : quickAddConfidence === 'low' ? 'Low' : 'Medium'} confidence
+                      </Text>
+                    </View>
+                    {!quickAddComponentEditMode && (
+                      <TouchableOpacity onPress={enterQuickAddEditMode} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Text style={styles.qaEditBtn}>Edit</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {!quickAddComponentEditMode ? (
+                  <>
+                    {quickAddComponents.map((c, i) => (
+                      <Text key={i} style={styles.qaBreakdownItem}>· {c}</Text>
+                    ))}
+                    {quickAddCalRange && (
+                      <Text style={styles.qaCalRange}>Est. range: {quickAddCalRange.min}–{quickAddCalRange.max} kcal</Text>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {quickAddEditableComponents.map((c, i) => (
+                      <View key={i} style={styles.qaEditRow}>
+                        <TextInput
+                          style={styles.qaEditInput}
+                          value={c}
+                          onChangeText={(v) => {
+                            const updated = [...quickAddEditableComponents];
+                            updated[i] = v;
+                            setQuickAddEditableComponents(updated);
+                          }}
+                          multiline
+                          returnKeyType="done"
+                          blurOnSubmit
+                        />
+                        <TouchableOpacity onPress={() => setQuickAddEditableComponents((prev) => prev.filter((_, j) => j !== i))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Text style={styles.qaEditRemove}>×</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    <View style={styles.qaEditRow}>
+                      <TextInput
+                        style={[styles.qaEditInput, { opacity: 0.65 }]}
+                        value={quickAddNewIngredient}
+                        onChangeText={setQuickAddNewIngredient}
+                        placeholder="Add item (e.g. 1 tbsp olive oil)"
+                        placeholderTextColor="rgba(255,255,255,0.25)"
+                        returnKeyType="done"
+                        blurOnSubmit
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.cmAnalyzeBtn, { marginTop: 10, marginBottom: 0 }]}
+                      onPress={recalculateQuickAddMacros}
+                      disabled={quickAddRecalculating}
+                      activeOpacity={0.8}
+                    >
+                      {quickAddRecalculating
+                        ? <ActivityIndicator color="#FFF" size="small" />
+                        : <Text style={styles.cmAnalyzeBtnText}>Recalculate Macros</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setQuickAddComponentEditMode(false)} style={{ marginTop: 10, alignItems: 'center' }}>
+                      <Text style={styles.qaEditCancel}>Cancel</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            )}
+
+            {/* Feedback row */}
+            {quickAddEstimated && !quickAddReanalyzing && quickAddFeedback !== 'ok' && (
+              <View style={styles.qaFeedbackSection}>
+                <Text style={styles.qaFeedbackLabel}>Does this look right?</Text>
+                <View style={styles.qaFeedbackBtns}>
+                  <TouchableOpacity style={styles.qaFeedbackBtn} onPress={() => handleQuickAddFeedback('too_low')} activeOpacity={0.75}>
+                    <Text style={styles.qaFeedbackBtnText}>↑ Too low</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.qaFeedbackBtn, styles.qaFeedbackOkBtn]} onPress={() => handleQuickAddFeedback('ok')} activeOpacity={0.75}>
+                    <Text style={[styles.qaFeedbackBtnText, { color: '#22C55E' }]}>✓ Looks right</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.qaFeedbackBtn} onPress={() => handleQuickAddFeedback('too_high')} activeOpacity={0.75}>
+                    <Text style={styles.qaFeedbackBtnText}>↓ Too high</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            {quickAddReanalyzing && (
+              <View style={styles.cmAnalyzing}>
+                <ActivityIndicator color={ORANGE} size="small" />
+                <Text style={styles.cmAnalyzingText}>Revising estimate...</Text>
+              </View>
+            )}
+            {quickAddFeedback === 'ok' && (
+              <Text style={styles.qaFeedbackOkText}>✓ Estimate confirmed</Text>
+            )}
+
             {/* Macro inputs */}
             <Text style={[styles.cmSectionLabel, { marginTop: 16 }]}>MACROS</Text>
             <View style={styles.cmManualGrid}>
@@ -1514,6 +1837,9 @@ RULES:
                   placeholder="0"
                   placeholderTextColor="rgba(255,255,255,0.20)"
                 />
+                {quickAddCalRange && quickAddEstimated && (
+                  <Text style={styles.qaCalRangeInline}>{quickAddCalRange.min}–{quickAddCalRange.max}</Text>
+                )}
               </View>
               <View style={styles.cmManualField}>
                 <Text style={[styles.cmManualLabel, { color: ORANGE }]}>Protein (g)</Text>
@@ -1555,7 +1881,7 @@ RULES:
 
             {/* Save button */}
             <TouchableOpacity style={styles.cmApplyBtn} onPress={saveQuickAdd} activeOpacity={0.8}>
-              <Text style={styles.cmApplyBtnText}>Add to Meal Plan</Text>
+              <Text style={styles.cmApplyBtnText}>Save</Text>
             </TouchableOpacity>
               </>
             )}
@@ -1622,7 +1948,7 @@ RULES:
             {/* Photo mode — 2×2 grid with empty frames */}
             {!manualMode && !correcting && (
               <>
-                <Text style={styles.cmPhotoHintText}>Snap each item in your meal</Text>
+                <Text style={styles.qaScaleTip}>Tip: hold a fork or your hand near the food for better scale</Text>
                 <View style={styles.cmFrameGrid}>
                   {[0, 1, 2, 3].map((idx) => {
                     const photo = correctionPhotos[idx];
@@ -1662,6 +1988,27 @@ RULES:
                   <Text style={styles.cmPhotoCount}>{correctionPhotos.length}/4 photos added</Text>
                 )}
 
+                {/* Portion type toggle */}
+                <View style={styles.qaPortionRow}>
+                  <Text style={styles.qaPortionHint}>Portion type</Text>
+                  <View style={styles.qaPortionBtns}>
+                    <TouchableOpacity
+                      style={[styles.qaPortionBtn, correctionPortionType === 'home' && styles.qaPortionBtnActive]}
+                      onPress={() => setCorrectionPortionType(correctionPortionType === 'home' ? null : 'home')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.qaPortionBtnText, correctionPortionType === 'home' && styles.qaPortionBtnTextActive]}>🏠 Home</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.qaPortionBtn, correctionPortionType === 'restaurant' && styles.qaPortionBtnActive]}
+                      onPress={() => setCorrectionPortionType(correctionPortionType === 'restaurant' ? null : 'restaurant')}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.qaPortionBtnText, correctionPortionType === 'restaurant' && styles.qaPortionBtnTextActive]}>🍴 Restaurant</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
                 {/* Analyze button */}
                 {correctionPhotos.length > 0 && !correctedMacros && (
                   <TouchableOpacity style={styles.cmAnalyzeBtn} onPress={analyzeAllPhotos} activeOpacity={0.8}>
@@ -1672,7 +2019,96 @@ RULES:
                 {/* Results */}
                 {correctedMacros && (
                   <View style={styles.cmResultWrap}>
-                    <Text style={styles.cmSectionLabel}>AI-ESTIMATED TOTAL</Text>
+
+                    {/* Component breakdown card */}
+                    {correctionComponents.length > 0 && (
+                      <View style={styles.qaBreakdownCard}>
+                        <View style={styles.qaBreakdownHeader}>
+                          <Text style={styles.qaBreakdownTitle}>What we found</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={[styles.qaConfBadge, {
+                              backgroundColor:
+                                correctionConfidence === 'high' ? 'rgba(34,197,94,0.18)' :
+                                correctionConfidence === 'low'  ? 'rgba(239,68,68,0.18)' :
+                                                                  'rgba(245,158,11,0.18)',
+                            }]}>
+                              <Text style={[styles.qaConfText, {
+                                color:
+                                  correctionConfidence === 'high' ? '#22C55E' :
+                                  correctionConfidence === 'low'  ? '#EF4444' : '#F59E0B',
+                              }]}>
+                                {correctionConfidence === 'high' ? 'High' : correctionConfidence === 'low' ? 'Low' : 'Medium'} confidence
+                              </Text>
+                            </View>
+                            {!correctionComponentEditMode && (
+                              <TouchableOpacity onPress={enterCorrectionEditMode} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Text style={styles.qaEditBtn}>Edit</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        </View>
+
+                        {!correctionComponentEditMode ? (
+                          <>
+                            {correctionComponents.map((c, i) => (
+                              <Text key={i} style={styles.qaBreakdownItem}>· {c}</Text>
+                            ))}
+                            {correctionCalRange && (
+                              <Text style={styles.qaCalRange}>Est. range: {correctionCalRange.min}–{correctionCalRange.max} kcal</Text>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {correctionEditableComponents.map((c, i) => (
+                              <View key={i} style={styles.qaEditRow}>
+                                <TextInput
+                                  style={styles.qaEditInput}
+                                  value={c}
+                                  onChangeText={(v) => {
+                                    const updated = [...correctionEditableComponents];
+                                    updated[i] = v;
+                                    setCorrectionEditableComponents(updated);
+                                  }}
+                                  multiline
+                                  returnKeyType="done"
+                                  blurOnSubmit
+                                />
+                                <TouchableOpacity onPress={() => setCorrectionEditableComponents((prev) => prev.filter((_, j) => j !== i))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                  <Text style={styles.qaEditRemove}>×</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ))}
+                            <View style={styles.qaEditRow}>
+                              <TextInput
+                                style={[styles.qaEditInput, { opacity: 0.65 }]}
+                                value={correctionNewIngredient}
+                                onChangeText={setCorrectionNewIngredient}
+                                placeholder="Add item (e.g. 1 tbsp olive oil)"
+                                placeholderTextColor="rgba(255,255,255,0.25)"
+                                returnKeyType="done"
+                                blurOnSubmit
+                              />
+                            </View>
+                            <TouchableOpacity
+                              style={[styles.cmAnalyzeBtn, { marginTop: 10, marginBottom: 0 }]}
+                              onPress={recalculateCorrectionMacros}
+                              disabled={correctionRecalculating}
+                              activeOpacity={0.8}
+                            >
+                              {correctionRecalculating
+                                ? <ActivityIndicator color="#FFF" size="small" />
+                                : <Text style={styles.cmAnalyzeBtnText}>Recalculate Macros</Text>}
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setCorrectionComponentEditMode(false)} style={{ marginTop: 10, alignItems: 'center' }}>
+                              <Text style={styles.qaEditCancel}>Cancel</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                      </View>
+                    )}
+
+                    {/* Macro totals */}
+                    <Text style={[styles.cmSectionLabel, { marginTop: 12 }]}>AI-ESTIMATED TOTAL</Text>
                     <View style={styles.cmMacroRow}>
                       <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.calories} kcal</Text>
                       <Text style={styles.cmMacroDot}>·</Text>
@@ -1682,11 +2118,39 @@ RULES:
                       <Text style={styles.cmMacroDot}>·</Text>
                       <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.fatG}g F</Text>
                     </View>
-                    <View style={styles.cmBtnRow}>
+
+                    {/* Feedback row */}
+                    {!correctionReanalyzing && correctionFeedback !== 'ok' && (
+                      <View style={[styles.qaFeedbackSection, { marginTop: 10 }]}>
+                        <Text style={styles.qaFeedbackLabel}>Does this look right?</Text>
+                        <View style={styles.qaFeedbackBtns}>
+                          <TouchableOpacity style={styles.qaFeedbackBtn} onPress={() => handleCorrectionFeedback('too_low')} activeOpacity={0.75}>
+                            <Text style={styles.qaFeedbackBtnText}>↑ Too low</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.qaFeedbackBtn, styles.qaFeedbackOkBtn]} onPress={() => handleCorrectionFeedback('ok')} activeOpacity={0.75}>
+                            <Text style={[styles.qaFeedbackBtnText, { color: '#22C55E' }]}>✓ Looks right</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.qaFeedbackBtn} onPress={() => handleCorrectionFeedback('too_high')} activeOpacity={0.75}>
+                            <Text style={styles.qaFeedbackBtnText}>↓ Too high</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                    {correctionReanalyzing && (
+                      <View style={[styles.cmAnalyzing, { marginTop: 10 }]}>
+                        <ActivityIndicator color={ORANGE} size="small" />
+                        <Text style={styles.cmAnalyzingText}>Revising estimate...</Text>
+                      </View>
+                    )}
+                    {correctionFeedback === 'ok' && (
+                      <Text style={[styles.qaFeedbackOkText, { marginTop: 8 }]}>✓ Estimate confirmed</Text>
+                    )}
+
+                    <View style={[styles.cmBtnRow, { marginTop: 14 }]}>
                       <TouchableOpacity style={styles.cmApplyBtn} onPress={applyCorrection} activeOpacity={0.8}>
                         <Text style={styles.cmApplyBtnText}>Apply</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.cmRetryBtn} onPress={() => { setCorrectionPhotos([]); setCorrectedMacros(null); }} activeOpacity={0.75}>
+                      <TouchableOpacity style={styles.cmRetryBtn} onPress={() => { setCorrectionPhotos([]); setCorrectedMacros(null); setCorrectionComponents([]); setCorrectionCalRange(null); setCorrectionConfidence(null); setCorrectionFeedback(null); }} activeOpacity={0.75}>
                         <Text style={styles.cmRetryBtnText}>Retake All</Text>
                       </TouchableOpacity>
                     </View>
@@ -1959,29 +2423,56 @@ const styles = StyleSheet.create({
   servingsValue: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', minWidth: 24, textAlign: 'center' },
 
   // Macro summary bar
-  macroBar: {
+  // Macro rings
+  ringsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 20,
+  },
+
+  // Calorie equation card
+  calEqCard: {
     backgroundColor: SURFACE,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: BORDER,
-    padding: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
     marginBottom: 24,
   },
-  macroBarTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.40)',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: 12,
-    textAlign: 'center',
+  calEqRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  macroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
-  macroItem: { alignItems: 'center', flex: 1 },
-  macroValue: { fontSize: 20, fontWeight: '800', color: '#FFFFFF' },
-  macroProtein: { color: ORANGE },
-  macroLabel: { fontSize: 11, color: 'rgba(255,255,255,0.50)', marginTop: 2 },
-  macroDivider: { width: 1, height: 36, backgroundColor: BORDER },
+  calEqItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  calEqNum: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  calEqLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.40)',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginTop: 4,
+  },
+  calEqOp: {
+    fontSize: 22,
+    fontWeight: '300',
+    color: 'rgba(255,255,255,0.25)',
+    paddingBottom: 16,
+  },
 
   // Slot sections
   slotSection: { marginBottom: 28 },
@@ -2235,6 +2726,182 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: ORANGE,
+  },
+
+  // Scale tip + portion type
+  qaScaleTip: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.38)',
+    textAlign: 'center',
+    marginBottom: 12,
+    lineHeight: 17,
+  },
+  qaPortionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  qaPortionHint: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  qaPortionBtns: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  qaPortionBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  qaPortionBtnActive: {
+    borderColor: ORANGE,
+    backgroundColor: 'rgba(143,58,31,0.25)',
+  },
+  qaPortionBtnText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.55)',
+    fontWeight: '600',
+  },
+  qaPortionBtnTextActive: {
+    color: '#E8A87C',
+  },
+
+  // Feedback row
+  qaFeedbackSection: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  qaFeedbackLabel: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.40)',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  qaFeedbackBtns: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  qaFeedbackBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+  },
+  qaFeedbackOkBtn: {
+    borderColor: 'rgba(34,197,94,0.3)',
+    backgroundColor: 'rgba(34,197,94,0.06)',
+  },
+  qaFeedbackBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.60)',
+  },
+  qaFeedbackOkText: {
+    fontSize: 12,
+    color: '#22C55E',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '600',
+  },
+
+  // Inline calorie range under the calories field
+  qaCalRangeInline: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.32)',
+    marginTop: 3,
+    textAlign: 'center',
+  },
+
+  // Cal AI breakdown card
+  qaBreakdownCard: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 4,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  qaBreakdownHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  qaBreakdownTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  qaBreakdownItem: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.70)',
+    lineHeight: 20,
+    marginBottom: 1,
+  },
+  qaConfBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  qaConfText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  qaCalRange: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.38)',
+    marginTop: 8,
+  },
+  qaEditBtn: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E85D26',
+  },
+  qaEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  qaEditInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  qaEditRemove: {
+    fontSize: 20,
+    color: 'rgba(239,68,68,0.8)',
+    lineHeight: 24,
+    paddingHorizontal: 4,
+  },
+  qaEditCancel: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.40)',
+    textDecorationLine: 'underline',
   },
 
   // 2×2 frame grid
