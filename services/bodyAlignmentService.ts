@@ -40,12 +40,12 @@ export function buildAlignmentResult(score: number, pose: ScanPose): AlignmentRe
 
 /**
  * Simulates a realistic alignment score ramp.
- * Reaches ~80 in ~5-6 s — fast enough to not frustrate side-view users
- * who can't see the screen while turned sideways.
+ * Reaches ~80 in ~10-12 s — slow enough that accidental green is unlikely.
+ * Colors are guidance only; auto-capture is never triggered by this score alone.
  */
 export function simulateAlignmentScore(elapsedMs: number, previous: number): number {
-  const target = 88;
-  const progressRatio = Math.min(1, elapsedMs / 6000);
+  const target = 95;
+  const progressRatio = Math.min(1, elapsedMs / 12000);
   const curved = target * (1 - Math.exp(-2.1 * progressRatio));
   const baseScore = 8 + curved;
   const jitter = (Math.random() - 0.5) * 4;

@@ -522,10 +522,10 @@ Accept only if the full body from head to feet is visible, the person is centere
       const result = buildAlignmentResult(score, scanPose);
       setGuidanceText(result.feedback);
 
+      // Score drives outline colour only — never auto-triggers capture.
+      // User must tap the button; Claude then validates the actual photo.
       if (score >= 80) {
         setPoseStatus('perfect');
-        setHoldingStill(true);
-        clearInterval(interval);
       } else if (score >= 50) {
         setPoseStatus('almost');
       } else {
@@ -1453,11 +1453,11 @@ Use the photos, user stats, and measurements together. Prefer a range over false
               <Text style={styles.outlineSubLabel}>
                 {alignmentScore < 50
                   ? scanPose === 'front'
-                    ? 'Step back until your full body fits inside the outline'
+                    ? 'Step back — full body head-to-toe must be visible'
                     : 'Turn sideways — show your full left or right profile'
                   : alignmentScore < 80
-                    ? scanPose === 'front' ? 'Face forward, arms slightly away from body' : 'Perfect — hold this position steady'
-                    : 'Great position — hold very still'}
+                    ? scanPose === 'front' ? 'Face forward, arms slightly away from body' : 'Keep your full side profile in view'
+                    : 'Looking good — tap the button when ready'}
               </Text>
             </View>
 
@@ -1505,7 +1505,14 @@ Use the photos, user stats, and measurements together. Prefer a range over false
             )}
 
 
-            {/* ── Hold still countdown ── */}
+            {/* ── Ready cue — shown when outline is green, waiting for tap ── */}
+            {alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
+              <View style={styles.outlineHoldWrap}>
+                <Text style={[styles.outlineHoldText, { color: '#34C759' }]}>Tap when ready</Text>
+              </View>
+            )}
+
+            {/* ── Hold still countdown (user-triggered tap path) ── */}
             {holdingStill && !capturing && !scanPhotoAssessing && !photoReady && (
               <View style={styles.outlineHoldWrap}>
                 <Text style={styles.outlineHoldText}>Hold still…</Text>
@@ -1562,16 +1569,27 @@ Use the photos, user stats, and measurements together. Prefer a range over false
           )}
 
           {/* ── Manual capture button ── */}
-          {!capturing && !scanPhotoAssessing && !photoReady && (
+          {!capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
             <>
               <TouchableOpacity
-                style={styles.bodyCaptureBtn}
+                style={[
+                  styles.bodyCaptureBtn,
+                  alignmentScore >= 80 && { borderColor: '#34C759', borderWidth: 3 },
+                ]}
                 onPress={captureGuidedBodyPhoto}
                 activeOpacity={0.8}
               >
-                <View style={styles.bodyCaptureBtnInner} />
+                <View style={[
+                  styles.bodyCaptureBtnInner,
+                  alignmentScore >= 80 && { backgroundColor: '#34C759' },
+                ]} />
               </TouchableOpacity>
-              <Text style={styles.bodyCaptureTapHint}>tap to capture now</Text>
+              <Text style={[
+                styles.bodyCaptureTapHint,
+                alignmentScore >= 80 && { color: '#34C759', fontWeight: '700' },
+              ]}>
+                {alignmentScore >= 80 ? '✓ tap to capture' : 'tap to capture now'}
+              </Text>
             </>
           )}
 
