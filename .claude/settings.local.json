@@ -195,7 +195,17 @@
       "Bash(taskkill /F /FI \"WINDOWTITLE eq *eas*\")",
       "Bash(pkill -f \"eas build\")",
       "mcp__claude_ai_Supabase__list_projects",
-      "mcp__claude_ai_Supabase__execute_sql"
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(node -e \"console.log\\(require\\('./package.json'\\).main || '\\(default: index.js\\)'\\)\")",
+      "Bash(node -e \"const d=require\\('./package.json'\\).dependencies; ['expo','react-native','react-native-reanimated','react-native-worklets','@shopify/react-native-skia','expo-router'].forEach\\(k=>console.log\\(k+': '+\\(d[k]||'-'\\)\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./app.json'\\).expo.plugins; console.log\\(JSON.stringify\\(p,null,1\\)\\)\")",
+      "Bash(node -e \"require\\('./package.json'\\); require\\('./app.json'\\); console.log\\('package.json + app.json valid'\\)\")",
+      "Bash(node -e \"const p=require\\('./app.json'\\).expo.plugins; console.log\\(p.map\\(x=>Array.isArray\\(x\\)?x[0]:x\\).join\\(', '\\)\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"require\\('./app.json'\\); require\\('./package.json'\\); console.log\\('valid'\\)\")",
+      "Bash(node -e \"console.log\\(require\\('./app.json'\\).expo.plugins.map\\(p=>Array.isArray\\(p\\)?p[0]:p\\).join\\(', '\\)\\)\")",
+      "Bash(git check-ignore *)"
     ]
   },
   "remote": {

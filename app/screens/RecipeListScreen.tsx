@@ -540,13 +540,16 @@ export default function RecipeListScreen() {
                   } else {
                     await deleteAIRecipe(item.id, item.proteinId);
                   }
-                  // All deletes: add to local blocklist + remove from UI
+                  // Hide immediately in this screen. Only regular user deletes should persist
+                  // in the local blocklist; admin moderation is governed by backend is_active.
                   deletedIdsRef.current.add(item.id);
                   setRecipes((prev) => prev.filter((r) => r.id !== item.id));
-                  try {
-                    await AsyncStorage.setItem('spicestrong_deleted_recipes',
-                      JSON.stringify(Array.from(deletedIdsRef.current)));
-                  } catch {}
+                  if (!isAdminUser) {
+                    try {
+                      await AsyncStorage.setItem('spicestrong_deleted_recipes',
+                        JSON.stringify(Array.from(deletedIdsRef.current)));
+                    } catch {}
+                  }
                   // Clear recipe caches
                   try {
                     const allKeys = await AsyncStorage.getAllKeys();

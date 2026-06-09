@@ -41,6 +41,8 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PENDING_SYNC_KEY = 'spicestrong_pending_sync';
 const IMAGE_CACHE_KEY_PREFIX = 'spicestrong_recipe_img_urls_';
 const DEVICE_ID_KEY = 'spicestrong_device_id';
+const DELETED_RECIPES_KEY = 'spicestrong_deleted_recipes';
+const ADMIN_DELETED_BLOCKLIST_REPAIR_KEY = 'spicestrong_admin_deleted_blocklist_repair_v1';
 
 // ─── Supabase Row Types ───
 interface SupabaseRecipeRow {
@@ -238,6 +240,34 @@ function mapSupabaseRowToRecipe(row: SupabaseRecipeRow): SavedRecipe & Partial<B
 
 // ─── Cache Helpers ───
 
+async function clearRecipeCaches(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const cacheKeys = keys.filter((key) =>
+      key.startsWith(CACHE_KEY_PREFIX)
+      || key.startsWith(CACHE_META_PREFIX)
+    );
+    if (cacheKeys.length > 0) await AsyncStorage.multiRemove(cacheKeys);
+  } catch {
+    // Cache cleanup is best-effort; stale-while-revalidate will recover.
+  }
+}
+
+async function repairAdminDeletedRecipeBlocklist(): Promise<void> {
+  try {
+    if (!(await isAdmin())) return;
+    const repaired = await AsyncStorage.getItem(ADMIN_DELETED_BLOCKLIST_REPAIR_KEY);
+    if (repaired === 'true') return;
+
+    await AsyncStorage.removeItem(DELETED_RECIPES_KEY);
+    await clearRecipeCaches();
+    await AsyncStorage.setItem(ADMIN_DELETED_BLOCKLIST_REPAIR_KEY, 'true');
+    console.log('[SpiceStrong] Admin deleted recipe blocklist repaired');
+  } catch {
+    // Best-effort repair for admin-only local state.
+  }
+}
+
 async function getCachedRecipes(proteinId: string): Promise<SavedRecipe[] | null> {
   try {
     const data = await AsyncStorage.getItem(`${CACHE_KEY_PREFIX}${proteinId}`);
@@ -329,6 +359,8 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
   recipes: SavedRecipe[];
   refresh: Promise<SavedRecipe[] | null>;
 }> {
+  await repairAdminDeletedRecipeBlocklist();
+
   const dietPreference = await getDietPreference();
   if (dietPreference === 'veg' && isNonVegProteinId(proteinId)) {
     return { recipes: [], refresh: Promise.resolve([]) };
@@ -337,7 +369,7 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
   // 0. Load persistent deleted blocklist
   let deletedIds: Set<string>;
   try {
-    const blockData = await AsyncStorage.getItem('spicestrong_deleted_recipes');
+    const blockData = await AsyncStorage.getItem(DELETED_RECIPES_KEY);
     let blockList: string[];
     try { blockList = blockData ? JSON.parse(blockData) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, using fallback'); blockList = []; }
     deletedIds = new Set(blockList);
@@ -385,8 +417,9 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
             .order('created_at', { ascending: true });
 
           if (!admin) {
-            // Regular devices only fetch public curated recipes plus their own private AI/user recipes.
-            query = query.or(`source.eq.curated,device_id.eq.${deviceId}`);
+            // Regular devices fetch public recipes plus their own private AI/user recipes.
+            // Some older curated rows were published before `source` was consistently backfilled.
+            query = query.or(`source.eq.curated,is_published.eq.true,device_id.eq.${deviceId}`);
           }
 
           const { data, error } = await query;
@@ -428,7 +461,7 @@ export async function fetchRecipesByProtein(proteinId: string): Promise<{
           // Re-read blocklist (may have changed since load started)
           let freshDeletedIds: Set<string>;
           try {
-            const bd = await AsyncStorage.getItem('spicestrong_deleted_recipes');
+            const bd = await AsyncStorage.getItem(DELETED_RECIPES_KEY);
             let bdList: string[];
             try { bdList = bd ? JSON.parse(bd) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, using fallback'); bdList = []; }
             freshDeletedIds = new Set(bdList);
@@ -677,6 +710,8 @@ export async function syncPendingAIRecipes(): Promise<void> {
  */
 export async function refreshRecipeCache(): Promise<void> {
   try {
+    await repairAdminDeletedRecipeBlocklist();
+
     const isAvailable = await checkRecipeTableAvailable();
     if (!isAvailable) return;
 
@@ -689,8 +724,9 @@ export async function refreshRecipeCache(): Promise<void> {
       .order('created_at', { ascending: true });
 
     if (!admin) {
-      // Regular devices only fetch public curated recipes plus their own private AI/user recipes.
-      query = query.or(`source.eq.curated,device_id.eq.${deviceId}`);
+      // Regular devices fetch public recipes plus their own private AI/user recipes.
+      // Some older curated rows were published before `source` was consistently backfilled.
+      query = query.or(`source.eq.curated,is_published.eq.true,device_id.eq.${deviceId}`);
     }
 
     const { data, error } = await query;
@@ -886,6 +922,7 @@ export async function deleteAIRecipe(
   recipeId: string,
   proteinId: string,
   skipSupabaseDeactivation = false,
+  addToDeletedBlocklist = true,
 ): Promise<boolean> {
   try {
     // 1. Remove from local AsyncStorage
@@ -936,17 +973,18 @@ export async function deleteAIRecipe(
       }
     }
 
-    // 5. Track deleted ID in persistent blocklist so it never comes back
-    try {
-      const blockKey = 'spicestrong_deleted_recipes';
-      const existing = await AsyncStorage.getItem(blockKey);
-      let blocked: string[];
-      try { blocked = existing ? JSON.parse(existing) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, resetting'); blocked = []; }
-      if (!blocked.includes(recipeId)) {
-        blocked.push(recipeId);
-        await AsyncStorage.setItem(blockKey, JSON.stringify(blocked));
-      }
-    } catch { /* best effort */ }
+    // 5. Track deleted user/AI IDs in a persistent blocklist so local refresh cannot bring them back.
+    if (addToDeletedBlocklist) {
+      try {
+        const existing = await AsyncStorage.getItem(DELETED_RECIPES_KEY);
+        let blocked: string[];
+        try { blocked = existing ? JSON.parse(existing) : []; } catch { console.warn('[SpiceStrong] Corrupted deleted recipes blocklist, resetting'); blocked = []; }
+        if (!blocked.includes(recipeId)) {
+          blocked.push(recipeId);
+          await AsyncStorage.setItem(DELETED_RECIPES_KEY, JSON.stringify(blocked));
+        }
+      } catch { /* best effort */ }
+    }
 
     console.log(`[SpiceStrong] Recipe fully deleted: ${recipeId}`);
     return true;
@@ -1048,7 +1086,7 @@ async function adminUpsertRecipeImage(
 export async function adminDeactivateRecipe(recipeId: string, proteinId: string): Promise<void> {
   // Always remove local AsyncStorage copies/caches too. Some admin-created or
   // imported recipes may exist only on this device and never reach Supabase.
-  await deleteAIRecipe(recipeId, proteinId, true);
+  await deleteAIRecipe(recipeId, proteinId, true, false);
 
   try {
     await adminRecipePatch(recipeId, { is_active: false });
