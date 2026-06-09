@@ -82,60 +82,9 @@ export default function FitnessProfileScreen() {
   const [bodyFat, setBodyFat] = useState('');
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>('moderately_active');
 
-  // Body scan state
-  const [scanFrontUri, setScanFrontUri] = useState<string | null>(null);
-  const [scanSideUri, setScanSideUri] = useState<string | null>(null);
-  const [scanFrontBase64, setScanFrontBase64] = useState<string>('');
-  const [scanSideBase64, setScanSideBase64] = useState<string>('');
-  const [scanFrontBad, setScanFrontBad] = useState(false);
-  const [scanSideBad, setScanSideBad] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanResult, setScanResult] = useState<{
-    bodyFat: number;
-    bodyFatLow: number;
-    bodyFatHigh: number;
-    bodyType: string;
-    muscleMass: string;
-    confidence: 'low' | 'medium' | 'high';
-    assessment: string;
-    nutritionFocus: string;
-  } | null>(null);
-  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-  const scanCameraRef = useRef<any>(null);
-  const [scanCameraOpen, setScanCameraOpen] = useState(false);
-  const [scanCameraReady, setScanCameraReady] = useState(false);
-  const [scanPose, setScanPose] = useState<'front' | 'side'>('front');
-  const [scanCountdown, setScanCountdown] = useState(5);
-  const [scanCountdownActive, setScanCountdownActive] = useState(false);
-  const [scanPhotoAssessing, setScanPhotoAssessing] = useState(false);
-  const [scanPhotoFeedback, setScanPhotoFeedback] = useState('');
-  // Upload-only flow: gender-matched reference sample + per-pose upload state
-  const [sampleUri, setSampleUri] = useState<string | null>(null);
-  const [sampleLoading, setSampleLoading] = useState(false);
-  const [uploadingPose, setUploadingPose] = useState<'front' | 'side' | null>(null);
   const [waist, setWaist] = useState('');
   const [neck, setNeck] = useState('');
   const [hip, setHip] = useState('');
-  const [bodyScanMode, setBodyScanMode] = useState<null | 'manual' | 'camera'>(null);
-  const [scanInstructionPose, setScanInstructionPose] = useState<'front' | 'side' | null>(null);
-
-  // Outline-guided capture state
-  const [scanTimer, setScanTimer] = useState(12);
-  const [holdingStill, setHoldingStill] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [captureAttempts, setCaptureAttempts] = useState(0);
-  const [photoReady, setPhotoReady] = useState(false);
-  const cameraOpenTimeRef = useRef<number>(0);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [instrSlide, setInstrSlide] = useState(0);
-  const instrScrollRef = useRef<ScrollView>(null);
-  const [instrImages, setInstrImages] = useState<ScanInstrImages>({
-    clothingGood: null, clothingBad: null,
-    lightingGood: null, lightingBad: null,
-    backgroundGood: null, backgroundBad: null,
-    distanceGood: null, distanceBad: null,
-  });
-  const instrImagesLoadingRef = useRef(false);
 
   // Results
   const [macros, setMacros] = useState<MacroTargets | null>(null);
@@ -167,31 +116,6 @@ export default function FitnessProfileScreen() {
     })();
   }, []);
 
-  // Load the gender-matched reference sample once the user reaches the scan step.
-  useEffect(() => {
-    if (step !== 'body_fat' || sampleUri || sampleLoading) return;
-    const sampleGender = gender === 'female' ? 'female' : 'male';
-    setSampleLoading(true);
-    generateBodyScanSample(sampleGender)
-      .then((uri) => setSampleUri(uri))
-      .finally(() => setSampleLoading(false));
-  }, [step, gender, sampleUri, sampleLoading]);
-
-  // Reset mode selection whenever user (re-)enters the body_fat step.
-  useEffect(() => {
-    if (step === 'body_fat') setBodyScanMode(null);
-  }, [step]);
-
-  // Pre-generate instruction comparison images as soon as user picks "Body Scan" mode.
-  // Images resolve one-by-one via onProgress so cards update incrementally.
-  useEffect(() => {
-    if (bodyScanMode !== 'camera') return;
-    if (instrImagesLoadingRef.current) return;
-    instrImagesLoadingRef.current = true;
-    generateScanInstrImages((update) => {
-      setInstrImages((prev) => ({ ...prev, [update.key]: update.uri }));
-    }).finally(() => { instrImagesLoadingRef.current = false; });
-  }, [bodyScanMode]);
 
   const goNext = () => {
     const idx = STEPS.indexOf(step);
@@ -205,11 +129,6 @@ export default function FitnessProfileScreen() {
   };
 
   const goBack = () => {
-    // Inside a body-scan sub-screen → back to mode selection, not previous step
-    if (step === 'body_fat' && bodyScanMode !== null) {
-      setBodyScanMode(null);
-      return;
-    }
     const idx = STEPS.indexOf(step);
     if (idx > 0) {
       Keyboard.dismiss();
@@ -219,7 +138,7 @@ export default function FitnessProfileScreen() {
     }
   };
 
-  const calculateAndSave = async () => {
+  const calculateAndSave = async (bodyFatOverride?: string) => {
     const wKg = useImperial ? lbsToKg(parseFloat(weightLbs) || 77) : parseFloat(weightKg) || 77;
     const hCm = useImperial ? ftInToCm(parseInt(heightFt) || 5, parseInt(heightIn) || 10) : parseFloat(heightCm) || 178;
     const twKg = useImperial
@@ -230,6 +149,7 @@ export default function FitnessProfileScreen() {
       if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
       return useImperial ? Math.round(parsed * 2.54 * 10) / 10 : parsed;
     };
+    const bfValue = bodyFatOverride ?? bodyFat;
 
     const profile: FitnessProfile = {
       goal,
@@ -238,7 +158,7 @@ export default function FitnessProfileScreen() {
       heightCm: hCm,
       weightKg: wKg,
       targetWeightKg: twKg,
-      bodyFatPercent: bodyFat ? parseFloat(bodyFat) : undefined,
+      bodyFatPercent: bfValue ? parseFloat(bfValue) : undefined,
       waistCm: measurementToCm(waist),
       neckCm: measurementToCm(neck),
       hipCm: measurementToCm(hip),
@@ -251,433 +171,10 @@ export default function FitnessProfileScreen() {
     await saveFitnessProfile(profile);
   };
 
-  // ── Body scan handlers ──
-  const openGuidedBodyScan = async (side: 'front' | 'side' = 'front') => {
-    const perm = cameraPermission?.granted ? cameraPermission : await requestCameraPermission();
-    if (!perm?.granted) {
-      Alert.alert('Permission needed', 'Camera access is required for the guided body scan.');
-      return;
-    }
-    setScanPose(side);
-    setScanCountdown(3);
-    setScanCameraReady(false);
-    setScanCountdownActive(false);
-    setScanPhotoAssessing(false);
-    setScanPhotoFeedback('');
-    setHoldingStill(false);
-    setCapturing(false);
-    setPhotoReady(false);
-    setCaptureAttempts(0);
-    setScanTimer(12);
-    if (side === 'front') setScanFrontBad(false);
-    else setScanSideBad(false);
-    cameraOpenTimeRef.current = Date.now();
-    setScanCameraOpen(true);
-  };
-
-  // Resize + compress a photo URI to a small JPEG base64 safe for API upload.
-  // Caps longest side at 900px and uses 55% JPEG quality → ~100-250 KB typical.
-  const compressForApi = async (uri: string): Promise<string> => {
-    const result = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: 900 } }],
-      { compress: 0.55, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-    );
-    return result.base64 || '';
-  };
-
-  const assessBodyScanPhoto = async (base64: string, pose: 'front' | 'side'): Promise<{ ok: boolean; feedback: string }> => {
-    const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-    if (!apiKey) return { ok: true, feedback: '' };
-
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 180,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: 'image/jpeg', data: base64 },
-              },
-              {
-                type: 'text',
-                text: `You are a body-scan photo quality checker for a fitness progress app. Check whether this ${pose} pose photo is usable for body composition trend analysis.
-
-Return ONLY JSON:
-{
-  "ok": boolean,
-  "feedback": "one short actionable instruction for the user"
-}
-
-Accept only if the full body from head to feet is visible, the person is centered, lighting is usable, the photo is not very blurry, and the pose roughly matches ${pose === 'front' ? 'a straight front-facing pose' : 'a side-facing pose'}. Do not comment on appearance or body shape.`,
-              },
-            ],
-          }],
-        }),
-      });
-
-      if (!res.ok) return { ok: true, feedback: '' };
-      const data = await res.json();
-      const text = data.content?.[0]?.text || '';
-      const start = text.indexOf('{');
-      const end = text.lastIndexOf('}');
-      if (start === -1 || end === -1 || end <= start) return { ok: true, feedback: '' };
-      const parsed = JSON.parse(text.slice(start, end + 1));
-      return {
-        ok: parsed.ok !== false,
-        feedback: parsed.feedback || 'Adjust your position and try again.',
-      };
-    } catch (err) {
-      console.warn('[SpiceStrong] Body scan photo quality check failed:', err);
-      return { ok: true, feedback: '' };
-    }
-  };
-
-
-  const captureGuidedBodyPhoto = async () => {
-    // Guard: camera must be mounted and ready
-    if (!scanCameraRef.current || !scanCameraReady) {
-      setCapturing(false);
-      setHoldingStill(false);
-      setScanTimer(12);
-      cameraOpenTimeRef.current = Date.now();
-      return;
-    }
-    try {
-      setCapturing(true);
-      setScanCountdownActive(false);
-      const photo = await scanCameraRef.current.takePictureAsync({ quality: 0.85, skipProcessing: false });
-      if (!photo?.uri) throw new Error('No photo captured');
-      // Compress to ~900px wide before any API calls to keep payload under 300 KB
-      const b64 = await compressForApi(photo.uri);
-
-      setScanPhotoAssessing(true);
-      setScanPhotoFeedback('Checking photo quality...');
-
-      const quality = await assessBodyScanPhoto(b64, scanPose);
-      setScanPhotoAssessing(false);
-
-      if (!quality.ok) {
-        const attempts = captureAttempts + 1;
-        setCaptureAttempts(attempts);
-        const feedback = quality.feedback || 'Adjust your position and try again.';
-        setScanPhotoFeedback(feedback);
-
-        if (attempts >= 3) {
-          // Accept after 3 retries but flag it so user can retake from the card
-          if (scanPose === 'front') setScanFrontBad(true);
-          else setScanSideBad(true);
-          setScanPhotoFeedback('');
-        } else {
-          // Auto-retake: reset alignment engine
-          setCapturing(false);
-          setHoldingStill(false);
-          setScanTimer(12);
-          cameraOpenTimeRef.current = Date.now();
-          setTimeout(() => setScanPhotoFeedback(''), 1800);
-          return;
-        }
-      }
-
-      setCapturing(false);
-      setPhotoReady(true);
-      setScanPhotoFeedback('');
-
-      if (scanPose === 'front') {
-        setScanFrontUri(photo.uri);
-        setScanFrontBase64(b64);
-        // Announce transition to side view
-        Speech.stop();
-        Speech.speak('Front photo done! Now turn ninety degrees for your side view.', { rate: 0.92 });
-        await new Promise(r => setTimeout(r, 1800));
-        setScanCameraOpen(false);
-        setTimeout(() => openGuidedBodyScan('side'), 350);
-      } else {
-        setScanSideUri(photo.uri);
-        setScanSideBase64(b64);
-        setScanCameraOpen(false);
-      }
-    } catch (err) {
-      console.warn('[SpiceStrong] Guided body scan capture failed:', err);
-      Alert.alert('Capture Failed', 'Could not take the photo. Please try again.');
-      setScanCameraOpen(false);
-      setCapturing(false);
-      setScanPhotoAssessing(false);
-    }
-  };
-
-  // ── Upload-only body scan: pick from gallery, validate, gate side behind front ──
-  const uploadBodyPhoto = async (pose: 'front' | 'side') => {
-    // Side photo is locked until a valid front photo exists.
-    if (pose === 'side' && !scanFrontUri) {
-      Alert.alert('Front photo first', 'Please add and pass your front photo before adding the side photo.');
-      return;
-    }
-    if (uploadingPose) return;
-
-    try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Permission needed', 'Photo library access is required to upload your body-scan photo.');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.6,
-        base64: true,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-
-      const asset = result.assets[0];
-      let b64 = asset.base64 || '';
-      if (b64.includes(',')) b64 = b64.split(',')[1];
-
-      setUploadingPose(pose);
-      const quality = await assessBodyScanPhoto(b64, pose);
-      setUploadingPose(null);
-
-      if (!quality.ok) {
-        trackEvent('body_scan_photo_rejected', {
-          screen: 'FitnessProfileScreen',
-          metadata: { pose, feedback: quality.feedback || '' },
-        });
-        Alert.alert(
-          'Photo Not Usable',
-          `${quality.feedback || 'This photo can’t be used for an accurate measurement.'}\n\nPlease upload another ${pose} photo.`,
-        );
-        return;
-      }
-
-      if (pose === 'front') {
-        setScanFrontUri(asset.uri);
-        setScanFrontBase64(b64);
-      } else {
-        setScanSideUri(asset.uri);
-        setScanSideBase64(b64);
-      }
-    } catch (err) {
-      console.warn('[SpiceStrong] Body scan upload failed:', err);
-      setUploadingPose(null);
-      Alert.alert('Upload Failed', 'Could not process that photo. Please try another.');
-    }
-  };
-
-  const getMeasurementSummary = () => {
-    const unit = useImperial ? 'in' : 'cm';
-    const values = [
-      waist ? `waist ${waist}${unit}` : '',
-      neck ? `neck ${neck}${unit}` : '',
-      hip ? `hip ${hip}${unit}` : '',
-    ].filter(Boolean);
-    return values.length > 0 ? values.join(', ') : 'no tape measurements provided';
-  };
-
-  const calculateNavyBodyFatEstimate = () => {
-    const waistValue = parseFloat(waist);
-    const neckValue = parseFloat(neck);
-    const hipValue = parseFloat(hip);
-    const heightInches = useImperial
-      ? (parseInt(heightFt) || 5) * 12 + (parseInt(heightIn) || 10)
-      : (parseFloat(heightCm) || 178) / 2.54;
-    const waistInches = useImperial ? waistValue : waistValue / 2.54;
-    const neckInches = useImperial ? neckValue : neckValue / 2.54;
-    const hipInches = useImperial ? hipValue : hipValue / 2.54;
-
-    if (!Number.isFinite(waistInches) || !Number.isFinite(neckInches) || waistInches <= neckInches || heightInches <= 0) return null;
-    if (gender === 'female') {
-      if (!Number.isFinite(hipInches) || hipInches <= 0) return null;
-      return Math.round(163.205 * Math.log10(waistInches + hipInches - neckInches) - 97.684 * Math.log10(heightInches) - 78.387);
-    }
-    return Math.round(86.01 * Math.log10(waistInches - neckInches) - 70.041 * Math.log10(heightInches) + 36.76);
-  };
-
-  // ── 12-second countdown: starts when camera is ready, auto-captures at 0 ──
-  useEffect(() => {
-    if (!scanCameraOpen || !scanCameraReady || capturing || scanPhotoAssessing || photoReady) return;
-
-    // Brief opening hint
-    Speech.stop();
-    Speech.speak(
-      scanPose === 'front'
-        ? 'Step back until your full body fits the outline.'
-        : 'Turn sideways until your full profile fits the outline.',
-      { rate: 0.92 }
-    );
-
-    setScanTimer(12);
-    let count = 12;
-    const tick = setInterval(() => {
-      count -= 1;
-      setScanTimer(count);
-      if (count <= 0) {
-        clearInterval(tick);
-        captureGuidedBodyPhoto();
-      }
-    }, 1000);
-
-    return () => {
-      clearInterval(tick);
-      Speech.stop();
-    };
-  }, [scanCameraOpen, scanCameraReady, scanPose]);
-
-  // ── Old countdown fallback — keep for legacy ref but never fires ──
-  useEffect(() => {
-    if (!scanCameraOpen || !scanCountdownActive || scanPhotoAssessing) return;
-    setScanCountdown(3);
-    const interval = setInterval(() => {
-      setScanCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          captureGuidedBodyPhoto();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [scanCameraOpen, scanCountdownActive, scanPose, scanPhotoAssessing]);
-
-  const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 2): Promise<Response> => {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const res = await fetch(url, options);
-      if (res.ok || res.status < 500 || attempt === maxRetries) return res;
-      await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
-    }
-    return fetch(url, options);
-  };
-
-  const runBodyScan = async () => {
-    if (!scanFrontBase64) {
-      Alert.alert('Photo needed', 'Please take the guided front photo first.');
-      return;
-    }
-    if (!scanSideBase64) {
-      Alert.alert('Side photo needed', 'Please take the guided side photo before analyzing.');
-      return;
-    }
-    setScanning(true);
-    try {
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
-      // Build content with 1 or 2 images
-      const content: any[] = [];
-      content.push({
-        type: 'image',
-        source: { type: 'base64', media_type: 'image/jpeg', data: scanFrontBase64 },
-      });
-      if (scanSideBase64) {
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: 'image/jpeg', data: scanSideBase64 },
-        });
-      }
-      content.push({
-        type: 'text',
-        text: `Analyze this person's body composition from the photo(s). The person is ${gender}, age ${age}, ${useImperial ? weightLbs + ' lbs' : weightKg + ' kg'}, ${useImperial ? heightFt + "'" + heightIn + '"' : heightCm + ' cm'}.
-Tape measurements: ${getMeasurementSummary()}.
-Navy body-fat estimate from measurements, if available: ${calculateNavyBodyFatEstimate() ?? 'not available'}%.
-
-Return ONLY this JSON:
-{
-  "bodyFatPercent": number (midpoint of your best estimate range),
-  "bodyFatLow": number,
-  "bodyFatHigh": number,
-  "bodyType": "ectomorph" | "mesomorph" | "endomorph" | "ecto-mesomorph" | "endo-mesomorph",
-  "muscleMass": "low" | "moderate" | "high",
-  "confidence": "low" | "medium" | "high",
-  "assessment": "one sentence summary of visible progress/body composition",
-  "nutritionFocus": "one short SpiceStrong nutrition recommendation, such as protein consistency, calorie deficit, maintenance, or muscle gain"
-}
-
-Use the photos, user stats, and measurements together. Prefer a range over false precision. If photos are unclear, lower confidence. This is an approximate estimate, not a medical diagnosis.`,
-      });
-
-      const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 300,
-          messages: [{ role: 'user', content }],
-        }),
-      });
-
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`API ${res.status}: ${body.slice(0, 120)}`);
-      }
-      const data = await res.json();
-      const text = data.content?.[0]?.text || '';
-
-      // Parse JSON
-      const start = text.indexOf('{');
-      let depth = 0, end = -1;
-      for (let i = start; i < text.length; i++) {
-        if (text[i] === '{') depth++;
-        if (text[i] === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
-      }
-      if (end === -1) throw new Error('Could not parse scan result');
-      const parsed = JSON.parse(text.slice(start, end));
-
-      const navyEstimate = calculateNavyBodyFatEstimate();
-      const bf = Math.round(Number(parsed.bodyFatPercent) || navyEstimate || 0);
-      const low = Math.round(Number(parsed.bodyFatLow) || Math.max(1, bf - 3));
-      const high = Math.round(Number(parsed.bodyFatHigh) || bf + 3);
-      setScanResult({
-        bodyFat: bf,
-        bodyFatLow: low,
-        bodyFatHigh: Math.max(high, low),
-        bodyType: parsed.bodyType || 'mesomorph',
-        muscleMass: parsed.muscleMass || 'moderate',
-        confidence: parsed.confidence || (navyEstimate ? 'medium' : 'low'),
-        assessment: parsed.assessment || 'Use this as a trend marker and compare again under the same conditions.',
-        nutritionFocus: parsed.nutritionFocus || 'Keep protein consistent and use weekly progress to adjust calories.',
-      });
-      setBodyFat(String(bf));
-      trackEvent('body_scan_completed', {
-        screen: 'FitnessProfileScreen',
-        metadata: {
-          confidence: parsed.confidence ?? 'low',
-          hasSide: !!scanSideBase64,
-          gender,
-        },
-      });
-    } catch (err: any) {
-      console.error('[SpiceStrong] Body scan failed:', err);
-      Alert.alert('Scan Failed', 'Could not analyze the photo. You can enter body fat manually or skip.');
-    } finally {
-      setScanning(false);
-    }
-  };
-
   const getPoseColor = (score: number) => {
     if (score >= 80) return '#34C759';
     if (score >= 50) return '#FFD60A';
     return '#FF3B30';
-  };
-
-  const getPoseStatusFromScore = (score: number): 'not-ready' | 'almost' | 'perfect' => {
-    if (score >= 80) return 'perfect';
-    if (score >= 50) return 'almost';
-    return 'not-ready';
   };
 
   const stepIndex = STEPS.indexOf(step);
@@ -876,7 +373,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                   </View>
 
                   {/* AI Body Scan card — full image */}
-                  <TouchableOpacity style={styles.premScanAIImageCard} onPress={() => setBodyScanMode('camera')} activeOpacity={0.88}>
+                  <TouchableOpacity style={styles.premScanAIImageCard} onPress={() => { setBodyScanMode('camera'); openGuidedBodyScan('front'); }} activeOpacity={0.88}>
                     <Image
                       source={require('../../assets/images/body-scan-mockup.png')}
                       style={styles.premScanAIImage}
@@ -955,152 +452,162 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                 </>
               )}
 
-              {/* ── Camera / Body Scan ── */}
+              {/* ── Camera mode — camera modal is open, show minimal placeholder ── */}
               {bodyScanMode === 'camera' && (
+                <View style={{ alignItems: 'center', paddingTop: 80, paddingBottom: 40 }}>
+                  <ActivityIndicator color={ORANGE} size="large" />
+                  <Text style={[styles.scanCameraHint, { marginTop: 18, textAlign: 'center' }]}>
+                    {'Camera is open\nFollow the on-screen countdown'}
+                  </Text>
+                </View>
+              )}
+
+              {/* ── Review Screen — show both photos + analyse / results ── */}
+              {bodyScanMode === 'review' && (
                 <>
-                  <TouchableOpacity onPress={() => setBodyScanMode(null)} style={styles.scanModeBack} activeOpacity={0.7}>
-                    <Text style={styles.scanModeBackText}>← Back</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.reviewTitle}>Review Your Photos</Text>
+                  <Text style={styles.reviewSub}>Make sure your full body is visible in both shots</Text>
 
-                  <Text style={styles.scanCameraHint}>Stand straight with your full body visible. Good lighting and a plain background give the best results.</Text>
-
-                  {/* Front photo card */}
-                  <View style={[styles.scanCameraCard, scanFrontBad && styles.scanCameraCardBad]}>
-                    <View style={styles.scanCameraCardHeader}>
-                      <Text style={styles.scanCameraCardLabel}>Front View</Text>
-                      {scanFrontUri && !scanFrontBad && <Text style={styles.scanCameraCardDone}>✓ Done</Text>}
-                      {scanFrontBad && <Text style={styles.scanCameraCardWarn}>⚠ Low quality</Text>}
+                  {/* Photo pair */}
+                  <View style={styles.reviewPhotoRow}>
+                    <View style={styles.reviewPhotoCard}>
+                      <Text style={styles.reviewPhotoLabel}>Front View</Text>
+                      {scanFrontUri ? (
+                        <Image source={{ uri: scanFrontUri }} style={styles.reviewPhoto} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.reviewPhoto, styles.reviewPhotoEmpty]}>
+                          <Text style={{ color: '#666', fontSize: 12 }}>No photo</Text>
+                        </View>
+                      )}
                     </View>
-                    {scanFrontUri ? (
-                      <View style={styles.scanCameraPreviewWrap}>
-                        <Image source={{ uri: scanFrontUri }} style={styles.scanCameraPreview} contentFit="contain" />
-                        {scanFrontBad && (
-                          <View style={styles.scanCameraBadBanner}>
-                            <Text style={styles.scanCameraBadText}>Photo quality is low — please retake for best results</Text>
-                          </View>
-                        )}
-                        <TouchableOpacity style={styles.scanCameraRetake} onPress={() => { setScanFrontUri(null); setScanFrontBase64(''); setScanFrontBad(false); }} activeOpacity={0.8}>
-                          <Text style={styles.scanCameraRetakeText}>Retake</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : uploadingPose === 'front' ? (
-                      <View style={styles.scanCameraPlaceholder}>
-                        <ActivityIndicator color={ORANGE} size="large" />
-                        <Text style={styles.scanCameraCheckingText}>Checking photo…</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.scanCameraPlaceholder}>
-                        <TouchableOpacity style={styles.scanCameraBtn} onPress={() => openGuidedBodyScan('front')} activeOpacity={0.8}>
-                          <Text style={styles.scanCameraBtnIcon}>📷</Text>
-                          <Text style={styles.scanCameraBtnText}>Take Photo</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => uploadBodyPhoto('front')} activeOpacity={0.7}>
-                          <Text style={styles.scanCameraLibraryText}>or choose from library</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                    <View style={styles.reviewPhotoCard}>
+                      <Text style={styles.reviewPhotoLabel}>Side View</Text>
+                      {scanSideUri ? (
+                        <Image source={{ uri: scanSideUri }} style={styles.reviewPhoto} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.reviewPhoto, styles.reviewPhotoEmpty]}>
+                          <Text style={{ color: '#666', fontSize: 12 }}>No photo</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
 
-                  {/* Side photo card */}
-                  <View style={[styles.scanCameraCard, !scanFrontUri && styles.scanCameraCardLocked, scanSideBad && styles.scanCameraCardBad]}>
-                    <View style={styles.scanCameraCardHeader}>
-                      <Text style={styles.scanCameraCardLabel}>Side View</Text>
-                      {scanSideUri && !scanSideBad && <Text style={styles.scanCameraCardDone}>✓ Done</Text>}
-                      {scanSideBad && <Text style={styles.scanCameraCardWarn}>⚠ Low quality</Text>}
-                      {!scanSideUri && !scanFrontUri && <Text style={styles.scanCameraCardLockedLabel}>🔒 After front</Text>}
-                    </View>
-                    {scanSideUri ? (
-                      <View style={styles.scanCameraPreviewWrap}>
-                        <Image source={{ uri: scanSideUri }} style={styles.scanCameraPreview} contentFit="contain" />
-                        {scanSideBad && (
-                          <View style={styles.scanCameraBadBanner}>
-                            <Text style={styles.scanCameraBadText}>Photo quality is low — please retake for best results</Text>
-                          </View>
-                        )}
-                        <TouchableOpacity style={styles.scanCameraRetake} onPress={() => { setScanSideUri(null); setScanSideBase64(''); setScanSideBad(false); }} activeOpacity={0.8}>
-                          <Text style={styles.scanCameraRetakeText}>Retake</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : uploadingPose === 'side' ? (
-                      <View style={styles.scanCameraPlaceholder}>
-                        <ActivityIndicator color={ORANGE} size="large" />
-                        <Text style={styles.scanCameraCheckingText}>Checking photo…</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.scanCameraPlaceholder}>
-                        <TouchableOpacity
-                          style={[styles.scanCameraBtn, !scanFrontUri && { opacity: 0.4 }]}
-                          onPress={() => { if (scanFrontUri) openGuidedBodyScan('side'); }}
-                          activeOpacity={0.8}
-                          disabled={!scanFrontUri}
-                        >
-                          <Text style={styles.scanCameraBtnIcon}>📷</Text>
-                          <Text style={styles.scanCameraBtnText}>Take Photo</Text>
-                        </TouchableOpacity>
-                        {!!scanFrontUri && (
-                          <TouchableOpacity onPress={() => uploadBodyPhoto('side')} activeOpacity={0.7}>
-                            <Text style={styles.scanCameraLibraryText}>or choose from library</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Tips */}
-                  <View style={styles.scanTips}>
-                    <Text style={styles.scanTipText}>💡 Wear tight-fitting clothes • Good lighting • Plain background • Full body head-to-toe</Text>
-                  </View>
-
-                  {/* Analyze button */}
-                  {scanFrontUri && scanSideUri && !scanning && !scanResult && (
-                    <TouchableOpacity style={styles.scanBtn} onPress={runBodyScan} activeOpacity={0.8}>
-                      <Text style={styles.scanBtnText}>Analyze Body Scan</Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Scanning */}
-                  {scanning && (
-                    <View style={styles.scanLoadingRow}>
-                      <ActivityIndicator color={ORANGE} size="small" />
-                      <Text style={styles.scanLoadingText}>Analyzing photos...</Text>
-                    </View>
-                  )}
-
-                  {/* Scan results */}
-                  {scanResult && (
-                    <View style={styles.scanResultCard}>
-                      <Text style={styles.scanResultTitle}>Progress Scan Estimate</Text>
-                      <View style={styles.scanResultRow}>
-                        <View style={styles.scanResultItem}>
-                          <Text style={styles.scanResultValue}>{scanResult.bodyFatLow}-{scanResult.bodyFatHigh}%</Text>
-                          <Text style={styles.scanResultLabel}>Body Fat Range</Text>
-                        </View>
-                        <View style={styles.scanResultDivider} />
-                        <View style={styles.scanResultItem}>
-                          <Text style={styles.scanResultValue}>{scanResult.bodyType}</Text>
-                          <Text style={styles.scanResultLabel}>Body Type</Text>
-                        </View>
-                        <View style={styles.scanResultDivider} />
-                        <View style={styles.scanResultItem}>
-                          <Text style={styles.scanResultValue}>{scanResult.muscleMass}</Text>
-                          <Text style={styles.scanResultLabel}>Muscle</Text>
-                        </View>
-                      </View>
-                      <View style={styles.scanInsightCard}>
-                        <Text style={styles.scanInsightLabel}>Confidence: {scanResult.confidence}</Text>
-                        <Text style={styles.scanInsightText}>{scanResult.assessment}</Text>
-                        <Text style={styles.scanInsightText}>{scanResult.nutritionFocus}</Text>
-                      </View>
-                      <Text style={styles.scanDisclaimer}>Use this for trend tracking, not diagnosis. For precise body composition, use DEXA or a clinical assessment.</Text>
-                      <TouchableOpacity onPress={() => { setScanResult(null); setScanFrontUri(null); setScanSideUri(null); setScanFrontBase64(''); setScanSideBase64(''); }} activeOpacity={0.7}>
-                        <Text style={styles.scanRetakeText}>Retake photos</Text>
+                  {/* ── Pre-analysis quality failure (from capture retry exhaustion) ── */}
+                  {(scanFrontBad || scanSideBad) && !scanning && !scanResult && !scanImageUnusable && (
+                    <View style={styles.reviewBadWrap}>
+                      <Text style={styles.reviewBadIcon}>⚠️</Text>
+                      <Text style={styles.reviewBadTitle}>Photos Need Improvement</Text>
+                      <Text style={styles.reviewBadMsg}>
+                        {scanFrontBad && scanSideBad
+                          ? 'Both photos are unclear. Make sure your full body is visible with good lighting.'
+                          : scanFrontBad
+                          ? 'Your front photo is unclear. Ensure your full body is visible with good lighting.'
+                          : 'Your side photo is unclear. Ensure your full profile is visible.'}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.reviewTryAgainBtn}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setScanFrontUri(null); setScanFrontBase64(''); setScanFrontBad(false);
+                          setScanSideUri(null); setScanSideBase64(''); setScanSideBad(false);
+                          setScanResult(null); setScanImageUnusable(false);
+                          setBodyScanMode(null);
+                        }}
+                      >
+                        <Text style={styles.reviewTryAgainText}>Try Again</Text>
                       </TouchableOpacity>
                     </View>
                   )}
 
-                  <TouchableOpacity onPress={goNext} activeOpacity={0.7}>
-                    <Text style={styles.skipText}>Skip this step</Text>
-                  </TouchableOpacity>
+                  {/* ── Post-analysis: AI says images not usable ── */}
+                  {scanImageUnusable && !scanning && (
+                    <View style={styles.reviewBadWrap}>
+                      <Text style={styles.reviewBadIcon}>📸</Text>
+                      <Text style={styles.reviewBadTitle}>Images Not Clear Enough</Text>
+                      <Text style={styles.reviewBadMsg}>
+                        {'Your photos couldn\'t be used for an accurate body fat analysis.\n\nTips: good lighting, plain background, full body head-to-toe, form-fitting clothes.'}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.reviewTryAgainBtn}
+                        activeOpacity={0.8}
+                        onPress={() => {
+                          setScanFrontUri(null); setScanFrontBase64(''); setScanFrontBad(false);
+                          setScanSideUri(null); setScanSideBase64(''); setScanSideBad(false);
+                          setScanResult(null); setScanImageUnusable(false);
+                          setBodyScanMode(null);
+                        }}
+                      >
+                        <Text style={styles.reviewTryAgainText}>Try Again</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {/* ── Analyse button — shown when no errors, not yet analysed ── */}
+                  {!scanFrontBad && !scanSideBad && !scanImageUnusable && !scanning && !scanResult && (
+                    <TouchableOpacity style={styles.reviewAnalyseBtn} onPress={runBodyScan} activeOpacity={0.85}>
+                      <Text style={styles.reviewAnalyseBtnText}>Analyse Body Scan</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* ── Scanning spinner ── */}
+                  {scanning && (
+                    <View style={styles.reviewScanningRow}>
+                      <ActivityIndicator color={ORANGE} size="large" />
+                      <Text style={styles.reviewScanningText}>Analysing your photos…</Text>
+                    </View>
+                  )}
+
+                  {/* ── Results ── */}
+                  {scanResult && !scanning && (
+                    <>
+                      <View style={styles.scanResultCard}>
+                        <Text style={styles.scanResultTitle}>Progress Scan Estimate</Text>
+                        <View style={styles.scanResultRow}>
+                          <View style={styles.scanResultItem}>
+                            <Text style={styles.scanResultValue}>{scanResult.bodyFatLow}–{scanResult.bodyFatHigh}%</Text>
+                            <Text style={styles.scanResultLabel}>Body Fat Range</Text>
+                          </View>
+                          <View style={styles.scanResultDivider} />
+                          <View style={styles.scanResultItem}>
+                            <Text style={styles.scanResultValue}>{scanResult.bodyType}</Text>
+                            <Text style={styles.scanResultLabel}>Body Type</Text>
+                          </View>
+                          <View style={styles.scanResultDivider} />
+                          <View style={styles.scanResultItem}>
+                            <Text style={styles.scanResultValue}>{scanResult.muscleMass}</Text>
+                            <Text style={styles.scanResultLabel}>Muscle</Text>
+                          </View>
+                        </View>
+                        <View style={styles.scanInsightCard}>
+                          <Text style={styles.scanInsightLabel}>Confidence: {scanResult.confidence}</Text>
+                          <Text style={styles.scanInsightText}>{scanResult.assessment}</Text>
+                          <Text style={styles.scanInsightText}>{scanResult.nutritionFocus}</Text>
+                        </View>
+                        <Text style={styles.scanDisclaimer}>Use this for trend tracking, not diagnosis. For precise body composition, use DEXA or a clinical assessment.</Text>
+                      </View>
+
+                      {/* Continue to next step */}
+                      <TouchableOpacity style={styles.reviewContinueBtn} onPress={goNext} activeOpacity={0.85}>
+                        <Text style={styles.reviewContinueBtnText}>Continue</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+
+                  {/* Retake link — only shown before analysis */}
+                  {!scanning && !scanResult && !scanImageUnusable && (
+                    <TouchableOpacity
+                      style={{ marginTop: 16, alignSelf: 'center' }}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setScanFrontUri(null); setScanFrontBase64(''); setScanFrontBad(false);
+                        setScanSideUri(null); setScanSideBase64(''); setScanSideBad(false);
+                        setScanResult(null); setScanImageUnusable(false);
+                        setBodyScanMode(null);
+                      }}
+                    >
+                      <Text style={styles.reviewRetakeLink}>← Retake Photos</Text>
+                    </TouchableOpacity>
+                  )}
                 </>
               )}
             </>
@@ -1388,13 +895,29 @@ Use the photos, user stats, and measurements together. Prefer a range over false
 
           <View style={styles.bodyCameraOverlay}>
 
+            {/* ── X close button ── */}
+            <TouchableOpacity
+              style={styles.scanExitBtn}
+              activeOpacity={0.75}
+              onPress={() => {
+                Speech.stop();
+                setScanCameraOpen(false);
+                setHoldingStill(false);
+                setCapturing(false);
+                setPhotoReady(false);
+                setBodyScanMode(null);
+              }}
+            >
+              <Text style={styles.scanExitIcon}>✕</Text>
+            </TouchableOpacity>
+
             {/* ── Header ── */}
             <View style={styles.scanHdrWrap}>
               <Text style={styles.scanHdrTitle}>{scanPose === 'front' ? 'Front View' : 'Side View'}</Text>
               <Text style={styles.scanHdrSub}>
                 {scanPose === 'front'
-                  ? 'Take a clear front photo in good lighting.\nRemove your shirt and stand as shown.'
-                  : 'Take a clear side photo.\nTurn 90° and show your full profile.'}
+                  ? 'Stand straight, full body visible, good lighting.'
+                  : 'Turn 90° and show your full profile head-to-toe.'}
               </Text>
               <View style={styles.scanHdrPrivacyRow}>
                 <Text style={styles.scanHdrPrivacyCheck}>✓</Text>
@@ -1407,11 +930,15 @@ Use the photos, user stats, and measurements together. Prefer a range over false
 
               {/* Left tips */}
               <View style={styles.scanTipCol}>
-                {[
+                {(scanPose === 'front' ? [
                   { icon: '🧍', label: 'Stand\nstraight' },
                   { icon: '☀️', label: 'Good\nlighting' },
-                  { icon: '👣', label: 'Feet shoulder\nwidth apart' },
-                ].map(t => (
+                  { icon: '👣', label: 'Feet\nshouldr\nwidth' },
+                ] : [
+                  { icon: '↩️', label: 'Turn\n90°' },
+                  { icon: '☀️', label: 'Good\nlighting' },
+                  { icon: '👤', label: 'Full\nprofile' },
+                ]).map(t => (
                   <View key={t.label} style={styles.scanTipItem}>
                     <View style={styles.scanTipCircle}><Text style={styles.scanTipIconTxt}>{t.icon}</Text></View>
                     <Text style={styles.scanTipLabel}>{t.label}</Text>
@@ -1427,14 +954,13 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                 <View style={[styles.scanCornerBracket, { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }]} />
                 <View style={[styles.scanCornerBracket, { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }]} />
 
-                {/* Static orange outline — no scoring, no polling */}
                 {!photoReady && (
                   <View style={styles.outlineGlowWrap}>
                     <BodyOutline pose={scanPose} gender={gender} color="#E85D26" opacity={0.9} height={460} />
                   </View>
                 )}
 
-                {/* Countdown ring */}
+                {/* Countdown badge */}
                 {!photoReady && !capturing && !scanPhotoAssessing && (
                   <View style={styles.scanTimerBadge}>
                     <Text style={styles.scanTimerNum}>{scanTimer}</Text>
@@ -1451,7 +977,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                   </View>
                 )}
 
-                {/* Capturing / checking */}
+                {/* Capturing / checking spinner */}
                 {(capturing || scanPhotoAssessing) && !photoReady && (
                   <View style={styles.outlineHoldWrap}>
                     <ActivityIndicator color="#E85D26" size="large" />
@@ -1465,11 +991,15 @@ Use the photos, user stats, and measurements together. Prefer a range over false
 
               {/* Right tips */}
               <View style={styles.scanTipCol}>
-                {[
+                {(scanPose === 'front' ? [
                   { icon: '👁️', label: 'Look\nstraight' },
-                  { icon: '👕', label: 'Shirt off' },
-                  { icon: '⛶', label: 'Fit your\nwhole body\nin the frame' },
-                ].map(t => (
+                  { icon: '👕', label: 'Shirt\noff' },
+                  { icon: '⛶', label: 'Full body\nin frame' },
+                ] : [
+                  { icon: '👁️', label: 'Head\nstraight' },
+                  { icon: '👕', label: 'Shirt\noff' },
+                  { icon: '⛶', label: 'Head to\ntoe visible' },
+                ]).map(t => (
                   <View key={t.label} style={styles.scanTipItem}>
                     <View style={styles.scanTipCircle}><Text style={styles.scanTipIconTxt}>{t.icon}</Text></View>
                     <Text style={styles.scanTipLabel}>{t.label}</Text>
@@ -1478,15 +1008,24 @@ Use the photos, user stats, and measurements together. Prefer a range over false
               </View>
             </View>
 
-            {/* ── Bottom bar: Gallery | Capture | Tips ── */}
+            {/* ── Bottom bar: Gallery | Capture ── */}
             <View style={styles.scanBottomBar}>
-              <TouchableOpacity style={styles.scanBottomSide} onPress={() => uploadBodyPhoto(scanPose)} activeOpacity={0.75}>
-                <View style={styles.scanBottomCircle}><Text style={styles.scanBottomSideIcon}>🖼️</Text></View>
+              <TouchableOpacity
+                style={styles.scanBottomSide}
+                onPress={() => uploadBodyPhoto(scanPose)}
+                activeOpacity={0.75}
+                disabled={!!(capturing || scanPhotoAssessing || uploadingPose !== null)}
+              >
+                <View style={styles.scanBottomCircle}>
+                  {uploadingPose === scanPose
+                    ? <ActivityIndicator color="#FFFFFF" size="small" />
+                    : <Text style={styles.scanBottomSideIcon}>🖼️</Text>}
+                </View>
                 <Text style={styles.scanBottomSideLabel}>Gallery</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.scanNewCaptureBtn}
+                style={[styles.scanNewCaptureBtn, (capturing || scanPhotoAssessing || photoReady) && { opacity: 0.4 }]}
                 onPress={captureGuidedBodyPhoto}
                 activeOpacity={0.8}
                 disabled={!!(capturing || scanPhotoAssessing || photoReady)}
@@ -1494,14 +1033,8 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                 <View style={styles.scanNewCaptureBtnInner} />
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.scanBottomSide}
-                onPress={() => { setScanCameraOpen(false); setScanInstructionPose(scanPose); setInstrSlide(0); }}
-                activeOpacity={0.75}
-              >
-                <View style={styles.scanBottomCircle}><Text style={styles.scanBottomSideIcon}>❓</Text></View>
-                <Text style={styles.scanBottomSideLabel}>Tips</Text>
-              </TouchableOpacity>
+              {/* Spacer to keep capture button centred */}
+              <View style={{ width: 64 }} />
             </View>
 
           </View>
@@ -1509,7 +1042,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
       </Modal>
 
       {/* Next button (not shown on results or body-fat selection) */}
-      {step !== 'results' && !(step === 'body_fat' && bodyScanMode === null) && (
+      {step !== 'results' && !(step === 'body_fat' && (bodyScanMode === null || bodyScanMode === 'camera' || bodyScanMode === 'review')) && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
           <TouchableOpacity style={styles.nextBtn} onPress={goNext} activeOpacity={0.8}>
             <Text style={styles.nextBtnText}>
@@ -2394,6 +1927,26 @@ const styles = StyleSheet.create({
   scanTipIconTxt: { fontSize: 20 },
   scanTipLabel: { fontSize: 10, color: 'rgba(255,255,255,0.72)', textAlign: 'center', lineHeight: 14 },
 
+  // X exit button — top right corner of camera screen
+  scanExitBtn: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 56 : 36,
+    right: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
+  },
+  scanExitIcon: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+
+  // Full-width outline area (no tip columns)
+  scanOutlineFull: { flex: 1, alignItems: 'center', justifyContent: 'center', width: '100%', position: 'relative' },
+
   scanOutlineCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scanCornerBracket: { position: 'absolute', width: 22, height: 22, borderColor: '#E85D26' },
   scanTimerBadge: {
@@ -2466,5 +2019,117 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.3,
+  },
+
+  // ── Review screen ──
+  reviewTitle: {
+    fontSize: 26, fontWeight: '900', color: '#FFFFFF',
+    textAlign: 'center', marginBottom: 6,
+    fontFamily: PLAYFAIR,
+  },
+  reviewSub: {
+    fontSize: 14, color: 'rgba(255,255,255,0.50)',
+    textAlign: 'center', lineHeight: 20, marginBottom: 24,
+  },
+  reviewPhotoRow: {
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 24,
+    width: '100%',
+  },
+  reviewPhotoCard: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 8,
+  },
+  reviewPhotoLabel: {
+    fontSize: 13, fontWeight: '800',
+    color: 'rgba(255,255,255,0.70)',
+    textTransform: 'uppercase', letterSpacing: 1,
+  },
+  reviewPhoto: {
+    width: '100%',
+    height: 220,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  reviewPhotoEmpty: {
+    alignItems: 'center', justifyContent: 'center',
+  },
+  reviewBadWrap: {
+    width: '100%',
+    backgroundColor: 'rgba(255,59,48,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.40)',
+    borderRadius: 20,
+    alignItems: 'center',
+    padding: 22,
+    marginBottom: 20,
+    gap: 8,
+  },
+  reviewBadIcon: { fontSize: 36 },
+  reviewBadTitle: {
+    fontSize: 18, fontWeight: '900', color: '#FF3B30',
+  },
+  reviewBadMsg: {
+    fontSize: 14, color: 'rgba(255,255,255,0.62)',
+    textAlign: 'center', lineHeight: 20,
+  },
+  reviewTryAgainBtn: {
+    marginTop: 8,
+    backgroundColor: ORANGE,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 36,
+  },
+  reviewTryAgainText: {
+    fontSize: 16, fontWeight: '900', color: '#FFFFFF',
+  },
+  reviewAnalyseBtn: {
+    width: '100%',
+    backgroundColor: ORANGE,
+    borderRadius: 18,
+    paddingVertical: 18,
+    alignItems: 'center',
+    marginBottom: 8,
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  reviewAnalyseBtnText: {
+    fontSize: 18, fontWeight: '900', color: '#FFFFFF', letterSpacing: 0.3,
+  },
+  reviewScanningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 20,
+  },
+  reviewScanningText: {
+    fontSize: 15, fontWeight: '700', color: 'rgba(255,255,255,0.70)',
+  },
+  reviewContinueBtn: {
+    width: '100%',
+    backgroundColor: ORANGE,
+    borderRadius: 18,
+    paddingVertical: 18,
+    alignItems: 'center',
+    marginTop: 16,
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  reviewContinueBtnText: {
+    fontSize: 18, fontWeight: '900', color: '#FFFFFF', letterSpacing: 0.3,
+  },
+  reviewRetakeLink: {
+    fontSize: 14, fontWeight: '700',
+    color: 'rgba(255,255,255,0.45)',
+    textDecorationLine: 'underline',
   },
 });

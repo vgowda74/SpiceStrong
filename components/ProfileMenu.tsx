@@ -107,6 +107,7 @@ export function ProfileMenu() {
     params: {},
   }));
   const handleFitnessProfile = () => closeMenu(() => router.push('/screens/FitnessProfileScreen'));
+  const handleBodyScan = () => closeMenu(() => router.push('/screens/BodyScanScreen'));
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
   const handleScanMenu = () => closeMenu(() => router.push('/screens/ScanMenuScreen'));
@@ -116,6 +117,7 @@ export function ProfileMenu() {
     {
       items: [
         { icon: 'body-outline',          label: 'Fitness Profile',       onPress: handleFitnessProfile },
+        { icon: 'scan-outline',          label: 'AI Body Scan',          onPress: handleBodyScan },
         { icon: 'stats-chart-outline',   label: 'Progress Report',       onPress: handleProgressReport },
         { icon: 'leaf-outline',          label: 'Dietary Restrictions',  onPress: handleDietary },
         { icon: 'flash-outline',         label: 'SpiceBuilder Recipe',   onPress: handleSpiceBuilder },
