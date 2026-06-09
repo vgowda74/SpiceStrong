@@ -205,7 +205,9 @@
       "Bash(node -e ' *)",
       "Bash(node -e \"require\\('./app.json'\\); require\\('./package.json'\\); console.log\\('valid'\\)\")",
       "Bash(node -e \"console.log\\(require\\('./app.json'\\).expo.plugins.map\\(p=>Array.isArray\\(p\\)?p[0]:p\\).join\\(', '\\)\\)\")",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(node -e \"const a=require\\('./app.json'\\); console.log\\(JSON.stringify\\(a.expo?.updates, null, 2\\)\\)\")",
+      "Bash(node -e \"const a=require\\('./app.json'\\); console.log\\(JSON.stringify\\({projectId: a.expo?.extra?.eas?.projectId, runtimeVersion: a.expo?.runtimeVersion, updates: a.expo?.updates}, null, 2\\)\\)\")"
     ]
   },
   "remote": {

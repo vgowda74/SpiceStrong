@@ -122,7 +122,7 @@ export default function ProgressReportScreen() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-sonnet-4-6',
               max_tokens: 200,
               messages: [{ role: 'user', content: `Fitness coach — give a 2-3 sentence ${period} report card. Be encouraging but honest.
 

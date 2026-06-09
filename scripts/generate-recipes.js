@@ -25,7 +25,7 @@ const fs = require('fs');
 
 // ─── Config ───
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'claude-sonnet-4-6';
 const OUTPUT_DIR = path.join(__dirname, '..', 'Recipes', 'input');
 const DEFAULT_INPUT = path.join(__dirname, '..', 'Recipes', 'prompts', 'recipe_prompts.xlsx');
 

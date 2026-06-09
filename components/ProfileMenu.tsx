@@ -111,44 +111,23 @@ export function ProfileMenu() {
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
   const handleScanMenu = () => closeMenu(() => router.push('/screens/ScanMenuScreen'));
 
-  // ── Menu sections ──
+  // ── Menu items (flat list, no section headers) ──
   const SECTIONS: MenuSection[] = [
     {
-      title: 'My Profile',
       items: [
-        { icon: 'body-outline', label: 'Fitness Profile', onPress: handleFitnessProfile },
-        { icon: 'stats-chart-outline', label: 'Progress Report', onPress: handleProgressReport },
-        { icon: 'leaf-outline', label: 'Dietary Restrictions', onPress: handleDietary },
-      ],
-    },
-    {
-      title: 'Recipes',
-      items: [
-        { icon: 'flash-outline', label: 'SpiceBuilder Recipe', onPress: handleSpiceBuilder },
-        { icon: 'add-circle-outline', label: 'Add Your Recipe', onPress: handleAddRecipe },
-      ],
-    },
-    {
-      title: 'Meal Planning',
-      items: [
-        { icon: 'sparkles-outline', label: 'Auto Meal Plan', onPress: handleAutoMealPlan },
-        { icon: 'calendar-outline', label: 'Meal Calendar', onPress: handleMealPlan },
-      ],
-    },
-    {
-      title: 'Smart Tools',
-      items: [
-        { icon: 'barcode-outline', label: 'Scan Nutrition Label', onPress: handleScanLabel },
-        { icon: 'restaurant-outline', label: 'Scan Restaurant Menu', onPress: handleScanMenu },
-        { icon: 'basket-outline', label: 'My Pantry Items', onPress: handleMyPantry },
-        { icon: 'cart-outline', label: 'My Shopping List', onPress: handleGroceryList },
-      ],
-    },
-    {
-      title: 'Premium',
-      items: [
-        { icon: 'star-outline', label: 'Upgrade to Pro', onPress: handleUpgradePro },
-        { icon: 'refresh-outline', label: 'Restore Purchase', onPress: handleRestorePurchase },
+        { icon: 'body-outline',          label: 'Fitness Profile',       onPress: handleFitnessProfile },
+        { icon: 'stats-chart-outline',   label: 'Progress Report',       onPress: handleProgressReport },
+        { icon: 'leaf-outline',          label: 'Dietary Restrictions',  onPress: handleDietary },
+        { icon: 'flash-outline',         label: 'SpiceBuilder Recipe',   onPress: handleSpiceBuilder },
+        { icon: 'calendar-outline',      label: 'Daily Tracker',         onPress: handleMealPlan },
+        { icon: 'sparkles-outline',      label: 'Auto Meal Plan',        onPress: handleAutoMealPlan },
+        { icon: 'barcode-outline',       label: 'Scan Nutrition Label',  onPress: handleScanLabel },
+        { icon: 'restaurant-outline',    label: 'Scan Restaurant Menu',  onPress: handleScanMenu },
+        { icon: 'add-circle-outline',    label: 'Add Your Recipe',       onPress: handleAddRecipe },
+        { icon: 'basket-outline',        label: 'My Pantry Items',       onPress: handleMyPantry },
+        { icon: 'cart-outline',          label: 'My Shopping List',      onPress: handleGroceryList },
+        { icon: 'star-outline',          label: 'Upgrade to Pro',        onPress: handleUpgradePro },
+        { icon: 'refresh-outline',       label: 'Restore Purchase',      onPress: handleRestorePurchase },
       ],
     },
   ];

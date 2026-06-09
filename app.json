@@ -8,6 +8,15 @@
     "scheme": "spicestrong",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "url": "https://u.expo.dev/7c79b4c1-3bb0-404b-8354-cf7fc38ecf6d",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.spicestrong.app",
@@ -65,7 +74,8 @@
           }
         }
       ],
-      "./plugins/withFirebaseStaticFix"
+      "./plugins/withFirebaseStaticFix",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

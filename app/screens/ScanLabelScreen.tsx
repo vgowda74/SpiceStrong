@@ -38,6 +38,17 @@ import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
 
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
+
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.ok || res.status < 500 || attempt === maxRetries) return res;
+    await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+  }
+  return fetch(url, options);
+}
+
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
@@ -175,7 +186,7 @@ export default function ScanLabelScreen() {
       if (!apiKey) throw new Error('No API key');
 
       // Step 1: Extract label data
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -184,7 +195,7 @@ export default function ScanLabelScreen() {
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: ANTHROPIC_MODEL,
           max_tokens: 1500,
           system: `You are a nutrition label reader. Extract ALL information from this nutrition facts label photo.
 
@@ -302,7 +313,7 @@ Rules:
       }
 
       // Step 5: Generate AI health summary
-      const summaryRes = await fetch('https://api.anthropic.com/v1/messages', {
+      const summaryRes = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -311,7 +322,7 @@ Rules:
           'anthropic-dangerous-direct-browser-access': 'true',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: ANTHROPIC_MODEL,
           max_tokens: 300,
           messages: [{ role: 'user', content: `You are a fitness nutrition expert. Give a 2-3 sentence health assessment of this product for someone focused on high-protein fitness nutrition.
 
@@ -330,7 +341,12 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       }
     } catch (err: any) {
       console.error('[SpiceStrong] Label scan failed:', err);
-      setError(err?.message || 'Could not read the label. Try a clearer photo.');
+      const msg = err?.message || '';
+      setError(
+        msg.includes('502') || msg.includes('503') || msg.includes('529')
+          ? 'Server is busy — please try again in a moment.'
+          : 'Could not read the label. Try a clearer photo.'
+      );
     } finally {
       setScanning(false);
     }
@@ -407,6 +423,8 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       if (!label) try {
         const url = `https://api.edamam.com/api/food-database/v2/parser?app_id=${appId}&app_key=${appKey}&upc=${barcode}`;
         const res = await fetch(url);
+        console.log(`[SpiceStrong] Edamam status: ${res.status}`);
+        if (res.status === 429) console.warn('[SpiceStrong] Edamam RATE LIMIT hit — check your monthly quota at developer.edamam.com');
         if (res.ok) {
           const data = await res.json();
           if (data.hints && data.hints.length > 0) {
@@ -565,11 +583,11 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       try {
         const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
         if (apiKey) {
-          const summaryRes = await fetch('https://api.anthropic.com/v1/messages', {
+          const summaryRes = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: ANTHROPIC_MODEL,
               max_tokens: 300,
               messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
 
@@ -601,16 +619,14 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
       } catch (e) { console.log('[SpiceStrong] AI summary failed', e); }
     } catch (err: any) {
       if (!barcodeOpenRef.current) return;
+      setBarcodeScanned(false);
+      setBarcodeReady(false);
+      scanLockRef.current = false;
       if (err?.message === 'not_food') {
-        setBarcodeLookupError(null);
-        setBarcodeScanned(false);
-        setBarcodeReady(false);
-        scanLockRef.current = false;
+        setBarcodeLookupError('Product not found — try scanning the label photo instead.');
       } else {
-        setBarcodeLookupError(null);
-        setBarcodeScanned(false);
-        setBarcodeReady(false);
-        scanLockRef.current = false;
+        console.error('[SpiceStrong] Barcode lookup error:', err?.message);
+        setBarcodeLookupError('Lookup failed — try again or scan the label photo.');
       }
     } finally {
       setScanning(false);

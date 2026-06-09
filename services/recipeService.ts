@@ -531,32 +531,20 @@ export async function fetchRecipeById(recipeId: string): Promise<SavedRecipe | n
 }
 
 /**
- * Save an AI-generated recipe to both AsyncStorage (immediate) and Supabase (background).
- * If Supabase upsert fails, recipe ID is added to pending sync list.
+ * Save an AI-generated recipe to AsyncStorage ONLY (local, private).
+ * Recipes stay local until the user explicitly publishes them.
+ * 
+ * ⚠️  IMPORTANT: AI recipes do NOT auto-sync to Supabase.
+ *     They are private to this device until the user clicks "Publish".
  *
  * @param recipe - The recipe to save
- * @param overrideDuplicate - If true, allows saving even if a duplicate fingerprint exists
- * @returns RecipeSyncResult — check `.duplicate` to show user-facing message
+ * @returns Promise<void> — always succeeds (local storage is reliable)
  */
-export async function saveAIRecipe(
-  recipe: SavedRecipe,
-  overrideDuplicate = false
-): Promise<RecipeSyncResult> {
-  // 1. Save locally — immediate, offline-safe
+export async function saveAIRecipe(recipe: SavedRecipe): Promise<void> {
+  // Save locally only — immediate, offline-safe, private to this device
+  // User must explicitly "publish" to share with the community
   await localSaveRecipe(recipe);
-
-  // 2. Sync to Supabase — check for duplicates
-  try {
-    const result = await syncRecipeToSupabase(recipe, overrideDuplicate);
-    if (result.duplicate) {
-      return result; // Caller decides whether to show UI and retry with override
-    }
-    return { success: true };
-  } catch {
-    // Network error — mark as pending sync
-    addToPendingSync(recipe.id).catch(() => {});
-    return { success: true }; // Local save succeeded, sync will retry later
-  }
+  console.log(`[SpiceStrong] AI recipe saved locally (private): ${recipe.id}`);
 }
 
 /**
@@ -567,6 +555,46 @@ export interface RecipeSyncResult {
   success: boolean;
   duplicate?: boolean;
   message?: string;
+}
+
+/**
+ * Publish a locally-created AI recipe to Supabase (make it community-visible).
+ * This is the ONLY way AI recipes should be synced to Supabase.
+ * 
+ * @param recipe - The AI recipe to publish
+ * @returns RecipeSyncResult with success/duplicate status
+ */
+export async function publishRecipe(recipe: SavedRecipe): Promise<RecipeSyncResult> {
+  try {
+    const isAvailable = await checkRecipeTableAvailable();
+    if (!isAvailable) {
+      return { success: false, message: 'No internet connection. Please try again.' };
+    }
+
+    console.log(`[SpiceStrong] Publishing recipe: ${recipe.name}...`);
+
+    // Sync to Supabase with duplicate check
+    const result = await syncRecipeToSupabase(recipe);
+    
+    if (result.duplicate) {
+      return { 
+        success: false, 
+        duplicate: true, 
+        message: 'A similar recipe already exists in the community.' 
+      };
+    }
+
+    if (result.success) {
+      console.log(`[SpiceStrong] Recipe published successfully: ${recipe.id}`);
+      return { success: true, message: 'Recipe published to the community!' };
+    }
+
+    return { success: false, message: 'Failed to publish recipe.' };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[SpiceStrong] Publish failed:', msg);
+    return { success: false, message: msg };
+  }
 }
 
 /**
@@ -1308,7 +1336,7 @@ ${flatInstructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: CLASSIFICATION_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],

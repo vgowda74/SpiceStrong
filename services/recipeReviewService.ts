@@ -310,7 +310,7 @@ ${localIssues.length > 0 ? localIssues.map(i => `- ${i}`).join('\n') : 'None —
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: REVIEW_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
@@ -397,7 +397,7 @@ async function verifyStepImage(
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 256,
         system: IMAGE_REVIEW_PROMPT,
         messages: [{
@@ -466,7 +466,7 @@ async function verifyHeroImage(
         'anthropic-dangerous-direct-browser-access': 'true',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 256,
         system: IMAGE_REVIEW_PROMPT,
         messages: [{
