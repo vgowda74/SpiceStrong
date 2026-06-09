@@ -1111,10 +1111,8 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                     ))}
                   </View>
 
-                  <Text style={styles.premScanFooter}>🔒 Secure  •  Private  •  256-bit Encrypted</Text>
-
-                  <TouchableOpacity onPress={goNext} activeOpacity={0.7} style={{ marginTop: 4, marginBottom: 8 }}>
-                    <Text style={styles.skipText}>Skip this step</Text>
+                  <TouchableOpacity style={styles.premScanSkipBtn} onPress={goNext} activeOpacity={0.8}>
+                    <Text style={styles.premScanSkipText}>Skip</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -2281,7 +2279,15 @@ const styles = StyleSheet.create({
     }),
   },
   premScanCTAText: { fontSize: 17, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.4 },
-  premScanFooter: { fontSize: 11, color: 'rgba(255,255,255,0.32)', textAlign: 'center', marginBottom: 6 },
+  premScanSkipBtn: {
+    backgroundColor: '#E85D26',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  premScanSkipText: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
 
   // Camera capture cards
   scanCameraHint: { fontSize: 14, color: 'rgba(255,255,255,0.50)', lineHeight: 20, marginBottom: 20, textAlign: 'center' },
