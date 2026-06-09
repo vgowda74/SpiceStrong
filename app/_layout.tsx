@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeService';
+import { generateScanInstrImages } from '../services/imageGenerationService';
 import { getDeviceId } from '../services/adminService';
 import { initPurchases } from '../services/purchaseService';
 import { trackAppOpen } from '../services/analyticsService';
@@ -73,6 +74,9 @@ export default function RootLayout() {
     // Background recipe sync & cache management
     refreshRecipeCache().catch(() => {});
     syncPendingAIRecipes().catch(() => {});
+    // Pre-cache body-scan instruction images from Supabase Storage so they're
+    // instant the first time the user opens the body-scan instructions screen.
+    generateScanInstrImages().catch(() => {});
     // pruneImageCache disabled — causes TurboModule crash
     // pruneImageCache().catch(() => {});
   }, []);

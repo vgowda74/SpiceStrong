@@ -236,9 +236,20 @@ const SCAN_INSTR_PROMPTS: Record<keyof ScanInstrImages, string> = {
   distanceBad: 'Fitness body scan bad example. Same man shirtless in gym shorts but standing far too close to camera, only chest and shoulders visible in frame, waist and legs completely cut off, severely over-cropped portrait, demonstrating wrong camera distance for body scan',
 };
 
+// Public CDN URL for pre-uploaded instruction images in Supabase Storage.
+// Run scripts/seed-scan-instructions.js once to populate the bucket.
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const SCAN_INSTR_BUCKET_BASE = `${SUPABASE_URL}/storage/v1/object/public/scan-instructions`;
+
 /**
- * Generate (or load from cache) all 8 instruction comparison images.
- * Calls onProgress as each image resolves so the UI can update card-by-card.
+ * Load all 8 body-scan instruction comparison images.
+ * Priority order:
+ *   1. Local file cache (instant — no network)
+ *   2. Supabase Storage CDN  (fast — pre-uploaded static assets)
+ *   3. fal.ai generation     (slow — only on first-ever run before seed)
+ *
+ * Call this on app start from _layout.tsx so images are cached before the
+ * user ever opens the body-scan instruction screen.
  */
 export async function generateScanInstrImages(
   onProgress?: (update: { key: keyof ScanInstrImages; uri: string }) => void,
@@ -250,7 +261,7 @@ export async function generateScanInstrImages(
     distanceGood: null, distanceBad: null,
   };
 
-  // Try cache
+  // 1. Local file cache — all 8 files must exist
   try {
     const cached = await AsyncStorage.getItem(SCAN_INSTR_CACHE_KEY);
     if (cached) {
@@ -260,24 +271,48 @@ export async function generateScanInstrImages(
         if (!uri) return false;
         try { return new File(uri).exists; } catch { return false; }
       });
-      if (allValid) return parsed;
+      if (allValid) {
+        console.log('[SpiceStrong] scan instr images: loaded from local cache');
+        return parsed;
+      }
     }
-  } catch { /* regenerate */ }
-
-  if (!FAL_KEY) return empty;
+  } catch { /* fall through */ }
 
   const result: ScanInstrImages = { ...empty };
   getImageDir();
-
-  // Generate all 8 in parallel — each resolves independently
   const keys = Object.keys(SCAN_INSTR_PROMPTS) as (keyof ScanInstrImages)[];
+
+  // 2. Supabase Storage — download pre-seeded static images in parallel
+  if (SUPABASE_URL) {
+    let supabaseOk = true;
+    await Promise.all(
+      keys.map(async (key) => {
+        const remoteUrl = `${SCAN_INSTR_BUCKET_BASE}/${key}.jpg`;
+        const localUri = await downloadImage(remoteUrl, `scan_instr_${key}.jpg`);
+        if (localUri) {
+          result[key] = localUri;
+          onProgress?.({ key, uri: localUri });
+        } else {
+          supabaseOk = false;
+        }
+      }),
+    );
+
+    if (supabaseOk && keys.every((k) => result[k])) {
+      console.log('[SpiceStrong] scan instr images: downloaded from Supabase Storage');
+      try { await AsyncStorage.setItem(SCAN_INSTR_CACHE_KEY, JSON.stringify(result)); } catch { /* non-blocking */ }
+      return result;
+    }
+    console.warn('[SpiceStrong] scan instr: some Supabase images missing, falling back to fal.ai');
+  }
+
+  // 3. fal.ai generation — last resort (before bucket is seeded)
+  if (!FAL_KEY) return result;
   await Promise.all(
     keys.map(async (key) => {
+      if (result[key]) return; // already loaded from Supabase
       const { url, error } = await callFal(SCAN_INSTR_PROMPTS[key], `scan-instr-${key}`, 'schnell');
-      if (!url) {
-        console.warn(`[SpiceStrong] scan instr ${key} failed: ${error}`);
-        return;
-      }
+      if (!url) { console.warn(`[SpiceStrong] scan instr ${key} fal.ai failed: ${error}`); return; }
       const localUri = await downloadImage(url, `scan_instr_${key}.jpg`);
       if (localUri) {
         result[key] = localUri;
