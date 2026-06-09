@@ -4,7 +4,7 @@
  * Step-by-step flow: Goal → Gender → Age → Height → Weight → Target Weight → Body Fat → Activity Level → Results
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,7 +28,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { generateBodyScanSample, generateScanInstrImages, type ScanInstrImages } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
 import BodyOutline from '../../components/BodyOutline';
-import { simulateAlignmentScore, buildAlignmentResult } from '../../services/bodyAlignmentService';
 import * as Speech from 'expo-speech';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -135,6 +134,8 @@ export default function FitnessProfileScreen() {
   const [photoReady, setPhotoReady] = useState(false);
   const cameraOpenTimeRef = useRef<number>(0);
   const alignmentIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const visionCheckInFlightRef = useRef(false);
+  const [visionCheckActive, setVisionCheckActive] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const glowAnim = useRef(new Animated.Value(0)).current;
   const [instrSlide, setInstrSlide] = useState(0);
@@ -349,6 +350,81 @@ Accept only if the full body from head to feet is visible, the person is centere
     }
   };
 
+  // ── Real vision-based alignment check ──
+  // Takes a tiny silent preview frame, asks Claude Haiku whether the full body
+  // (head to feet) is visible, and updates the outline colour accordingly.
+  const checkAlignmentWithVision = useCallback(async () => {
+    if (!scanCameraRef.current || !scanCameraReady) return;
+    if (capturing || scanPhotoAssessing || photoReady || holdingStill) return;
+    if (visionCheckInFlightRef.current) return;
+
+    visionCheckInFlightRef.current = true;
+    setVisionCheckActive(true);
+    try {
+      const preview = await scanCameraRef.current.takePictureAsync({
+        quality: 0.25,
+        skipProcessing: true,
+      });
+      if (!preview?.uri) return;
+
+      const compressed = await ImageManipulator.manipulateAsync(
+        preview.uri,
+        [{ resize: { width: 320 } }],
+        { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+      );
+      const b64 = compressed.base64 || '';
+      if (!b64 || b64.length < 100) return;
+
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+      if (!apiKey) return;
+
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 80,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+              {
+                type: 'text',
+                text: `Body scan alignment — ${scanPose === 'front' ? 'front-facing' : 'side-profile'} pose.\nIs the person's COMPLETE body (head AND feet) visible in frame and centered?\nReturn ONLY JSON: {"score":0-100,"tip":"short instruction"}\n0=only face/torso, 35=upper body only, 65=mostly visible, 85=full body well framed, 95=perfect`,
+              },
+            ],
+          }],
+        }),
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+      const text = data.content?.[0]?.text || '';
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start === -1 || end === -1) return;
+      const parsed = JSON.parse(text.slice(start, end + 1));
+
+      const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
+      setAlignmentScore(score);
+      if (parsed.tip) setGuidanceText(parsed.tip);
+
+      if (score >= 80) setPoseStatus('perfect');
+      else if (score >= 50) setPoseStatus('almost');
+      else setPoseStatus('not-ready');
+    } catch (err) {
+      console.warn('[SpiceStrong] Vision alignment check failed:', err);
+    } finally {
+      visionCheckInFlightRef.current = false;
+      setVisionCheckActive(false);
+    }
+  }, [scanCameraReady, capturing, scanPhotoAssessing, photoReady, holdingStill, scanPose]);
+
   const captureGuidedBodyPhoto = async () => {
     // Guard: camera must be mounted and ready
     if (!scanCameraRef.current || !scanCameraReady) {
@@ -509,33 +585,21 @@ Accept only if the full body from head to feet is visible, the person is centere
     return Math.round(86.01 * Math.log10(waistInches - neckInches) - 70.041 * Math.log10(heightInches) + 36.76);
   };
 
-  // ── Alignment simulation engine ──
+  // ── Real-vision alignment engine ──
+  // Fires an actual Claude Haiku check ~3.5s after camera opens and every 3.5s
+  // after that. Green = Claude confirmed full body is visible in frame.
   useEffect(() => {
     if (!scanCameraOpen || !scanCameraReady || holdingStill || capturing || scanPhotoAssessing) return;
 
-    let score = alignmentScore;
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - cameraOpenTimeRef.current;
-      score = simulateAlignmentScore(elapsed, score);
-      setAlignmentScore(score);
-
-      const result = buildAlignmentResult(score, scanPose);
-      setGuidanceText(result.feedback);
-
-      // Score drives outline colour only — never auto-triggers capture.
-      // User must tap the button; Claude then validates the actual photo.
-      if (score >= 80) {
-        setPoseStatus('perfect');
-      } else if (score >= 50) {
-        setPoseStatus('almost');
-      } else {
-        setPoseStatus('not-ready');
-      }
-    }, 200);
+    const initial = setTimeout(() => { checkAlignmentWithVision(); }, 1800);
+    const interval = setInterval(() => { checkAlignmentWithVision(); }, 3500);
 
     alignmentIntervalRef.current = interval;
-    return () => clearInterval(interval);
-  }, [scanCameraOpen, scanCameraReady, holdingStill, capturing, scanPhotoAssessing, scanPose]);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+  }, [scanCameraOpen, scanCameraReady, holdingStill, capturing, scanPhotoAssessing, checkAlignmentWithVision]);
 
   // ── Audio guidance while not yet aligned ──
   useEffect(() => {
@@ -1441,7 +1505,7 @@ Use the photos, user stats, and measurements together. Prefer a range over false
 
       <Modal visible={scanCameraOpen} animationType="slide" onRequestClose={() => { Speech.stop(); setScanCameraOpen(false); setHoldingStill(false); setCapturing(false); }}>
         <View style={styles.bodyCameraWrap}>
-          <CameraView ref={scanCameraRef} style={styles.bodyCamera} facing="front" onCameraReady={() => setScanCameraReady(true)} />
+          <CameraView ref={scanCameraRef} style={styles.bodyCamera} facing="front" mute onCameraReady={() => setScanCameraReady(true)} />
 
           <View style={styles.bodyCameraOverlay}>
 
@@ -1535,6 +1599,14 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                 {!!scanPhotoFeedback && captureAttempts < 3 && (
                   <Text style={styles.outlineRetakeText}>Retaking… {scanPhotoFeedback}</Text>
                 )}
+              </View>
+            )}
+
+            {/* ── Vision scanning indicator ── */}
+            {visionCheckActive && !capturing && !photoReady && (
+              <View style={styles.visionScanIndicator}>
+                <ActivityIndicator size="small" color="rgba(255,255,255,0.7)" />
+                <Text style={styles.visionScanText}>Checking frame…</Text>
               </View>
             )}
           </View>
@@ -2360,6 +2432,23 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
+  },
+  visionScanIndicator: {
+    position: 'absolute',
+    bottom: 130,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  visionScanText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.70)',
+    fontWeight: '500',
   },
 
   bodyCaptureBtn: {
