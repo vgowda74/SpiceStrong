@@ -188,6 +188,11 @@ export default function FitnessProfileScreen() {
       .finally(() => setSampleLoading(false));
   }, [step, gender, sampleUri, sampleLoading]);
 
+  // Reset mode selection whenever user (re-)enters the body_fat step.
+  useEffect(() => {
+    if (step === 'body_fat') setBodyScanMode(null);
+  }, [step]);
+
   // Pre-generate instruction comparison images as soon as user picks "Body Scan" mode.
   // Images resolve one-by-one via onProgress so cards update incrementally.
   useEffect(() => {
