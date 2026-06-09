@@ -205,6 +205,11 @@ export default function FitnessProfileScreen() {
   };
 
   const goBack = () => {
+    // Inside a body-scan sub-screen → back to mode selection, not previous step
+    if (step === 'body_fat' && bodyScanMode !== null) {
+      setBodyScanMode(null);
+      return;
+    }
     const idx = STEPS.indexOf(step);
     if (idx > 0) {
       Keyboard.dismiss();
