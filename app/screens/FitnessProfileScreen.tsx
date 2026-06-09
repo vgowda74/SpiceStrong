@@ -421,11 +421,12 @@ Accept only if the full body from head to feet is visible, the person is centere
 
       if (score >= 80) {
         setPoseStatus('perfect');
-        // Outline is green — stop polling, user will tap when ready
         if (alignmentIntervalRef.current) {
           clearInterval(alignmentIntervalRef.current);
           alignmentIntervalRef.current = null;
         }
+        // Auto-capture after 1.5s — gives user time to see green outline
+        setTimeout(() => captureGuidedBodyPhoto(), 1500);
       } else if (score >= 50) {
         setPoseStatus('almost');
       } else {
@@ -605,8 +606,8 @@ Accept only if the full body from head to feet is visible, the person is centere
   useEffect(() => {
     if (!scanCameraOpen || !scanCameraReady || holdingStill || capturing || scanPhotoAssessing) return;
 
-    const initial = setTimeout(() => { checkAlignmentWithVision(); }, 1800);
-    const interval = setInterval(() => { checkAlignmentWithVision(); }, 3500);
+    const initial = setTimeout(() => { checkAlignmentWithVision(); }, 2000);
+    const interval = setInterval(() => { checkAlignmentWithVision(); }, 5000);
 
     alignmentIntervalRef.current = interval;
     return () => {
@@ -1633,10 +1634,10 @@ Use the photos, user stats, and measurements together. Prefer a range over false
                   </View>
                 )}
 
-                {/* Tap when ready */}
+                {/* Auto-capture cue */}
                 {alignmentScore >= 80 && !capturing && !scanPhotoAssessing && !photoReady && !holdingStill && (
                   <View style={styles.outlineHoldWrap}>
-                    <Text style={[styles.outlineHoldText, { color: '#34C759' }]}>Tap when ready</Text>
+                    <Text style={[styles.outlineHoldText, { color: '#34C759' }]}>✓ Hold still…</Text>
                   </View>
                 )}
 
