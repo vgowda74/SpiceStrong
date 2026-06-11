@@ -37,6 +37,7 @@ import { trackEvent } from '../../services/analyticsService';
 import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
@@ -751,7 +752,7 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Scan Label</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>

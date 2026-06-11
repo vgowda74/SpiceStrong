@@ -8,6 +8,7 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
@@ -30,7 +31,7 @@ export default function OrderGroceryScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Order Groceries</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       <View style={styles.content}>

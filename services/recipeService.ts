@@ -102,6 +102,22 @@ async function checkRecipeTableAvailable(): Promise<boolean> {
 }
 
 // ─── Device ID ───
+export async function getCuratedRecipeCount(): Promise<number> {
+  try {
+    const tableAvailable = await checkRecipeTableAvailable();
+    if (tableAvailable) {
+      const { count, error } = await supabase
+        .from('recipes')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'curated')
+        .eq('is_active', true);
+      if (!error && typeof count === 'number' && count > 0) return count;
+    }
+  } catch {}
+
+  return Math.max(BUILTIN_RECIPES.length, 300);
+}
+
 async function getDeviceId(): Promise<string> {
   try {
     let id = await AsyncStorage.getItem(DEVICE_ID_KEY);

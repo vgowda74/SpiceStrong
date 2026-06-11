@@ -37,6 +37,7 @@ import { addPantryItemsBatch, addToGroceryList } from '../../services/pantryServ
 import { trackEvent } from '../../services/analyticsService';
 import { getDietPreference, isNonVegIngredientName, type DietPreference } from '../../src/utils/dietPreference';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -308,7 +309,7 @@ export default function ScanFridgeScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{modeConfig.title}</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       {/* Step 1: Photo Capture */}

@@ -26,6 +26,7 @@ import { getDietaryRestrictions } from '../../services/dietaryService';
 import { trackEvent } from '../../services/analyticsService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -208,7 +209,7 @@ Estimate portions as typically served at restaurants (larger than home portions)
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Scan Menu</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>

@@ -32,6 +32,7 @@ import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscri
 import { trackEvent } from '../../services/analyticsService';
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -168,7 +169,7 @@ export default function AutoMealPlanScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Auto Meal Plan</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       {/* Step 1: Targets */}

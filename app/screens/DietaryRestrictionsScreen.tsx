@@ -24,6 +24,7 @@ import {
 } from '../../services/dietaryService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -158,7 +159,7 @@ export default function DietaryRestrictionsScreen() {
             <Text style={styles.clearBtn}>Clear all</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 60 }} />
+          <HomeButton />
         )}
       </View>
 

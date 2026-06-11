@@ -28,6 +28,7 @@ import { getMealPlanForDate, type MealPlanEntry } from '../../services/mealPlanS
 import { getRecipeById, getCompletionStats } from '../../src/store/recipes';
 import { getFitnessProfile, getBodyStatsHistory, type FitnessProfile, type BodyStatsEntry } from '../../services/fitnessProfileService';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -254,7 +255,7 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Progress Report</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       {/* Period toggle */}

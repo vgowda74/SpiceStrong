@@ -32,6 +32,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -105,7 +106,7 @@ export default function FridgeRecipeResultsScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Recipe Matches</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       {loading ? (

@@ -551,6 +551,11 @@ export default function IngredientChecklistScreen() {
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
 
+        {/* Fixed home button */}
+        <TouchableOpacity style={styles.homeBtn} onPress={() => router.push('/screens/ProteinSelectionScreen')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} activeOpacity={0.75}>
+          <Text style={{ fontSize: 22, color: '#FFFFFF' }}>🏠</Text>
+        </TouchableOpacity>
+
         {/* Ingredient list */}
         <SectionList
           sections={sections}
@@ -857,6 +862,20 @@ const styles = StyleSheet.create({
       ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 6 },
     }),
+  },
+  homeBtn: {
+    position: 'absolute',
+    right: 16,
+    top: 52,
+    zIndex: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
   },
   backText: {
     color: '#FFFFFF',

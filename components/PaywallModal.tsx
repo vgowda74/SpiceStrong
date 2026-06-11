@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import type { LimitCheck } from '../services/subscriptionService';
 import { trackEvent } from '../services/analyticsService';
+import { getCuratedRecipeCount } from '../services/recipeService';
 
 const ORANGE = '#8F3A1F';
 const GREEN = '#22C55E';
@@ -26,8 +27,8 @@ const SURFACE = '#252525';
 const BORDER = 'rgba(255,255,255,0.08)';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
 
-const FEATURES = [
-  { label: 'Curated recipes', free: '170+', pro: '170+', freeCheck: true, proCheck: true },
+const BASE_FEATURES = [
+  { label: 'Curated recipes', free: '300+', pro: '300+', freeCheck: true, proCheck: true },
   { label: 'AI recipe builder', free: '5/month', pro: '50/year', freeCheck: true, proCheck: true },
   { label: 'Nutrition scans', free: '10/month', pro: 'Unlimited', freeCheck: true, proCheck: true },
   { label: 'Meal plans', free: '2/month', pro: 'Unlimited', freeCheck: true, proCheck: true },
@@ -36,7 +37,6 @@ const FEATURES = [
   { label: 'Protein tier ratings', free: '—', pro: '✓', freeCheck: false, proCheck: true },
   { label: 'Clean ingredient scan', free: '—', pro: '✓', freeCheck: false, proCheck: true },
   { label: 'Receipt & list scanner', free: '—', pro: 'Unlimited', freeCheck: false, proCheck: true },
-  { label: 'Priority support', free: '—', pro: '✓', freeCheck: false, proCheck: true },
 ];
 
 interface Props {
@@ -50,6 +50,13 @@ export default function PaywallModal({ visible, onClose, limitCheck, onUpgrade }
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<'yearly' | 'monthly'>('yearly');
+  const [curatedRecipeLabel, setCuratedRecipeLabel] = useState('300+');
+
+  const features = BASE_FEATURES.map((feature) => (
+    feature.label === 'Curated recipes'
+      ? { ...feature, free: curatedRecipeLabel, pro: curatedRecipeLabel }
+      : feature
+  ));
 
   useEffect(() => {
     if (visible) {
@@ -57,6 +64,10 @@ export default function PaywallModal({ visible, onClose, limitCheck, onUpgrade }
         screen: 'PaywallModal',
         metadata: { featureLabel: limitCheck?.featureLabel },
       });
+
+      getCuratedRecipeCount()
+        .then((count) => setCuratedRecipeLabel(`${Math.max(count, 300)}+`))
+        .catch(() => setCuratedRecipeLabel('300+'));
     }
   }, [visible, limitCheck?.featureLabel]);
 
@@ -141,7 +152,7 @@ export default function PaywallModal({ visible, onClose, limitCheck, onUpgrade }
               </View>
 
               {/* Feature rows */}
-              {FEATURES.map((f, i) => (
+              {features.map((f, i) => (
                 <View key={i} style={[styles.compRow, i % 2 === 0 && styles.compRowAlt]}>
                   <Text style={styles.compFeature}>{f.label}</Text>
                   <Text style={[styles.compFreeVal, !f.freeCheck && styles.compValDim]}>{f.free}</Text>

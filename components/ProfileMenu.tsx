@@ -121,7 +121,7 @@ export function ProfileMenu() {
         { icon: 'stats-chart-outline',   label: 'Progress Report',       onPress: handleProgressReport },
         { icon: 'leaf-outline',          label: 'Dietary Restrictions',  onPress: handleDietary },
         { icon: 'flash-outline',         label: 'SpiceBuilder Recipe',   onPress: handleSpiceBuilder },
-        { icon: 'calendar-outline',      label: 'Daily Tracker',         onPress: handleMealPlan },
+        { icon: 'calendar-outline',      label: 'Daily Cal Tracker',     onPress: handleMealPlan },
         { icon: 'sparkles-outline',      label: 'Auto Meal Plan',        onPress: handleAutoMealPlan },
         { icon: 'barcode-outline',       label: 'Scan Nutrition Label',  onPress: handleScanLabel },
         { icon: 'restaurant-outline',    label: 'Scan Restaurant Menu',  onPress: handleScanMenu },

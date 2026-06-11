@@ -13,6 +13,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { HomeButton } from '../../components/HomeButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
@@ -1301,7 +1302,7 @@ Return ONLY the JSON, no explanation.`,
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
           <Text style={styles.title}>SpiceBuilder</Text>
-          <View style={styles.headerSpacer} />
+          <HomeButton />
         </View>
 
         {/* ── Entry screen: Choose mode ── */}

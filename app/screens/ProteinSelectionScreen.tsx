@@ -1,6 +1,6 @@
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -116,11 +116,13 @@ export default function ProteinSelectionScreen() {
   const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
   const [search, setSearch] = useState('');
-  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>('veg');
+  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>(null);
 
-  useEffect(() => {
-    getDietPreference().then(setDietPreferenceState);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      getDietPreference().then(setDietPreferenceState);
+    }, [])
+  );
 
   const filtered = useMemo(() => {
     return filterProteinsForPreference(PROTEINS, dietPreference).filter((p) => {

@@ -26,6 +26,7 @@ import { getFitnessProfile, saveFitnessProfile, type FitnessProfile } from '../.
 import { trackEvent } from '../../services/analyticsService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import BodyOutline from '../../components/BodyOutline';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#E85D26';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -752,14 +753,15 @@ Return ONLY this JSON:
       {screen !== 'camera' && (
         <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
           <TouchableOpacity
+            style={styles.backBtn}
             onPress={() => { Speech.stop(); router.back(); }}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            activeOpacity={0.7}
+            activeOpacity={0.75}
           >
-            <Text style={styles.headerBack}>‹ Back</Text>
+            <Text style={styles.back}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>AI Body Scan</Text>
-          <View style={{ width: 56 }} />
+          <HomeButton />
         </View>
       )}
 
@@ -776,7 +778,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingBottom: 12,
   },
-  headerBack: { fontSize: 17, color: 'rgba(255,255,255,0.60)', fontWeight: '600', width: 56 },
+  backBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.54)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      android: { elevation: 6 },
+    }),
+  },
+  back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 17, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
 
   // ── Start ──

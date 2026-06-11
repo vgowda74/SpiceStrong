@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { trackEvent } from '../../services/analyticsService';
+import { HomeButton } from '../../components/HomeButton';
 
 const FEEDBACK_KEY = 'spicestrong_feedback';
 const ORANGE = '#8F3A1F';
@@ -162,6 +163,7 @@ export default function FeedbackScreen() {
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.title}>Recipe Feedback</Text>
+        <HomeButton />
       </View>
       <ScrollView
         style={styles.scroll}

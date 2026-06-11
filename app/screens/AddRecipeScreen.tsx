@@ -24,6 +24,7 @@ import { filterProteinsForPreference, getDietPreference, hasNonVegText, isNonVeg
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { analyzeNutrition } from '../../services/nutritionService';
 import VoiceInput from '../../components/VoiceInput';
+import { HomeButton } from '../../components/HomeButton';
 
 type WizardStep = 'image_import' | 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
 const WIZARD_STEPS: WizardStep[] = ['image_import', 'basics', 'ingredients', 'steps', 'hero', 'review'];
@@ -800,6 +801,7 @@ Return ONLY the JSON, no explanation.`,
           <Text style={styles.headerTitle}>
             {currentStepIndex === 4 ? 'Review Recipe' : isEditing ? `${proteinEmoji} Edit Recipe` : `${proteinEmoji} Add Your Recipe`}
           </Text>
+          <HomeButton />
         </View>
 
         {/* Progress Bar */}
@@ -1321,10 +1323,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingHorizontal: 16,
     paddingBottom: 12,
-    gap: 12,
   },
   backBtn: {
     width: 46,
@@ -1341,10 +1343,13 @@ const styles = StyleSheet.create({
     }),
   },
   headerTitle: {
+    flex: 1,
     fontSize: 20,
     fontWeight: '700',
     color: '#FFFFFF',
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
+    textAlign: 'center',
+    marginHorizontal: 8,
   },
   progressBar: {
     flexDirection: 'row',

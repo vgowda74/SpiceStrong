@@ -40,6 +40,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 import { isAdmin } from '../../services/adminService';
 import { fixRecipeStepAsAdmin, type AdminRecipeFixMode } from '../../services/adminRecipeFixService';
 import { trackEvent } from '../../services/analyticsService';
+import { HomeButton } from '../../components/HomeButton';
 // imageCacheService no longer needed — expo-image handles caching
 
 
@@ -1007,7 +1008,7 @@ export default function CookingModeScreen() {
           <Text style={styles.headerBackText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{recipe.name}</Text>
-        <View style={{ width: 32 }} />
+        <HomeButton />
       </View>
 
       {/* Segmented progress bar */}
