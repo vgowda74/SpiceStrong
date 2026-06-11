@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,11 +19,12 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { File, Directory, Paths } from 'expo-file-system';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { addToMealPlan, type MealSlot } from '../../services/mealPlanService';
+import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
@@ -214,6 +215,24 @@ export default function ScanFoodScreen() {
   const [capturing, setCapturing] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
+  useFocusEffect(useCallback(() => {
+    AsyncStorage.getItem(INGREDIENT_EDIT_OUT).then((raw) => {
+      if (!raw) return;
+      AsyncStorage.removeItem(INGREDIENT_EDIT_OUT).catch(() => {});
+      const result = JSON.parse(raw);
+      setAnalysis((prev) => {
+        if (!prev) return prev;
+        const components = [...prev.components];
+        if (result.deleted) {
+          components.splice(result.index, 1);
+        } else {
+          components[result.index] = `${result.name} | ${result.calories} | ${result.quantity}`;
+        }
+        return { ...prev, components };
+      });
+    }).catch(() => {});
+  }, []));
+
   const applyPhoto = async (uri: string) => {
     const compressed = await manipulateAsync(
       uri,
@@ -246,33 +265,19 @@ export default function ScanFoodScreen() {
     setAnalysis((prev) => prev ? { ...prev, [field]: numericValue } : prev);
   };
 
-  const updateIngredientPart = (
-    index: number,
-    part: 'name' | 'calories' | 'quantity',
-    value: string,
-  ) => {
-    setAnalysis((prev) => {
-      if (!prev) return prev;
-      const components = [...prev.components];
-      const item = parseIngredientComponent(components[index] ?? '');
-      const next = {
-        ...item,
-        [part]: part === 'calories'
-          ? `${value.replace(/[^\d]/g, '') || '0'} cal`
-          : value,
-      };
-      components[index] = `${next.name || 'Ingredient'} | ${next.calories || '0 cal'} | ${next.quantity || 'qty'}`;
-      return { ...prev, components };
-    });
-  };
-
   const addIngredient = () => {
     setAnalysis((prev) => prev ? { ...prev, components: [...prev.components, 'Ingredient | 0 cal | qty'] } : prev);
-    setEditMode(true);
   };
 
-  const removeIngredient = (index: number) => {
-    setAnalysis((prev) => prev ? { ...prev, components: prev.components.filter((_, i) => i !== index) } : prev);
+  const openIngredientEdit = async (index: number, component: string) => {
+    const item = parseIngredientComponent(component);
+    await AsyncStorage.setItem(INGREDIENT_EDIT_IN, JSON.stringify({
+      index,
+      name: item.name,
+      calories: item.calories,
+      quantity: item.quantity,
+    }));
+    router.push('/screens/EditIngredientScreen');
   };
 
   const pickPhoto = async (useCamera: boolean) => {
@@ -501,57 +506,31 @@ export default function ScanFoodScreen() {
 
             <View style={styles.ingredientsHeader}>
               <Text style={styles.ingredientsTitle}>Ingredients</Text>
-              {editMode ? (
-                <TouchableOpacity style={styles.addIngredientBtn} onPress={addIngredient} activeOpacity={0.82}>
-                  <Ionicons name="add" size={16} color="#FFFFFF" />
-                  <Text style={styles.addIngredientText}>Add</Text>
-                </TouchableOpacity>
-              ) : (
-                <Text style={styles.confidence}>{analysis.confidence}</Text>
-              )}
+              <TouchableOpacity style={styles.addIngredientBtn} onPress={addIngredient} activeOpacity={0.82}>
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+                <Text style={styles.addIngredientText}>Add</Text>
+              </TouchableOpacity>
             </View>
             {(analysis.components.length ? analysis.components : ['Ingredient | 0 cal | qty']).map((component, index) => {
               const item = parseIngredientComponent(component);
+              const calNum = item.calories.replace(/[^\d]/g, '');
               return (
-                <View key={`${component}_${index}`} style={styles.ingredientRow}>
-                  {editMode ? (
-                    <>
-                      <TextInput
-                        style={[styles.ingredientEditInput, styles.ingredientNameInput]}
-                        value={item.name}
-                        onChangeText={(value) => updateIngredientPart(index, 'name', value)}
-                        placeholder="Ingredient"
-                        placeholderTextColor="rgba(248,241,232,0.34)"
-                      />
-                      <TextInput
-                        style={[styles.ingredientEditInput, styles.ingredientCalInput]}
-                        value={item.calories.replace(/[^\d]/g, '')}
-                        onChangeText={(value) => updateIngredientPart(index, 'calories', value)}
-                        keyboardType="number-pad"
-                        placeholder="cal"
-                        placeholderTextColor="rgba(248,241,232,0.34)"
-                      />
-                      <TextInput
-                        style={[styles.ingredientEditInput, styles.ingredientQtyInput]}
-                        value={item.quantity}
-                        onChangeText={(value) => updateIngredientPart(index, 'quantity', value)}
-                        placeholder="qty"
-                        placeholderTextColor="rgba(248,241,232,0.34)"
-                      />
-                      <TouchableOpacity style={styles.removeIngredientBtn} onPress={() => removeIngredient(index)} activeOpacity={0.82}>
-                        <Ionicons name="close" size={15} color="rgba(248,241,232,0.72)" />
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <>
-                      <Text style={styles.ingredientName}>{item.name}</Text>
-                      <View style={styles.ingredientMeta}>
-                        <Text style={styles.ingredientCalories}>{item.calories}</Text>
-                        <Text style={styles.ingredientQty}>{item.quantity}</Text>
-                      </View>
-                    </>
-                  )}
-                </View>
+                <TouchableOpacity
+                  key={`${component}_${index}`}
+                  style={styles.ingredientRow}
+                  onPress={() => openIngredientEdit(index, component)}
+                  activeOpacity={0.76}
+                >
+                  <View style={styles.ingredientLeft}>
+                    <Text style={styles.ingredientName} numberOfLines={1}>{item.name}</Text>
+                    {calNum ? <Text style={styles.ingredientDot}>·</Text> : null}
+                    {calNum ? <Text style={styles.ingredientCal}>{calNum} cal</Text> : null}
+                  </View>
+                  <View style={styles.ingredientRight}>
+                    <Text style={styles.ingredientQty} numberOfLines={1}>{item.quantity}</Text>
+                    <Ionicons name="chevron-forward" size={14} color="rgba(248,241,232,0.28)" />
+                  </View>
+                </TouchableOpacity>
               );
             })}
           </View>
@@ -566,10 +545,10 @@ export default function ScanFoodScreen() {
             activeOpacity={0.82}
           >
             <Ionicons name={editMode ? 'checkmark' : 'create-outline'} size={18} color="#F8F1E8" />
-            <Text style={styles.secondaryBtnText}>{editMode ? 'Done Editing' : 'Edit'}</Text>
+            <Text style={styles.secondaryBtnText}>{editMode ? 'Done' : 'Edit Macros'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.doneBtn} onPress={saveMeal} disabled={saving} activeOpacity={0.86}>
-            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.doneBtnText}>Done</Text>}
+            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.doneBtnText}>Save Meal</Text>}
           </TouchableOpacity>
         </View>
       )}
@@ -871,8 +850,8 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   ingredientRow: {
-    minHeight: 54,
-    borderRadius: 16,
+    minHeight: 52,
+    borderRadius: 14,
     backgroundColor: 'rgba(248,241,232,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(248,241,232,0.10)',
@@ -880,38 +859,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 9,
-    gap: 12,
+    marginBottom: 7,
+    gap: 8,
   },
-  ingredientName: { flex: 1, color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
-  ingredientMeta: { alignItems: 'flex-end', gap: 2, maxWidth: 118 },
-  ingredientCalories: { color: '#E8A87C', fontSize: 13, fontWeight: '900' },
-  ingredientQty: { color: 'rgba(248,241,232,0.52)', fontSize: 12, fontWeight: '800' },
-  ingredientEditInput: {
-    minHeight: 38,
-    borderRadius: 12,
-    backgroundColor: 'rgba(13,11,9,0.34)',
-    borderWidth: 1,
-    borderColor: 'rgba(248,241,232,0.10)',
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  ingredientNameInput: { flex: 1.15 },
-  ingredientCalInput: { width: 62, textAlign: 'right' },
-  ingredientQtyInput: { flex: 0.8 },
-  removeIngredientBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(13,11,9,0.46)',
-    borderWidth: 1,
-    borderColor: 'rgba(248,241,232,0.10)',
-  },
+  ingredientLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5, overflow: 'hidden' },
+  ingredientName: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  ingredientDot: { color: 'rgba(248,241,232,0.35)', fontSize: 14, fontWeight: '600', flexShrink: 0 },
+  ingredientCal: { color: 'rgba(248,241,232,0.50)', fontSize: 13, fontWeight: '600', flexShrink: 0 },
+  ingredientRight: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 },
+  ingredientQty: { color: 'rgba(248,241,232,0.60)', fontSize: 13, fontWeight: '600', maxWidth: 110 },
   bottomBar: {
     position: 'absolute',
     left: 0,
