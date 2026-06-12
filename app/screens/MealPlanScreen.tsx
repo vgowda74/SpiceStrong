@@ -50,6 +50,7 @@ import { getFitnessProfile, calculateMacroTargets, type MacroTargets } from '../
 import Svg, { Circle } from 'react-native-svg';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
@@ -343,11 +344,12 @@ const PLAYFAIR = Platform.select({
 });
 
 const CARD_W = Dimensions.get('window').width - 36;
-const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch_dinner', 'snack_dessert'];
+const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch_dinner', 'snack_dessert', 'others'];
 const SLOT_META: Record<MealSlot, { icon: keyof typeof Ionicons.glyphMap; accent: string; hint: string }> = {
   breakfast: { icon: 'sunny-outline', accent: '#F5A524', hint: 'Start strong' },
   lunch_dinner: { icon: 'restaurant-outline', accent: '#E8671A', hint: 'Fuel the day' },
   snack_dessert: { icon: 'sparkles-outline', accent: '#22C55E', hint: 'Smart finish' },
+  others: { icon: 'grid-outline', accent: '#94A3B8', hint: 'Untagged meals' },
 };
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -1410,7 +1412,7 @@ export default function MealPlanScreen() {
       if (!ANTHROPIC_KEY) throw new Error('No API key');
 
       const { SPICEBUILDER_SYSTEM_PROMPT } = require('../../src/prompts/spiceBuilderPrompt');
-      const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : 'Lunch/Dinner';
+      const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : mealSlot === 'others' ? 'Meal' : 'Lunch/Dinner';
       const systemPrompt = SPICEBUILDER_SYSTEM_PROMPT;
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1492,7 +1494,7 @@ export default function MealPlanScreen() {
         })),
         chefTip: String(recipeData.chefTip || ''),
         createdAt: Date.now(),
-        mealType: mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack_dessert' : 'lunch_dinner',
+        mealType: mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack_dessert' : mealSlot === 'others' ? 'others' : 'lunch_dinner',
         status: 'ready',
         source: 'ai',
         aiNutrition: recipeData.aiNutrition || entry.recipe?.aiNutrition,
@@ -1564,6 +1566,7 @@ export default function MealPlanScreen() {
     breakfast: [],
     lunch_dinner: [],
     snack_dessert: [],
+    others: [],
   };
   enriched.forEach((e) => { if (grouped[e.slot]) grouped[e.slot].push(e); });
 
@@ -1859,9 +1862,11 @@ export default function MealPlanScreen() {
                       <Text style={styles.slotHint}>{slotMeta.hint}</Text>
                     </View>
                   </View>
-                  <View style={styles.slotCountPill}>
-                    <Text style={styles.slotCount}>{slotEntries.length}/{limit}</Text>
-                  </View>
+                  {slot !== 'others' && (
+                    <View style={styles.slotCountPill}>
+                      <Text style={styles.slotCount}>{slotEntries.length}/{limit}</Text>
+                    </View>
+                  )}
                 </View>
 
                 {slotEntries.map((entry) => {
@@ -2163,8 +2168,11 @@ export default function MealPlanScreen() {
 
             {quickAddScanning && (
               <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Analyzing {quickAddPhotos.length} photo{quickAddPhotos.length > 1 ? 's' : ''}...</Text>
+                <ProcessingRing
+                  label={`Analyzing ${quickAddPhotos.length} photo${quickAddPhotos.length > 1 ? 's' : ''}...`}
+                  expectedMs={8000}
+                  size={80}
+                />
               </View>
             )}
 
@@ -2413,8 +2421,7 @@ export default function MealPlanScreen() {
             )}
             {quickAddReanalyzing && (
               <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Revising estimate...</Text>
+                <ProcessingRing label="Revising estimate..." expectedMs={6000} size={72} />
               </View>
             )}
             {quickAddFeedback === 'ok' && (
@@ -2828,8 +2835,7 @@ export default function MealPlanScreen() {
                     )}
                     {correctionReanalyzing && (
                       <View style={[styles.cmAnalyzing, { marginTop: 10 }]}>
-                        <ActivityIndicator color={ORANGE} size="small" />
-                        <Text style={styles.cmAnalyzingText}>Revising estimate...</Text>
+                        <ProcessingRing label="Revising estimate..." expectedMs={6000} size={72} />
                       </View>
                     )}
                     {correctionFeedback === 'ok' && (
@@ -2865,8 +2871,11 @@ export default function MealPlanScreen() {
             {/* Analyzing */}
             {correcting && (
               <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Analyzing {correctionPhotos.length} photo{correctionPhotos.length > 1 ? 's' : ''}...</Text>
+                <ProcessingRing
+                  label={`Analyzing ${correctionPhotos.length} photo${correctionPhotos.length > 1 ? 's' : ''}...`}
+                  expectedMs={8000}
+                  size={80}
+                />
               </View>
             )}
             </>)}

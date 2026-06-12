@@ -25,6 +25,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { analyzeNutrition } from '../../services/nutritionService';
 import VoiceInput from '../../components/VoiceInput';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 type WizardStep = 'image_import' | 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
 const WIZARD_STEPS: WizardStep[] = ['image_import', 'basics', 'ingredients', 'steps', 'hero', 'review'];
@@ -869,9 +870,11 @@ Return ONLY the JSON, no explanation.`,
 
               {extracting && (
                 <View style={styles.importCenter}>
-                  <ActivityIndicator color="#8F3A1F" size="large" />
-                  <Text style={styles.importTitle}>{extractionProgress || 'Extracting recipe...'}</Text>
-                  <Text style={styles.importSubtitle}>This may take a moment</Text>
+                  <ProcessingRing
+                    label={extractionProgress || 'Extracting recipe...'}
+                    sublabel="This may take a moment"
+                    expectedMs={18000}
+                  />
                 </View>
               )}
             </View>

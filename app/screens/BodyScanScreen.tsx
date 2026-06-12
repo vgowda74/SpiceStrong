@@ -27,6 +27,7 @@ import { trackEvent } from '../../services/analyticsService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import BodyOutline from '../../components/BodyOutline';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ORANGE = '#E85D26';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -526,44 +527,47 @@ Return ONLY this JSON:
 
           {/* Outline center */}
           <View style={styles.outlineCenter}>
-            <View style={[styles.corner, { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3 }]} />
-            <View style={[styles.corner, { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 }]} />
-            <View style={[styles.corner, { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 }]} />
-            <View style={[styles.corner, { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 }]} />
+            {/* Alignment frame — shows users exactly where to position their body */}
+            <View style={styles.bodyFrame}>
+              <View style={[styles.bodyCorner, { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 10 }]} />
+              <View style={[styles.bodyCorner, { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 10 }]} />
+              <View style={[styles.bodyCorner, { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 10 }]} />
+              <View style={[styles.bodyCorner, { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 10 }]} />
 
-            {!photoReady && (
-              <BodyOutline pose={pose} gender={profile?.gender ?? 'male'} color={ORANGE} opacity={0.9} height={460} />
-            )}
+              {!photoReady && (
+                <BodyOutline pose={pose} gender={profile?.gender ?? 'male'} color={ORANGE} opacity={0.9} height={460} />
+              )}
 
-            {/* Countdown badge */}
-            {!photoReady && !capturing && !photoAssessing && (
-              <View style={styles.timerBadge}>
-                <Text style={[styles.timerNum, timer <= 3 && { color: '#FFD60A' }]}>{timer}</Text>
-                <Text style={styles.timerSec}>sec</Text>
-              </View>
-            )}
+              {/* Captured badge — inside the frame */}
+              {photoReady && (
+                <View style={styles.capturedBadge}>
+                  <Text style={styles.capturedIcon}>✓</Text>
+                  <Text style={styles.capturedText}>
+                    {pose === 'front' ? 'Front view complete!' : 'Side view complete!'}
+                  </Text>
+                  {pose === 'front' && <Text style={styles.capturedSub}>Preparing side view…</Text>}
+                </View>
+              )}
 
-            {/* Captured badge */}
-            {photoReady && (
-              <View style={styles.capturedBadge}>
-                <Text style={styles.capturedIcon}>✓</Text>
-                <Text style={styles.capturedText}>
-                  {pose === 'front' ? 'Front view complete!' : 'Side view complete!'}
-                </Text>
-                {pose === 'front' && <Text style={styles.capturedSub}>Preparing side view…</Text>}
-              </View>
-            )}
+              {/* Capturing / assessing spinner */}
+              {(capturing || photoAssessing) && !photoReady && (
+                <View style={styles.spinnerWrap}>
+                  <ActivityIndicator color={ORANGE} size="large" />
+                  <Text style={styles.spinnerText}>{photoAssessing ? 'Checking photo…' : 'Capturing…'}</Text>
+                  {!!photoFeedback && captureAttempts < 3 && (
+                    <Text style={styles.retakeHint}>Retaking… {photoFeedback}</Text>
+                  )}
+                </View>
+              )}
 
-            {/* Capturing / assessing spinner */}
-            {(capturing || photoAssessing) && !photoReady && (
-              <View style={styles.spinnerWrap}>
-                <ActivityIndicator color={ORANGE} size="large" />
-                <Text style={styles.spinnerText}>{photoAssessing ? 'Checking photo…' : 'Capturing…'}</Text>
-                {!!photoFeedback && captureAttempts < 3 && (
-                  <Text style={styles.retakeHint}>Retaking… {photoFeedback}</Text>
-                )}
-              </View>
-            )}
+              {/* Countdown badge — at the bottom of the alignment frame */}
+              {!photoReady && !capturing && !photoAssessing && (
+                <View style={styles.timerBadge}>
+                  <Text style={[styles.timerNum, timer <= 3 && { color: '#FFD60A' }]}>{timer}</Text>
+                  <Text style={styles.timerSec}>sec</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Right tips */}
@@ -683,8 +687,7 @@ Return ONLY this JSON:
       {/* Scanning spinner */}
       {scanning && (
         <View style={styles.scanningRow}>
-          <ActivityIndicator color={ORANGE} size="large" />
-          <Text style={styles.scanningText}>Analysing your photos…</Text>
+          <ProcessingRing label="Analysing your photos…" expectedMs={12000} />
         </View>
       )}
 
@@ -866,6 +869,15 @@ const styles = StyleSheet.create({
 
   outlineCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   corner: { position: 'absolute', width: 22, height: 22, borderColor: ORANGE },
+  bodyFrame: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(232,93,38,0.35)',
+    borderRadius: 14,
+    position: 'relative',
+  },
+  bodyCorner: { position: 'absolute', width: 38, height: 38, borderColor: ORANGE },
   timerBadge: {
     position: 'absolute', bottom: 16,
     width: 56, height: 56, borderRadius: 28,

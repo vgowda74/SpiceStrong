@@ -9,7 +9,6 @@
 
 import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Platform,
   ScrollView,
   StyleSheet,
@@ -27,6 +26,7 @@ import { trackEvent } from '../../services/analyticsService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -229,9 +229,11 @@ Estimate portions as typically served at restaurants (larger than home portions)
         {/* Scanning */}
         {scanning && (
           <View style={styles.scanningWrap}>
-            <ActivityIndicator color={ORANGE} size="large" />
-            <Text style={styles.scanningTitle}>Analyzing menu...</Text>
-            <Text style={styles.scanningSub}>Finding the best options for your fitness goals</Text>
+            <ProcessingRing
+              label="Analyzing menu..."
+              sublabel="Finding the best options for your fitness goals"
+              expectedMs={10000}
+            />
           </View>
         )}
 
@@ -356,9 +358,7 @@ const styles = StyleSheet.create({
   cameraBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
 
   // Scanning
-  scanningWrap: { alignItems: 'center', paddingTop: 60, gap: 12 },
-  scanningTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  scanningSub: { fontSize: 13, color: 'rgba(255,255,255,0.50)' },
+  scanningWrap: { alignItems: 'center', paddingTop: 60, paddingBottom: 20 },
 
   // Error
   errorWrap: { alignItems: 'center', paddingTop: 40, gap: 12 },

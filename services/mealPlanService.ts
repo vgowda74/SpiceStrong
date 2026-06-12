@@ -14,18 +14,20 @@ import { supabase } from './supabase';
 const LOCAL_KEY_PREFIX = 'spicestrong_mealplan_';
 const DEVICE_ID_KEY = 'spicestrong_device_id';
 
-export type MealSlot = 'breakfast' | 'lunch_dinner' | 'snack_dessert';
+export type MealSlot = 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'others';
 
 export const SLOT_LIMITS: Record<MealSlot, number> = {
   breakfast: 1,
   lunch_dinner: 2,
   snack_dessert: 1,
+  others: 10,
 };
 
 export const SLOT_LABELS: Record<MealSlot, string> = {
   breakfast: '🌅 Breakfast',
   lunch_dinner: '🍽️ Lunch / Dinner',
   snack_dessert: '🥜 Snack / Dessert',
+  others: '📦 Others',
 };
 
 export interface MealPlanEntry {

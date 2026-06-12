@@ -23,6 +23,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import { addToMealPlan, type MealSlot } from '../../services/mealPlanService';
 import { trackEvent } from '../../services/analyticsService';
 import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
@@ -211,7 +212,7 @@ export default function ScanFoodScreen() {
   const date = typeof params.date === 'string' ? params.date : todayIso();
   const cameraRef = useRef<CameraView>(null);
 
-  const [slot, setSlot] = useState<MealSlot>('breakfast');
+  const [slot, setSlot] = useState<MealSlot | null>(null);
   const [photos, setPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [analysis, setAnalysis] = useState<FoodPhotoAnalysis | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -262,7 +263,7 @@ export default function ScanFoodScreen() {
       const result = await analyzeFoodPhotosDirect(nextPhotos, analysis?.name || 'meal');
       setAnalysis(result);
       setEditMode(false);
-      trackEvent('scan_food', { screen: 'ScanFoodScreen', metadata: { slot, confidence: result.confidence } });
+      trackEvent('scan_food', { screen: 'ScanFoodScreen', metadata: { slot: slot ?? 'others', confidence: result.confidence } });
     } catch (err: any) {
       Alert.alert('Analysis failed', err?.message ?? 'Try another photo or use gallery.');
     } finally {
@@ -370,7 +371,7 @@ export default function ScanFoodScreen() {
     setSaving(true);
     try {
       const entryId = `quick_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const result = await addToMealPlan(date, slot, {
+      const result = await addToMealPlan(date, slot ?? 'others', {
         id: entryId,
         name: analysis.name.trim() || 'Detected Food',
         proteinName: 'Custom',
@@ -395,7 +396,7 @@ export default function ScanFoodScreen() {
           photoUris,
         }));
       }
-      trackEvent('meal_saved', { screen: 'ScanFoodScreen', metadata: { slot } });
+      trackEvent('meal_saved', { screen: 'ScanFoodScreen', metadata: { slot: slot ?? 'others' } });
       router.back();
     } catch (err: any) {
       Alert.alert('Save failed', err?.message ?? 'Could not save this meal.');
@@ -438,10 +439,11 @@ export default function ScanFoodScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.slotRow}>
+          <Text style={styles.slotHint}>{slot ? '' : 'Optional · saved as Others if skipped'}</Text>
           {(Object.keys(SLOT_META) as MealSlot[]).map((item) => {
             const active = slot === item;
             return (
-              <TouchableOpacity key={item} style={[styles.slotPill, active && styles.slotPillActive]} onPress={() => setSlot(item)} activeOpacity={0.82}>
+              <TouchableOpacity key={item} style={[styles.slotPill, active && styles.slotPillActive]} onPress={() => setSlot((prev) => prev === item ? null : item)} activeOpacity={0.82}>
                 <Ionicons name={SLOT_META[item].icon} size={16} color={active ? '#FFFFFF' : 'rgba(248,241,232,0.62)'} />
                 <Text style={[styles.slotText, active && styles.slotTextActive]}>{SLOT_META[item].label}</Text>
               </TouchableOpacity>
@@ -459,8 +461,7 @@ export default function ScanFoodScreen() {
 
         {scanning && (
           <View style={styles.loadingCard}>
-            <ActivityIndicator color="#E8A87C" />
-            <Text style={styles.loadingText}>Reading nutrition...</Text>
+            <ProcessingRing label="Reading nutrition..." expectedMs={7000} />
           </View>
         )}
 
@@ -712,7 +713,8 @@ const styles = StyleSheet.create({
   actionPrimary: { backgroundColor: '#F8F1E8', borderColor: 'rgba(248,241,232,0.72)' },
   actionText: { color: '#F8F1E8', fontSize: 12, fontWeight: '900', textAlign: 'center' },
   actionPrimaryText: { color: '#0F0D0B', fontSize: 12, fontWeight: '900', textAlign: 'center' },
-  slotRow: { gap: 10, paddingVertical: 16 },
+  slotRow: { gap: 10, paddingVertical: 16, alignItems: 'center' },
+  slotHint: { color: 'rgba(248,241,232,0.38)', fontSize: 11, fontWeight: '700', marginRight: 4 },
   slotPill: {
     minHeight: 42,
     borderRadius: 16,
@@ -730,15 +732,14 @@ const styles = StyleSheet.create({
   photoStrip: { gap: 10, paddingBottom: 14 },
   photoThumb: { width: 64, height: 64, borderRadius: 18, backgroundColor: 'rgba(248,241,232,0.08)' },
   loadingCard: {
-    minHeight: 74,
+    minHeight: 150,
     borderRadius: 20,
     backgroundColor: 'rgba(13,11,9,0.32)',
     borderWidth: 1,
     borderColor: 'rgba(248,241,232,0.10)',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 10,
+    paddingVertical: 24,
   },
   loadingText: { color: 'rgba(248,241,232,0.72)', fontSize: 13, fontWeight: '900' },
   resultCard: {

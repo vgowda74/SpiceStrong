@@ -32,6 +32,7 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
 import { trackEvent } from '../../services/analyticsService';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
@@ -1399,10 +1400,9 @@ Return ONLY the JSON, no explanation.`,
         {importing && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ActivityIndicator color="#8F3A1F" size="large" style={{ marginBottom: 24 }} />
+              <ProcessingRing label={importStep} sublabel="Extracting recipe from your photo" expectedMs={22000} size={108} />
               <Text style={styles.genEmoji}>📸</Text>
               <Text style={styles.genTitle}>Importing Recipe</Text>
-              <Text style={styles.genStep}>{importStep}</Text>
             </View>
           </View>
         )}
@@ -1480,10 +1480,9 @@ Return ONLY the JSON, no explanation.`,
         {generating && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ActivityIndicator color="#8F3A1F" size="large" style={{ marginBottom: 24 }} />
+              <ProcessingRing label={genStep} sublabel="AI is crafting your recipe" expectedMs={20000} size={108} />
               <Text style={styles.genEmoji}>👨‍🍳</Text>
               <Text style={styles.genTitle}>Creating Your Recipe</Text>
-              <Text style={styles.genStep}>{genStep}</Text>
               {genRecipeId && (
                 <TouchableOpacity
                   style={styles.genViewBtn}
@@ -1645,8 +1644,7 @@ Return ONLY the JSON, no explanation.`,
 
           {loading && (
             <View style={styles.loadingWrap}>
-              <ActivityIndicator size="large" color={ACCENT} />
-              <Text style={styles.loadingText}>🍳 SpiceBuilder is crafting your recipe...</Text>
+              <ProcessingRing label="SpiceBuilder is crafting your recipe..." expectedMs={20000} />
             </View>
           )}
 

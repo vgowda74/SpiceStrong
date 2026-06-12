@@ -38,6 +38,7 @@ import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
@@ -122,6 +123,10 @@ export default function ScanLabelScreen() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const labelCamRef = useRef<CameraView>(null);
+  const [labelCamOpen, setLabelCamOpen] = useState(false);
+  const [labelCamReady, setLabelCamReady] = useState(false);
+  const [labelCamCapturing, setLabelCamCapturing] = useState(false);
   const [labelData, setLabelData] = useState<LabelData | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
   const [dietaryViolations, setDietaryViolations] = useState<string[]>([]);
@@ -150,16 +155,17 @@ export default function ScanLabelScreen() {
       quality: 0.8,
       base64: false,
     };
-    let result: ImagePicker.ImagePickerResult;
     if (useCamera) {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) return;
-      result = await ImagePicker.launchCameraAsync(opts);
-    } else {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) return;
-      result = await ImagePicker.launchImageLibraryAsync(opts);
+      const perm = cameraPermission?.granted ? cameraPermission : await requestCameraPermission();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access is required.'); return; }
+      setLabelCamReady(false);
+      setLabelCamOpen(true);
+      return;
     }
+    let result: ImagePicker.ImagePickerResult;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    result = await ImagePicker.launchImageLibraryAsync(opts);
     if (!result.canceled && result.assets?.[0]) {
       setImageUri(result.assets[0].uri);
       setLabelData(null);
@@ -167,6 +173,27 @@ export default function ScanLabelScreen() {
       setError(null);
       setAiSummary('');
       analyzeLabelImage(result.assets[0].uri);
+    }
+  };
+
+  const captureLabel = async () => {
+    if (!labelCamRef.current || !labelCamReady || labelCamCapturing) return;
+    setLabelCamCapturing(true);
+    try {
+      const photo = await labelCamRef.current.takePictureAsync({ quality: 0.75, base64: false, skipProcessing: false });
+      if (photo?.uri) {
+        setLabelCamOpen(false);
+        setImageUri(photo.uri);
+        setLabelData(null);
+        setHealthScore(null);
+        setError(null);
+        setAiSummary('');
+        analyzeLabelImage(photo.uri);
+      }
+    } catch {
+      Alert.alert('Capture failed', 'Could not capture the label.');
+    } finally {
+      setLabelCamCapturing(false);
     }
   };
 
@@ -806,12 +833,52 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
           </View>
         </Modal>
 
+        {/* Label Camera Modal */}
+        <Modal visible={labelCamOpen} animationType="slide" onRequestClose={() => setLabelCamOpen(false)}>
+          <View style={styles.labelCamWrap}>
+            <CameraView ref={labelCamRef} style={styles.labelCamFull} facing="back" onCameraReady={() => setLabelCamReady(true)} />
+            <View style={styles.labelCamOverlay}>
+              <View style={[styles.labelCamTopRow, { paddingTop: insets.top + 12 }]}>
+                <TouchableOpacity style={styles.labelCamFloatBtn} onPress={() => setLabelCamOpen(false)} activeOpacity={0.82}>
+                  <Text style={{ fontSize: 22, color: '#FFFFFF' }}>✕</Text>
+                </TouchableOpacity>
+                <View style={styles.labelCamBadge}>
+                  <Text style={{ fontSize: 16 }}>🔍</Text>
+                  <Text style={styles.labelCamBadgeTxt}>Nutrition Label</Text>
+                </View>
+              </View>
+              <View style={styles.labelCamFrameWrap}>
+                <View style={styles.labelCamFrame}>
+                  <View style={[styles.labelCorner, { top: 16, left: 16, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 14 }]} />
+                  <View style={[styles.labelCorner, { top: 16, right: 16, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 14 }]} />
+                  <View style={[styles.labelCorner, { bottom: 16, left: 16, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 14 }]} />
+                  <View style={[styles.labelCorner, { bottom: 16, right: 16, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 14 }]} />
+                  <Text style={styles.labelCamTitle}>Cover the full label</Text>
+                  <Text style={styles.labelCamSub}>Fit the Nutrition Facts panel AND the Ingredients list inside this frame</Text>
+                </View>
+              </View>
+              <View style={[styles.labelCamCaptureWrap, { paddingBottom: insets.bottom + 24 }]}>
+                <TouchableOpacity
+                  style={[styles.labelCamCapBtn, (!labelCamReady || labelCamCapturing) && styles.labelCamCapBtnDisabled]}
+                  onPress={captureLabel}
+                  disabled={!labelCamReady || labelCamCapturing}
+                  activeOpacity={0.82}
+                >
+                  <View style={styles.labelCamCapInner} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Scanning */}
         {scanning && (
           <View style={styles.scanningWrap}>
-            <ActivityIndicator color={ORANGE} size="large" />
-            <Text style={styles.scanningTitle}>Reading nutrition label...</Text>
-            <Text style={styles.scanningSub}>Analyzing ingredients, additives, and nutrition facts</Text>
+            <ProcessingRing
+              label="Reading nutrition label..."
+              sublabel="Analyzing ingredients, additives, and nutrition facts"
+              expectedMs={7000}
+            />
           </View>
         )}
 
@@ -1179,4 +1246,60 @@ const styles = StyleSheet.create({
   // Scan another
   scanAnotherBtn: { backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', marginTop: 8 },
   scanAnotherText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  // Label Camera Modal
+  labelCamWrap: { flex: 1, backgroundColor: '#000000' },
+  labelCamFull: { flex: 1 },
+  labelCamOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between', paddingHorizontal: 10 },
+  labelCamTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  labelCamFloatBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(13,11,9,0.62)', alignItems: 'center', justifyContent: 'center' },
+  labelCamBadge: { minHeight: 44, borderRadius: 22, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(13,11,9,0.62)', borderWidth: 1, borderColor: 'rgba(248,241,232,0.14)' },
+  labelCamBadgeTxt: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  labelCamFrameWrap: { flex: 1, justifyContent: 'center' },
+  labelCamFrame: {
+    width: '100%',
+    minHeight: '62%',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.28)',
+    backgroundColor: 'rgba(13,11,9,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  labelCorner: { position: 'absolute', width: 52, height: 52, borderColor: '#FFFFFF' },
+  labelCamTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  labelCamSub: {
+    color: 'rgba(248,241,232,0.80)',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginTop: 8,
+    textAlign: 'center',
+    maxWidth: 260,
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
+  },
+  labelCamCaptureWrap: { alignItems: 'center' },
+  labelCamCapBtn: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: 'rgba(248,241,232,0.92)',
+    borderWidth: 7,
+    borderColor: 'rgba(13,11,9,0.48)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labelCamCapBtnDisabled: { opacity: 0.55 },
+  labelCamCapInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFFFFF' },
 });

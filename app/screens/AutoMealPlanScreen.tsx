@@ -33,6 +33,7 @@ import { trackEvent } from '../../services/analyticsService';
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -363,10 +364,9 @@ export default function AutoMealPlanScreen() {
       {/* Step 3: Generating */}
       {step === 'generating' && (
         <View style={styles.genWrap}>
-          <ActivityIndicator color={ORANGE} size="large" />
+          <ProcessingRing label={genProgress || 'Building your week...'} sublabel="Creating your personalised meal plan" expectedMs={15000} size={108} />
           <Text style={styles.genEmoji}>📅</Text>
           <Text style={styles.genTitle}>Building Your Week</Text>
-          <Text style={styles.genProgress}>{genProgress}</Text>
         </View>
       )}
 

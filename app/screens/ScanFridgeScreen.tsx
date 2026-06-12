@@ -38,6 +38,7 @@ import { trackEvent } from '../../services/analyticsService';
 import { getDietPreference, isNonVegIngredientName, type DietPreference } from '../../src/utils/dietPreference';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -353,9 +354,11 @@ export default function ScanFridgeScreen() {
       {/* Step 2: Scanning */}
       {step === 'scanning' && (
         <View style={styles.scanningWrap}>
-          <ActivityIndicator color={ORANGE} size="large" />
-          <Text style={styles.scanningTitle}>{modeConfig.scanningText}</Text>
-          <Text style={styles.scanningHint}>AI is reading and categorizing your items</Text>
+          <ProcessingRing
+            label={modeConfig.scanningText}
+            sublabel="AI is reading and categorizing your items"
+            expectedMs={12000}
+          />
         </View>
       )}
 
