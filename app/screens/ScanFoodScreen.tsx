@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { addToMealPlan, type MealSlot } from '../../services/mealPlanService';
+import { trackEvent } from '../../services/analyticsService';
 import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
@@ -82,13 +83,19 @@ function extractFirstJson(text: string): any {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-function parseIngredientComponent(component: string): { name: string; calories: string; quantity: string } {
+function parseIngredientComponent(component: string): { name: string; calories: string; quantity: string; proteinG: number; carbsG: number; fatG: number } {
   const normalized = component.replace(/—/g, '|').replace(/ - /g, ' | ');
   const parts = normalized.split('|').map((part) => part.trim()).filter(Boolean);
   const name = parts[0]?.replace(/^[-•\s]+/, '') || component;
   const calories = parts.find((part) => /\bcal\b|kcal/i.test(part))?.replace(/^~\s*/, '') ?? '';
-  const quantity = parts.find((part) => !/\bcal\b|kcal/i.test(part) && part !== name) ?? '';
-  return { name, calories, quantity };
+  const quantity = parts.find((part) => !/\bcal\b|kcal/i.test(part) && !/\bprotein\b/i.test(part) && !/\bcarb/i.test(part) && !/\bfat\b/i.test(part) && part !== name) ?? '';
+  const proteinPart = parts.find((part) => /\bprotein\b/i.test(part));
+  const carbsPart = parts.find((part) => /\bcarb/i.test(part));
+  const fatPart = parts.find((part) => /\bfat\b/i.test(part));
+  const proteinG = proteinPart ? Math.round(Number(proteinPart.replace(/[^\d.]/g, '')) || 0) : 0;
+  const carbsG = carbsPart ? Math.round(Number(carbsPart.replace(/[^\d.]/g, '')) || 0) : 0;
+  const fatG = fatPart ? Math.round(Number(fatPart.replace(/[^\d.]/g, '')) || 0) : 0;
+  return { name, calories, quantity, proteinG, carbsG, fatG };
 }
 
 async function analyzeFoodPhotosDirect(photos: { base64: string }[], mealName = 'meal'): Promise<FoodPhotoAnalysis> {
@@ -138,8 +145,8 @@ Return ONLY this JSON:
 Ingredient rules:
 - Break visible foods into separate simple ingredients whenever possible.
 - Prefer names like bell pepper, spinach, mixed vegetables, egg, cheese, rice, sauce.
-- Every component must be "Ingredient name | total cal | qty".
-- Do not include macro grams in component rows.`,
+- Every component must be "Ingredient name | total cal | qty | Xg protein | Xg carbs | Xg fat".
+- Include estimated protein, carbs, and fat grams for each ingredient.`,
       messages: [{
         role: 'user',
         content: [
@@ -226,7 +233,12 @@ export default function ScanFoodScreen() {
         if (result.deleted) {
           components.splice(result.index, 1);
         } else {
-          components[result.index] = `${result.name} | ${result.calories} | ${result.quantity}`;
+          const macros = [
+              result.proteinG ? `${result.proteinG}g protein` : '',
+              result.carbsG ? `${result.carbsG}g carbs` : '',
+              result.fatG ? `${result.fatG}g fat` : '',
+            ].filter(Boolean).join(' | ');
+            components[result.index] = [result.name, result.calories, result.quantity, macros].filter(Boolean).join(' | ');
         }
         return { ...prev, components };
       });
@@ -250,6 +262,7 @@ export default function ScanFoodScreen() {
       const result = await analyzeFoodPhotosDirect(nextPhotos, analysis?.name || 'meal');
       setAnalysis(result);
       setEditMode(false);
+      trackEvent('scan_food', { screen: 'ScanFoodScreen', metadata: { slot, confidence: result.confidence } });
     } catch (err: any) {
       Alert.alert('Analysis failed', err?.message ?? 'Try another photo or use gallery.');
     } finally {
@@ -271,11 +284,25 @@ export default function ScanFoodScreen() {
 
   const openIngredientEdit = async (index: number, component: string) => {
     const item = parseIngredientComponent(component);
+    let { proteinG, carbsG, fatG } = item;
+
+    // Estimate from meal totals when ingredient has no stored macros
+    if (!proteinG && !carbsG && !fatG && analysis) {
+      const ingCal = Number(item.calories.replace(/[^\d]/g, '')) || 0;
+      const totalIngCal = analysis.components.reduce((sum, c) => {
+        return sum + (Number(parseIngredientComponent(c).calories.replace(/[^\d]/g, '')) || 0);
+      }, 0);
+      if (totalIngCal > 0 && ingCal > 0) {
+        const share = ingCal / totalIngCal;
+        proteinG = Math.round(analysis.proteinG * share);
+        carbsG = Math.round(analysis.carbsG * share);
+        fatG = Math.round(analysis.fatG * share);
+      }
+    }
+
     await AsyncStorage.setItem(INGREDIENT_EDIT_IN, JSON.stringify({
-      index,
-      name: item.name,
-      calories: item.calories,
-      quantity: item.quantity,
+      index, name: item.name, calories: item.calories, quantity: item.quantity,
+      proteinG, carbsG, fatG,
     }));
     router.push('/screens/EditIngredientScreen');
   };
@@ -368,6 +395,7 @@ export default function ScanFoodScreen() {
           photoUris,
         }));
       }
+      trackEvent('meal_saved', { screen: 'ScanFoodScreen', metadata: { slot } });
       router.back();
     } catch (err: any) {
       Alert.alert('Save failed', err?.message ?? 'Could not save this meal.');

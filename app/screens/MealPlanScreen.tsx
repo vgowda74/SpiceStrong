@@ -53,6 +53,7 @@ import { HomeButton } from '../../components/HomeButton';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
+const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
 
 interface MacroOverride {
   calories: number;
@@ -476,6 +477,9 @@ export default function MealPlanScreen() {
   const [loading, setLoading] = useState(true);
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
   const [cronometerMode, setCronometerMode] = useState<'diff' | 'target' | 'consumed'>('diff');
+  const [trackingStartDate, setTrackingStartDate] = useState<string | null>(null);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [pickerDate, setPickerDate] = useState(today);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -1213,7 +1217,9 @@ export default function MealPlanScreen() {
     loadEntries(currentDate);
     getFitnessProfile().then((profile) => {
       if (profile) setMacroTargets(calculateMacroTargets(profile));
+      else setMacroTargets(null);
     }).catch(() => {});
+    AsyncStorage.getItem(TRACKING_START_KEY).then((v) => setTrackingStartDate(v)).catch(() => {});
   }, [currentDate, loadEntries]));
 
   const goToPrev = () => {
@@ -1388,6 +1394,24 @@ export default function MealPlanScreen() {
     }),
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
   );
+
+  const daysTracked = trackingStartDate
+    ? Math.max(0, Math.floor((Date.now() - new Date(trackingStartDate).getTime()) / 86400000))
+    : 0;
+
+  const adherencePct: number | null = (() => {
+    if (!macroTargets) return null;
+    if (totals.calories === 0 && totals.proteinG === 0 && totals.carbsG === 0 && totals.fatG === 0) return null;
+    const score = (consumed: number, target: number) =>
+      target > 0 ? Math.max(0, 1 - Math.abs(consumed - target) / target) : 0;
+    const avg = (
+      score(totals.calories, macroTargets.calories) +
+      score(totals.proteinG, macroTargets.proteinG) +
+      score(totals.carbsG, macroTargets.carbsG) +
+      score(totals.fatG, macroTargets.fatG)
+    ) / 4;
+    return Math.round(avg * 100);
+  })();
 
   const grouped: Record<MealSlot, EnrichedEntry[]> = {
     breakfast: [],
@@ -1593,6 +1617,54 @@ export default function MealPlanScreen() {
 
           {/* Calorie equation — Target − Consumed = Diff */}
           </View>
+
+          {/* Diet adherence + days tracking */}
+          {!macroTargets ? (
+            <TouchableOpacity
+              style={styles.fitnessNudge}
+              onPress={() => router.push('/screens/FitnessProfileScreen')}
+              activeOpacity={0.82}
+            >
+              <Ionicons name="fitness-outline" size={20} color="#E8A87C" />
+              <Text style={styles.fitnessNudgeText}>Set your fitness goals to track diet adherence</Text>
+              <Ionicons name="chevron-forward" size={16} color="rgba(248,241,232,0.50)" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.adherencePanel}>
+              <View style={styles.adherenceTopRow}>
+                <View>
+                  <Text style={styles.adherenceLabel}>Diet Adherence</Text>
+                  <Text style={styles.adherencePct}>
+                    {adherencePct !== null ? `${adherencePct}%` : '—'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.daysBtn}
+                  onPress={() => { setPickerDate(trackingStartDate ?? today); setShowStartDatePicker(true); }}
+                  activeOpacity={0.82}
+                >
+                  <Ionicons name="calendar-outline" size={14} color="#E8A87C" />
+                  <Text style={styles.daysBtnText}>Day {daysTracked}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.adherenceTrack}>
+                <View style={[
+                  styles.adherenceFill,
+                  {
+                    width: `${Math.min(100, adherencePct ?? 0)}%`,
+                    backgroundColor:
+                      adherencePct === null ? 'rgba(248,241,232,0.15)' :
+                      adherencePct >= 80 ? '#22C55E' :
+                      adherencePct >= 60 ? '#F5A524' : '#EF4444',
+                  },
+                ]} />
+              </View>
+              {adherencePct === null && (
+                <Text style={styles.adherenceHint}>Log today's meals to see your adherence score</Text>
+              )}
+            </View>
+          )}
+
           {false && (() => {
             const calTarget = macroTargets?.calories ?? 2000;
             const diff = calTarget - totals.calories;
@@ -2652,6 +2724,61 @@ export default function MealPlanScreen() {
         </Pressable>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Tracking start date picker */}
+      <Modal visible={showStartDatePicker} transparent animationType="slide" onRequestClose={() => setShowStartDatePicker(false)}>
+        <View style={styles.datePickerOverlay}>
+          <View style={styles.datePickerSheet}>
+            <Text style={styles.datePickerTitle}>Tracking Start Date</Text>
+            <Text style={styles.datePickerSub}>When did you start following your diet plan?</Text>
+
+            <View style={styles.datePickerNav}>
+              <TouchableOpacity
+                style={styles.datePickerArrow}
+                onPress={() => {
+                  const d = new Date(pickerDate);
+                  d.setDate(d.getDate() - 1);
+                  setPickerDate(d.toISOString().slice(0, 10));
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+              <Text style={styles.datePickerDate}>
+                {new Date(pickerDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </Text>
+              <TouchableOpacity
+                style={styles.datePickerArrow}
+                onPress={() => {
+                  const d = new Date(pickerDate);
+                  d.setDate(d.getDate() + 1);
+                  const next = d.toISOString().slice(0, 10);
+                  if (next <= today) setPickerDate(next);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.datePickerSetBtn}
+              onPress={async () => {
+                await AsyncStorage.setItem(TRACKING_START_KEY, pickerDate);
+                setTrackingStartDate(pickerDate);
+                setShowStartDatePicker(false);
+              }}
+              activeOpacity={0.86}
+            >
+              <Text style={styles.datePickerSetBtnText}>Set Start Date</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.datePickerCancel} onPress={() => setShowStartDatePicker(false)} activeOpacity={0.7}>
+              <Text style={styles.datePickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </PremiumScreen>
   );
 }
@@ -2956,6 +3083,164 @@ const styles = StyleSheet.create({
   macroBarValue: { fontSize: 12, fontWeight: '900', color: '#FFFFFF' },
   macroBarTrack: { height: 6, borderRadius: 999, backgroundColor: 'rgba(248,241,232,0.12)', overflow: 'hidden' },
   macroBarFill: { height: '100%', borderRadius: 999 },
+
+  // Fitness nudge banner (no profile set)
+  fitnessNudge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(232,168,124,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.22)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 14,
+  },
+  fitnessNudgeText: {
+    flex: 1,
+    color: '#F8F1E8',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+
+  // Diet adherence panel
+  adherencePanel: {
+    backgroundColor: 'rgba(248,241,232,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+  },
+  adherenceTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  adherenceLabel: {
+    color: 'rgba(248,241,232,0.54)',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 3,
+  },
+  adherencePct: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  daysBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(232,168,124,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.30)',
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  daysBtnText: {
+    color: '#E8A87C',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  adherenceTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,241,232,0.10)',
+    overflow: 'hidden',
+  },
+  adherenceFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  adherenceHint: {
+    color: 'rgba(248,241,232,0.40)',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+
+  // Date picker modal
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.60)',
+    justifyContent: 'flex-end',
+  },
+  datePickerSheet: {
+    backgroundColor: '#1A1410',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(248,241,232,0.12)',
+  },
+  datePickerTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  datePickerSub: {
+    color: 'rgba(248,241,232,0.50)',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 28,
+    lineHeight: 20,
+  },
+  datePickerNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 28,
+  },
+  datePickerArrow: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerDate: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    flex: 1,
+    textAlign: 'center',
+  },
+  datePickerSetBtn: {
+    backgroundColor: '#8F3A1F',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  datePickerSetBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  datePickerCancel: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  datePickerCancelText: {
+    color: 'rgba(248,241,232,0.45)',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 
   quickActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
   quickActionPrimary: {

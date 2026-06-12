@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { getMealPlanForDate } from '../../services/mealPlanService';
 import { getRecipeById } from '../../src/store/recipes';
+import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
 
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 
@@ -44,13 +45,19 @@ interface EditState {
   photoUris?: string[];
 }
 
-function parseIngredientComponent(component: string): { name: string; calories: string; quantity: string } {
+function parseIngredientComponent(component: string): { name: string; calories: string; quantity: string; proteinG: number; carbsG: number; fatG: number } {
   const normalized = component.replace(/—/g, '|').replace(/ - /g, ' | ');
   const parts = normalized.split('|').map((part) => part.trim()).filter(Boolean);
   const name = parts[0]?.replace(/^[-•\s]+/, '') || component;
   const calories = parts.find((part) => /\bcal\b|kcal/i.test(part))?.replace(/^~\s*/, '') ?? '';
-  const quantity = parts.find((part) => !/\bcal\b|kcal/i.test(part) && part !== name) ?? '';
-  return { name, calories, quantity };
+  const quantity = parts.find((part) => !/\bcal\b|kcal/i.test(part) && !/\bprotein\b/i.test(part) && !/\bcarb/i.test(part) && !/\bfat\b/i.test(part) && part !== name) ?? '';
+  const proteinPart = parts.find((part) => /\bprotein\b/i.test(part));
+  const carbsPart = parts.find((part) => /\bcarb/i.test(part));
+  const fatPart = parts.find((part) => /\bfat\b/i.test(part));
+  const proteinG = proteinPart ? Math.round(Number(proteinPart.replace(/[^\d.]/g, '')) || 0) : 0;
+  const carbsG = carbsPart ? Math.round(Number(carbsPart.replace(/[^\d.]/g, '')) || 0) : 0;
+  const fatG = fatPart ? Math.round(Number(fatPart.replace(/[^\d.]/g, '')) || 0) : 0;
+  return { name, calories, quantity, proteinG, carbsG, fatG };
 }
 
 function numeric(value: string) {
@@ -67,10 +74,37 @@ export default function EditMealNutritionScreen() {
   const [meal, setMeal] = useState<EditState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const initialLoadDone = useRef(false);
 
   useFocusEffect(useCallback(() => {
     let mounted = true;
-    const load = async () => {
+    const run = async () => {
+      // If returning from EditIngredientScreen, apply the result without reloading
+      if (initialLoadDone.current) {
+        const raw = await AsyncStorage.getItem(INGREDIENT_EDIT_OUT);
+        if (raw) {
+          await AsyncStorage.removeItem(INGREDIENT_EDIT_OUT);
+          const result = JSON.parse(raw);
+          setMeal((prev) => {
+            if (!prev) return prev;
+            const components = [...prev.components];
+            if (result.deleted) {
+              components.splice(result.index, 1);
+            } else {
+              const macros = [
+                result.proteinG ? `${result.proteinG}g protein` : '',
+                result.carbsG ? `${result.carbsG}g carbs` : '',
+                result.fatG ? `${result.fatG}g fat` : '',
+              ].filter(Boolean).join(' | ');
+              components[result.index] = [result.name, result.calories, result.quantity, macros].filter(Boolean).join(' | ');
+            }
+            return { ...prev, components };
+          });
+        }
+        return;
+      }
+
+      // Initial load from storage
       setLoading(true);
       try {
         const entries = await getMealPlanForDate(date);
@@ -100,6 +134,7 @@ export default function EditMealNutritionScreen() {
             photoUri: override?.photoUri,
             photoUris: override?.photoUris,
           });
+          initialLoadDone.current = true;
         }
       } catch (err: any) {
         Alert.alert('Could not open meal', err?.message ?? 'Try again from Daily Cal Tracker.');
@@ -108,7 +143,7 @@ export default function EditMealNutritionScreen() {
         if (mounted) setLoading(false);
       }
     };
-    load();
+    run();
     return () => { mounted = false; };
   }, [date, entryId, router]));
 
@@ -116,26 +151,33 @@ export default function EditMealNutritionScreen() {
     setMeal((prev) => prev ? { ...prev, [field]: numeric(value) } : prev);
   };
 
-  const updateIngredientPart = (index: number, part: 'name' | 'calories' | 'quantity', value: string) => {
-    setMeal((prev) => {
-      if (!prev) return prev;
-      const components = [...prev.components];
-      const item = parseIngredientComponent(components[index] ?? '');
-      const next = {
-        ...item,
-        [part]: part === 'calories' ? `${numeric(value)} cal` : value,
-      };
-      components[index] = `${next.name || 'Ingredient'} | ${next.calories || '0 cal'} | ${next.quantity || 'qty'}`;
-      return { ...prev, components };
-    });
-  };
-
   const addIngredient = () => {
     setMeal((prev) => prev ? { ...prev, components: [...prev.components, 'Ingredient | 0 cal | qty'] } : prev);
   };
 
-  const removeIngredient = (index: number) => {
-    setMeal((prev) => prev ? { ...prev, components: prev.components.filter((_, itemIndex) => itemIndex !== index) } : prev);
+  const openIngredientEdit = async (index: number, component: string) => {
+    const item = parseIngredientComponent(component);
+    let { proteinG, carbsG, fatG } = item;
+
+    // Estimate from meal totals when ingredient has no stored macros
+    if (!proteinG && !carbsG && !fatG && meal) {
+      const ingCal = Number(item.calories.replace(/[^\d]/g, '')) || 0;
+      const totalIngCal = meal.components.reduce((sum, c) => {
+        return sum + (Number(parseIngredientComponent(c).calories.replace(/[^\d]/g, '')) || 0);
+      }, 0);
+      if (totalIngCal > 0 && ingCal > 0) {
+        const share = ingCal / totalIngCal;
+        proteinG = Math.round(meal.proteinG * share);
+        carbsG = Math.round(meal.carbsG * share);
+        fatG = Math.round(meal.fatG * share);
+      }
+    }
+
+    await AsyncStorage.setItem(INGREDIENT_EDIT_IN, JSON.stringify({
+      index, name: item.name, calories: item.calories, quantity: item.quantity,
+      proteinG, carbsG, fatG,
+    }));
+    router.push('/screens/EditIngredientScreen');
   };
 
   const save = async () => {
@@ -234,37 +276,24 @@ export default function EditMealNutritionScreen() {
 
         {meal.components.map((component, index) => {
           const item = parseIngredientComponent(component);
+          const calNum = item.calories.replace(/[^\d]/g, '');
           return (
-            <View key={`${component}_${index}`} style={styles.ingredientRow}>
-              <TextInput
-                style={[styles.ingredientInput, styles.ingredientName]}
-                value={item.name}
-                onChangeText={(value) => updateIngredientPart(index, 'name', value)}
-                placeholder="Ingredient"
-                placeholderTextColor="rgba(248,241,232,0.34)"
-                returnKeyType="done"
-              />
-              <TextInput
-                style={[styles.ingredientInput, styles.ingredientCalories]}
-                value={item.calories.replace(/[^\d]/g, '')}
-                onChangeText={(value) => updateIngredientPart(index, 'calories', value)}
-                keyboardType="number-pad"
-                placeholder="cal"
-                placeholderTextColor="rgba(248,241,232,0.34)"
-                returnKeyType="done"
-              />
-              <TextInput
-                style={[styles.ingredientInput, styles.ingredientQty]}
-                value={item.quantity}
-                onChangeText={(value) => updateIngredientPart(index, 'quantity', value)}
-                placeholder="qty"
-                placeholderTextColor="rgba(248,241,232,0.34)"
-                returnKeyType="done"
-              />
-              <TouchableOpacity style={styles.removeBtn} onPress={() => removeIngredient(index)} activeOpacity={0.82}>
-                <Ionicons name="close" size={18} color="rgba(248,241,232,0.72)" />
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              key={`${component}_${index}`}
+              style={styles.ingredientRow}
+              onPress={() => openIngredientEdit(index, component)}
+              activeOpacity={0.76}
+            >
+              <View style={styles.ingredientLeft}>
+                <Text style={styles.ingredientName} numberOfLines={1}>{item.name}</Text>
+                {calNum ? <Text style={styles.ingredientDot}>·</Text> : null}
+                {calNum ? <Text style={styles.ingredientCal}>{calNum} cal</Text> : null}
+              </View>
+              <View style={styles.ingredientRight}>
+                <Text style={styles.ingredientQty} numberOfLines={1}>{item.quantity}</Text>
+                <Ionicons name="chevron-forward" size={14} color="rgba(248,241,232,0.28)" />
+              </View>
+            </TouchableOpacity>
           );
         })}
       </ScrollView>
@@ -432,43 +461,24 @@ const styles = StyleSheet.create({
   },
   addBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
   ingredientRow: {
-    minHeight: 74,
-    borderRadius: 22,
-    backgroundColor: 'rgba(248,241,232,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(248,241,232,0.13)',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-  },
-  ingredientInput: {
-    minHeight: 50,
-    borderRadius: 16,
-    backgroundColor: 'rgba(13,11,9,0.38)',
-    borderWidth: 1,
-    borderColor: 'rgba(248,241,232,0.08)',
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  ingredientName: { flex: 1.2 },
-  ingredientCalories: { width: 86, textAlign: 'center' },
-  ingredientQty: { flex: 0.9 },
-  removeBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(13,11,9,0.54)',
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: 'rgba(248,241,232,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(248,241,232,0.10)',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    gap: 8,
   },
+  ingredientLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5, overflow: 'hidden' },
+  ingredientName: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', flexShrink: 1 },
+  ingredientDot: { color: 'rgba(248,241,232,0.35)', fontSize: 14, fontWeight: '600', flexShrink: 0 },
+  ingredientCal: { color: 'rgba(248,241,232,0.50)', fontSize: 13, fontWeight: '600', flexShrink: 0 },
+  ingredientRight: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 },
+  ingredientQty: { color: 'rgba(248,241,232,0.60)', fontSize: 13, fontWeight: '600', maxWidth: 110 },
   bottomBar: {
     position: 'absolute',
     left: 0,

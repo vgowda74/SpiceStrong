@@ -12,7 +12,7 @@
 
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { getDeviceId, isAdminDeviceId } from './adminService';
+import { getDeviceId, isAdminDeviceId, isAdminToolsBuild } from './adminService';
 import { supabase } from './supabase';
 
 /**
@@ -33,6 +33,8 @@ const EVENT_FEATURE: Record<string, string> = {
   scan_label: 'scan',
   scan_fridge: 'scan',
   scan_menu: 'scan',
+  scan_food: 'daily_tracker',
+  meal_saved: 'daily_tracker',
   // planning & lists
   auto_meal_plan_generated: 'meal_plan',
   pantry_opened: 'pantry',
@@ -69,9 +71,15 @@ export async function trackEvent(
 ): Promise<void> {
   try {
     const deviceId = await getDeviceId();
-    if (isAdminDeviceId(deviceId)) return;
+    // In Expo Go / dev builds, always track so events can be tested.
+    // In production, drop admin device events to keep metrics clean.
+    if (!isAdminToolsBuild() && isAdminDeviceId(deviceId)) return;
 
     const feature = EVENT_FEATURE[eventName] ?? 'other';
+
+    if (__DEV__) {
+      console.log(`[SpiceStrong] trackEvent: ${eventName} (device: ...${deviceId.slice(-8)})`);
+    }
 
     const { error } = await supabase.from('analytics_events').insert({
       event_name: eventName,
@@ -85,13 +93,11 @@ export async function trackEvent(
       metadata: options.metadata ?? {},
     });
 
-    if (error && __DEV__) {
-      console.warn(`[SpiceStrong] Analytics event failed: ${eventName}`, error.message);
+    if (error) {
+      console.warn(`[SpiceStrong] Analytics insert failed: ${eventName}`, error.message);
     }
   } catch (error) {
-    if (__DEV__) {
-      console.warn('[SpiceStrong] Analytics unavailable', error);
-    }
+    console.warn('[SpiceStrong] Analytics unavailable', error);
   }
 }
 

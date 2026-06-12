@@ -11,6 +11,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
 export const DEVICE_ID_KEY = 'spicestrong_device_id';
@@ -36,14 +37,15 @@ export async function getDeviceId(): Promise<string> {
   try {
     let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (!id) {
-      id = `${Platform.OS}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      id = `${Platform.OS}_${Crypto.randomUUID()}`;
       await AsyncStorage.setItem(DEVICE_ID_KEY, id);
     }
     cachedDeviceId = id;
-    console.log(`[SpiceStrong] Device ID: ${id}`);
     return id;
   } catch {
-    return `fallback_${Date.now()}`;
+    // Stable for the session even if AsyncStorage is unavailable
+    cachedDeviceId = `session_${Crypto.randomUUID()}`;
+    return cachedDeviceId;
   }
 }
 
