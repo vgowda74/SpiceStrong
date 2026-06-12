@@ -6,7 +6,7 @@
  * - Hero image recipe cards per meal slot, styled like RecipeListScreen
  */
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -439,6 +439,13 @@ interface EnrichedEntry extends MealPlanEntry {
   isQuickAdd?: boolean; // true for manually added meals (no recipe)
 }
 
+interface MacroTotals {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
 function dateFromString(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -467,6 +474,93 @@ async function resolveImage(recipeId: string, recipe: SavedRecipe | null): Promi
   return null;
 }
 
+function hasLoggedMacros(totals: MacroTotals): boolean {
+  return totals.calories > 0 || totals.proteinG > 0 || totals.carbsG > 0 || totals.fatG > 0;
+}
+
+function scoreMacroTotals(totals: MacroTotals, targets: MacroTargets): number {
+  const score = (consumed: number, target: number) =>
+    target > 0 ? Math.max(0, 1 - Math.abs(consumed - target) / target) : 0;
+  return (
+    score(totals.calories, targets.calories) +
+    score(totals.proteinG, targets.proteinG) +
+    score(totals.carbsG, targets.carbsG) +
+    score(totals.fatG, targets.fatG)
+  ) / 4;
+}
+
+function getInclusiveDayCount(startDate: string | null, endDate: string): number {
+  if (!startDate) return 0;
+  const diff = Math.floor((dateFromString(endDate).getTime() - dateFromString(startDate).getTime()) / 86400000);
+  return Math.max(0, diff + 1);
+}
+
+function getTrackingDates(startDate: string | null, endDate: string): string[] {
+  if (!startDate) return [];
+  const dates: string[] = [];
+  const cursor = dateFromString(startDate);
+  const end = dateFromString(endDate);
+  while (cursor.getTime() <= end.getTime()) {
+    dates.push(stringFromDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+async function getMealEntryMacros(entry: MealPlanEntry): Promise<MacroTotals> {
+  let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
+
+  const applyOverride = async () => {
+    try {
+      const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
+      if (overrideStr) {
+        const o: MacroOverride = JSON.parse(overrideStr);
+        calories = o.calories;
+        proteinG = o.proteinG;
+        carbsG = o.carbsG;
+        fatG = o.fatG;
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  if (await applyOverride()) return { calories, proteinG, carbsG, fatG };
+
+  const recipe = await getRecipeById(entry.recipeId);
+  const isAutoplan = entry.recipeId.startsWith('autoplan_');
+
+  if (isAutoplan && recipe?.aiNutrition && recipe.status !== 'ready') {
+    calories = Math.round(recipe.aiNutrition.calories / 2.5);
+    proteinG = Math.round(recipe.aiNutrition.proteinG / 2.5);
+    carbsG = Math.round(recipe.aiNutrition.carbsG / 2.5);
+    fatG = Math.round(recipe.aiNutrition.fatG / 2.5);
+  } else if (recipe) {
+    if (recipe.pipelineCalories || recipe.pipelineProteinG) {
+      calories = recipe.pipelineCalories ?? 0;
+      proteinG = recipe.pipelineProteinG ?? 0;
+      carbsG = recipe.pipelineCarbsG ?? 0;
+      fatG = recipe.pipelineFatG ?? 0;
+    } else {
+      const stats = getCompletionStats(recipe, '2-3 servings');
+      calories = stats.calories;
+      proteinG = stats.proteinG;
+      carbsG = stats.carbsG;
+      fatG = stats.fatG;
+    }
+  }
+
+  if (isAutoplan && calories === 0) {
+    const desc = entry.recipeName + ' ' + (recipe?.description ?? '');
+    const calMatch = desc.match(/~?(\d+)\s*cal/i);
+    const proMatch = desc.match(/~?(\d+)g?\s*protein/i);
+    if (calMatch) calories = parseInt(calMatch[1], 10);
+    if (proMatch) proteinG = parseInt(proMatch[1], 10);
+  }
+
+  return { calories, proteinG, carbsG, fatG };
+}
+
 export default function MealPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -476,6 +570,9 @@ export default function MealPlanScreen() {
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
+  const [overallAdherencePct, setOverallAdherencePct] = useState<number | null>(null);
+  const [overallAdherenceLoading, setOverallAdherenceLoading] = useState(false);
+  const [overallLoggedDays, setOverallLoggedDays] = useState(0);
   const [cronometerMode, setCronometerMode] = useState<'diff' | 'target' | 'consumed'>('diff');
   const [trackingStartDate, setTrackingStartDate] = useState<string | null>(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
@@ -1222,6 +1319,70 @@ export default function MealPlanScreen() {
     AsyncStorage.getItem(TRACKING_START_KEY).then((v) => setTrackingStartDate(v)).catch(() => {});
   }, [currentDate, loadEntries]));
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOverallAdherence = async () => {
+      if (!macroTargets || !trackingStartDate) {
+        setOverallAdherencePct(null);
+        setOverallLoggedDays(0);
+        setOverallAdherenceLoading(false);
+        return;
+      }
+
+      const trackingDates = getTrackingDates(trackingStartDate, currentDate);
+      if (trackingDates.length === 0) {
+        setOverallAdherencePct(null);
+        setOverallLoggedDays(0);
+        setOverallAdherenceLoading(false);
+        return;
+      }
+
+      setOverallAdherenceLoading(true);
+      try {
+        let scoreSum = 0;
+        let loggedDays = 0;
+
+        for (const date of trackingDates) {
+          const entries = await getMealPlanForDate(date);
+          const entryMacros = await Promise.all(entries.map(getMealEntryMacros));
+          const totalsForDate = entryMacros.reduce(
+            (acc, macros) => ({
+              calories: acc.calories + macros.calories,
+              proteinG: acc.proteinG + macros.proteinG,
+              carbsG: acc.carbsG + macros.carbsG,
+              fatG: acc.fatG + macros.fatG,
+            }),
+            { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
+          );
+
+          if (hasLoggedMacros(totalsForDate)) {
+            loggedDays += 1;
+            scoreSum += scoreMacroTotals(totalsForDate, macroTargets);
+          }
+        }
+
+        if (!cancelled) {
+          setOverallLoggedDays(loggedDays);
+          setOverallAdherencePct(loggedDays > 0 ? Math.round((scoreSum / trackingDates.length) * 100) : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setOverallLoggedDays(0);
+          setOverallAdherencePct(null);
+        }
+      } finally {
+        if (!cancelled) setOverallAdherenceLoading(false);
+      }
+    };
+
+    loadOverallAdherence();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentDate, macroTargets, trackingStartDate]);
+
   const goToPrev = () => {
     const d = dateFromString(currentDate);
     d.setDate(d.getDate() - 1);
@@ -1395,23 +1556,9 @@ export default function MealPlanScreen() {
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
   );
 
-  const daysTracked = trackingStartDate
-    ? Math.max(0, Math.floor((Date.now() - new Date(trackingStartDate).getTime()) / 86400000))
-    : 0;
+  const daysTracked = getInclusiveDayCount(trackingStartDate, currentDate);
 
-  const adherencePct: number | null = (() => {
-    if (!macroTargets) return null;
-    if (totals.calories === 0 && totals.proteinG === 0 && totals.carbsG === 0 && totals.fatG === 0) return null;
-    const score = (consumed: number, target: number) =>
-      target > 0 ? Math.max(0, 1 - Math.abs(consumed - target) / target) : 0;
-    const avg = (
-      score(totals.calories, macroTargets.calories) +
-      score(totals.proteinG, macroTargets.proteinG) +
-      score(totals.carbsG, macroTargets.carbsG) +
-      score(totals.fatG, macroTargets.fatG)
-    ) / 4;
-    return Math.round(avg * 100);
-  })();
+  const displayedAdherencePct = trackingStartDate ? overallAdherencePct : null;
 
   const grouped: Record<MealSlot, EnrichedEntry[]> = {
     breakfast: [],
@@ -1421,11 +1568,8 @@ export default function MealPlanScreen() {
   enriched.forEach((e) => { if (grouped[e.slot]) grouped[e.slot].push(e); });
 
   const isToday = currentDate === today;
-  const cycleCronometerMode = () => {
-    setCronometerMode((mode) => (
-      mode === 'diff' ? 'target' : mode === 'target' ? 'consumed' : 'diff'
-    ));
-  };
+  const cycleCronometerMode = () =>
+    setCronometerMode((m) => m === 'consumed' ? 'target' : m === 'target' ? 'diff' : 'consumed');
 
   return (
     <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
@@ -1633,9 +1777,9 @@ export default function MealPlanScreen() {
             <View style={styles.adherencePanel}>
               <View style={styles.adherenceTopRow}>
                 <View>
-                  <Text style={styles.adherenceLabel}>Diet Adherence</Text>
+                  <Text style={styles.adherenceLabel}>Overall Adherence</Text>
                   <Text style={styles.adherencePct}>
-                    {adherencePct !== null ? `${adherencePct}%` : '—'}
+                    {overallAdherenceLoading ? '...' : displayedAdherencePct !== null ? `${displayedAdherencePct}%` : '—'}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1651,16 +1795,23 @@ export default function MealPlanScreen() {
                 <View style={[
                   styles.adherenceFill,
                   {
-                    width: `${Math.min(100, adherencePct ?? 0)}%`,
+                    width: `${Math.min(100, displayedAdherencePct ?? 0)}%`,
                     backgroundColor:
-                      adherencePct === null ? 'rgba(248,241,232,0.15)' :
-                      adherencePct >= 80 ? '#22C55E' :
-                      adherencePct >= 60 ? '#F5A524' : '#EF4444',
+                      displayedAdherencePct === null ? 'rgba(248,241,232,0.15)' :
+                      displayedAdherencePct >= 80 ? '#22C55E' :
+                      displayedAdherencePct >= 60 ? '#F5A524' : '#EF4444',
                   },
                 ]} />
               </View>
-              {adherencePct === null && (
-                <Text style={styles.adherenceHint}>Log today's meals to see your adherence score</Text>
+              {displayedAdherencePct === null && !overallAdherenceLoading && (
+                <Text style={styles.adherenceHint}>
+                  {trackingStartDate
+                    ? 'Log meals from your start date to see overall adherence'
+                    : 'Set a start date to track overall adherence'}
+                </Text>
+              )}
+              {displayedAdherencePct !== null && trackingStartDate && (
+                <Text style={styles.adherenceHint}>{overallLoggedDays}/{daysTracked} days logged since start</Text>
               )}
             </View>
           )}
