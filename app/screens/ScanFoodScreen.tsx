@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,6 +26,7 @@ import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { addToMealPlan, type MealSlot } from '../../services/mealPlanService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
@@ -207,6 +208,7 @@ async function persistMealPhotoUris(photos: { uri: string; base64: string }[], p
 
 export default function ScanFoodScreen() {
   const router = useRouter();
+  useEffect(() => { logScreenView('ScanFoodScreen'); }, []);
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ date?: string }>();
   const date = typeof params.date === 'string' ? params.date : todayIso();

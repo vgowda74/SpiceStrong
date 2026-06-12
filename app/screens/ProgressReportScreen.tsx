@@ -8,8 +8,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
-  ActivityIndicator,
   Alert,
   Platform,
   ScrollView,
@@ -269,7 +269,7 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
       </View>
 
       {loading ? (
-        <View style={styles.center}><ActivityIndicator color={ORANGE} size="large" /></View>
+        <View style={styles.center}><ProcessingRing label="Loading your progress…" expectedMs={3000} /></View>
       ) : (
         <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
 

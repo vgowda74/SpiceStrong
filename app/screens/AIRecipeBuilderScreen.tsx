@@ -32,6 +32,7 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
@@ -402,7 +403,10 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
       model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: systemPrompt,
-      messages: [{ role: 'user', content: messageContent }],
+      messages: [
+        { role: 'user', content: messageContent },
+        { role: 'assistant', content: '{' },
+      ],
     }),
   });
 
@@ -412,16 +416,19 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
     console.error(`[SpiceStrong] Claude API error (${response.status}):`, errMsg);
     throw new Error(errMsg);
   }
-  const text = data.content?.[0]?.text ?? '';
+  // Prefill forces the response to start mid-JSON — prepend the '{' back
+  const rawText = data.content?.[0]?.text ?? '';
+  const text = '{' + rawText;
   console.log('[SpiceStrong] Raw Claude response length:', text.length);
-  // Strip markdown fences and any text before/after the JSON object
+  // Strip markdown fences and extract JSON object
   let cleaned = text.replace(/```json|```/g, '').trim();
-  // Extract JSON object — find first { and last }
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  if (firstBrace === -1 || lastBrace <= firstBrace) {
+    console.error('[SpiceStrong] No JSON in response. First 300 chars:', cleaned.substring(0, 300));
+    throw new Error('Recipe generation returned no JSON. Please try again.');
   }
+  cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   // Remove control characters that can break JSON.parse
   cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (ch: string) => (ch === '\n' || ch === '\r' || ch === '\t' ? ch : ''));
   try {
@@ -587,6 +594,8 @@ export default function AIRecipeBuilderScreen() {
   const [targetProtein, setTargetProtein] = useState('35');
   const [targetCarbs, setTargetCarbs] = useState('30');
   const [targetFat, setTargetFat] = useState('15');
+
+  useEffect(() => { logScreenView('AIRecipeBuilderScreen'); }, []);
 
   // Load fitness profile targets on mount
   useEffect(() => {

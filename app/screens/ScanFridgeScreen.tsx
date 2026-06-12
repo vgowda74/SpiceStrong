@@ -35,6 +35,7 @@ import {
 } from '../../services/fridgeScanService';
 import { addPantryItemsBatch, addToGroceryList } from '../../services/pantryService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import { getDietPreference, isNonVegIngredientName, type DietPreference } from '../../src/utils/dietPreference';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
@@ -90,6 +91,7 @@ export default function ScanFridgeScreen() {
   const [addingCategory, setAddingCategory] = useState<IngredientCategory>('VEGETABLE');
 
   const [dietPref, setDietPref] = useState<DietPreference | null>(null);
+  useEffect(() => { logScreenView('ScanFridgeScreen'); }, []);
   useEffect(() => { getDietPreference().then(setDietPref); }, []);
 
   // ── Photo capture ──

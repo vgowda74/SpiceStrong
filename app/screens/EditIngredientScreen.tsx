@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   ActivityIndicator,
   Alert,
@@ -117,7 +118,7 @@ export default function EditIngredientScreen() {
     return (
       <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.center}>
-          <ActivityIndicator color="#E8A87C" size="large" />
+          <ProcessingRing label="Loading…" expectedMs={2000} />
         </View>
       </PremiumScreen>
     );

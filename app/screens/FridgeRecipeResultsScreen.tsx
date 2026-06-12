@@ -8,8 +8,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
-  ActivityIndicator,
   Dimensions,
   Platform,
   ScrollView,
@@ -111,8 +111,7 @@ export default function FridgeRecipeResultsScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} size="large" />
-          <Text style={styles.loadingText}>Matching recipes...</Text>
+          <ProcessingRing label="Matching recipes…" sublabel="Finding the best matches for your ingredients" expectedMs={5000} />
         </View>
       ) : (
         <ScrollView

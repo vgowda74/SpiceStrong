@@ -5,6 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   ActivityIndicator,
   Platform,
@@ -165,7 +166,7 @@ export default function DietaryRestrictionsScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} />
+          <ProcessingRing label="Loading preferences…" expectedMs={2000} />
         </View>
       ) : (
         <ScrollView

@@ -40,6 +40,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 import { isAdmin } from '../../services/adminService';
 import { fixRecipeStepAsAdmin, type AdminRecipeFixMode } from '../../services/adminRecipeFixService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import { HomeButton } from '../../components/HomeButton';
 // imageCacheService no longer needed — expo-image handles caching
 
@@ -159,6 +160,7 @@ function CompletionConfetti() {
       translateY: new Animated.Value(0),
     }))
   ).current;
+  useEffect(() => { logScreenView('CookingModeScreen'); }, []);
   useEffect(() => {
     pieces.forEach((p) => {
       Animated.parallel([

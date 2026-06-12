@@ -13,6 +13,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { getDeviceId, isAdminDeviceId, isAdminToolsBuild } from './adminService';
+import { logFirebaseEvent } from './firebaseAnalytics';
 import { supabase } from './supabase';
 
 /**
@@ -33,6 +34,7 @@ const EVENT_FEATURE: Record<string, string> = {
   scan_label: 'scan',
   scan_fridge: 'scan',
   scan_menu: 'scan',
+  food_order: 'scan',
   scan_food: 'daily_tracker',
   meal_saved: 'daily_tracker',
   // planning & lists
@@ -81,20 +83,29 @@ export async function trackEvent(
       console.log(`[SpiceStrong] trackEvent: ${eventName} (device: ...${deviceId.slice(-8)})`);
     }
 
-    const { error } = await supabase.from('analytics_events').insert({
-      event_name: eventName,
-      feature,
-      screen: options.screen ?? null,
-      recipe_id: options.recipeId ?? null,
-      protein_id: options.proteinId ?? null,
-      device_id: deviceId,
-      app_version: APP_VERSION,
-      platform: Platform.OS,
-      metadata: options.metadata ?? {},
-    });
+    // Fire to both Supabase and Firebase in parallel — failures in either are independent
+    const [supabaseResult] = await Promise.all([
+      supabase.from('analytics_events').insert({
+        event_name: eventName,
+        feature,
+        screen: options.screen ?? null,
+        recipe_id: options.recipeId ?? null,
+        protein_id: options.proteinId ?? null,
+        device_id: deviceId,
+        app_version: APP_VERSION,
+        platform: Platform.OS,
+        metadata: options.metadata ?? {},
+      }),
+      logFirebaseEvent(eventName, {
+        feature,
+        screen: options.screen ?? '',
+        platform: Platform.OS,
+        app_version: APP_VERSION,
+      }),
+    ]);
 
-    if (error) {
-      console.warn(`[SpiceStrong] Analytics insert failed: ${eventName}`, error.message);
+    if (supabaseResult.error) {
+      console.warn(`[SpiceStrong] Analytics insert failed: ${eventName}`, supabaseResult.error.message);
     }
   } catch (error) {
     console.warn('[SpiceStrong] Analytics unavailable', error);

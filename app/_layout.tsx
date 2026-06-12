@@ -6,9 +6,11 @@ import { Platform } from 'react-native';
 import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeService';
 import { generateScanInstrImages } from '../services/imageGenerationService';
 import { getDeviceId } from '../services/adminService';
-import { initPurchases } from '../services/purchaseService';
+import { initPurchases, checkSubscription } from '../services/purchaseService';
 import { trackAppOpen } from '../services/analyticsService';
-import { initFirebaseAnalytics } from '../services/firebaseAnalytics';
+import { initFirebaseAnalytics, setFirebaseUserId, setFirebaseUserProperties } from '../services/firebaseAnalytics';
+import { getFitnessProfile } from '../services/fitnessProfileService';
+import { getDietaryRestrictions } from '../services/dietaryService';
 // pruneImageCache disabled — expo-file-system new API causes TurboModule crash
 // import { pruneImageCache } from '../services/imageCacheService';
 
@@ -30,10 +32,26 @@ if (!isExpoGo) {
 export default function RootLayout() {
   useEffect(() => {
     // Log device ID on startup for admin setup
-    getDeviceId();
     trackAppOpen().catch(() => {});
-    // Firebase Analytics — install/open tracking for Google Ads conversions
+    // Firebase Analytics — install/open tracking + user property enrichment
     initFirebaseAnalytics().catch(() => {});
+    (async () => {
+      try {
+        const [deviceId, profile, dietary, isPremium] = await Promise.all([
+          getDeviceId(),
+          getFitnessProfile(),
+          getDietaryRestrictions(),
+          checkSubscription(),
+        ]);
+        setFirebaseUserId(deviceId).catch(() => {});
+        setFirebaseUserProperties({
+          fitness_goal: profile?.goal ?? 'unknown',
+          dietary_tags: [...(dietary.allergenTags ?? []), ...(dietary.dietaryTags ?? [])].join(',') || 'none',
+          subscription: isPremium ? 'premium' : 'free',
+          platform: Platform.OS,
+        }).catch(() => {});
+      } catch {}
+    })();
     // Initialize RevenueCat for IAP
     initPurchases();
 

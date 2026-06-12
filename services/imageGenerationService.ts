@@ -594,6 +594,21 @@ export async function saveRecipeImages(recipeId: string, images: RecipeImageResu
 }
 
 /**
+ * Generate a single hero image for a restaurant food item (Food Order feature).
+ * Uses flux/schnell for speed. Returns the remote URL or null on failure.
+ */
+export async function generateFoodItemImage(itemName: string, description: string): Promise<string | null> {
+  const nameLower = itemName.toLowerCase();
+  let vessel = 'on a plate';
+  if (/curry|soup|ramen|pho|stew|chili|bowl/i.test(nameLower)) vessel = 'in a bowl';
+  else if (/wrap|burrito|sandwich|roll/i.test(nameLower)) vessel = 'on a cutting board';
+  else if (/smoothie|shake|drink|soda|juice/i.test(nameLower)) vessel = 'in a glass';
+  const prompt = `Award-winning food photography of "${itemName}" — ${description}. Plated ${vessel}. Shot from 45-degree overhead angle, dark ceramic plate, rustic wooden table. Natural window light, soft shadows. Vibrant, appetizing colors, visible texture. Shallow depth of field. Bon Appétit magazine quality. Photorealistic, no text, no logos, no watermarks.`;
+  const result = await callFal(prompt, `food order: ${itemName}`, 'schnell');
+  return result.url;
+}
+
+/**
  * Load saved AI image local URIs from AsyncStorage for a given recipeId.
  */
 export async function loadRecipeImages(recipeId: string): Promise<RecipeImageResults | null> {

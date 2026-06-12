@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getFitnessProfile, saveFitnessProfile, type FitnessProfile } from '../../services/fitnessProfileService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import BodyOutline from '../../components/BodyOutline';
 import { HomeButton } from '../../components/HomeButton';
@@ -91,6 +92,7 @@ export default function BodyScanScreen() {
 
   // ── Load profile on mount ──
   useEffect(() => {
+    logScreenView('BodyScanScreen');
     getFitnessProfile().then(p => { if (p) setProfile(p); }).catch(() => {});
   }, []);
 

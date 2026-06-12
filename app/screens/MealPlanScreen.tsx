@@ -51,6 +51,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
+import { logScreenView } from '../../services/firebaseAnalytics';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
@@ -1321,6 +1322,8 @@ export default function MealPlanScreen() {
     AsyncStorage.getItem(TRACKING_START_KEY).then((v) => setTrackingStartDate(v)).catch(() => {});
   }, [currentDate, loadEntries]));
 
+  useEffect(() => { logScreenView('MealPlanScreen'); }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1698,7 +1701,7 @@ export default function MealPlanScreen() {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} size="large" />
+          <ProcessingRing label="Loading your plan…" expectedMs={3000} />
         </View>
       ) : (
         <ScrollView

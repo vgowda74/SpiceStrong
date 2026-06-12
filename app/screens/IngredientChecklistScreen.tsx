@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
-  ActivityIndicator,
   Animated,
   ImageBackground,
   Linking,
@@ -799,8 +799,7 @@ export default function IngredientChecklistScreen() {
             </View>
             {infoLoading ? (
               <View style={styles.infoLoading}>
-                <ActivityIndicator color={ORANGE} size="large" />
-                <Text style={styles.infoLoadingText}>Looking up {infoItemName}...</Text>
+                <ProcessingRing label={`Looking up ${infoItemName}…`} expectedMs={5000} size={72} />
               </View>
             ) : (
               <RNScrollView style={styles.infoScroll} showsVerticalScrollIndicator={false}>

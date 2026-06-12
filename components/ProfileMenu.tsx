@@ -110,7 +110,7 @@ export function ProfileMenu() {
   const handleBodyScan = () => closeMenu(() => router.push('/screens/BodyScanScreen'));
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
-  const handleScanMenu = () => closeMenu(() => router.push('/screens/ScanMenuScreen'));
+  const handleFoodOrder = () => closeMenu(() => router.push('/screens/FoodOrderScreen'));
 
   // ── Menu items (flat list, no section headers) ──
   const SECTIONS: MenuSection[] = [
@@ -124,7 +124,7 @@ export function ProfileMenu() {
         { icon: 'calendar-outline',      label: 'Daily Cal Tracker',     onPress: handleMealPlan },
         { icon: 'sparkles-outline',      label: 'Auto Meal Plan',        onPress: handleAutoMealPlan },
         { icon: 'barcode-outline',       label: 'Scan Nutrition Label',  onPress: handleScanLabel },
-        { icon: 'restaurant-outline',    label: 'Scan Restaurant Menu',  onPress: handleScanMenu },
+        { icon: 'restaurant-outline',    label: 'Food Order',            onPress: handleFoodOrder },
         { icon: 'add-circle-outline',    label: 'Add Your Recipe',       onPress: handleAddRecipe },
         { icon: 'basket-outline',        label: 'My Pantry Items',       onPress: handleMyPantry },
         { icon: 'cart-outline',          label: 'My Shopping List',      onPress: handleGroceryList },

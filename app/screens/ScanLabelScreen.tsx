@@ -34,6 +34,7 @@ import { normalizeDietType, type DietType } from '../../src/utils/dietPreference
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
@@ -134,6 +135,7 @@ export default function ScanLabelScreen() {
   const [aiSummary, setAiSummary] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => { logScreenView('ScanLabelScreen'); }, []);
   useEffect(() => {
     barcodeOpenRef.current = barcodeOpen;
   }, [barcodeOpen]);

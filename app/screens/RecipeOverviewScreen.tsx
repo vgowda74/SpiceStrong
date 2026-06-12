@@ -26,6 +26,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 // imageCacheService no longer needed — expo-image handles caching
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 
 const ORANGE = '#8F3A1F';
 const CARD_WHITE = '#FFFFFF';
@@ -44,6 +45,7 @@ export default function RecipeOverviewScreen() {
   const [heroImageUri, setHeroImageUri] = useState<string | null>(null);
 
   useEffect(() => {
+    logScreenView('RecipeOverviewScreen');
     getRecipeById(recipeId).then((r) => {
       setRecipe(r);
       if (r) {

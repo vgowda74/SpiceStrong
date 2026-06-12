@@ -9,8 +9,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -478,8 +478,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
             </View>
             {summaryLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator color={ORANGE} size="large" />
-                <Text style={styles.modalLoadingText}>Analyzing your pantry...</Text>
+                <ProcessingRing label="Analysing your pantry…" expectedMs={8000} size={72} />
               </View>
             ) : (
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
@@ -502,8 +501,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
             </View>
             {infoLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator color={ORANGE} size="large" />
-                <Text style={styles.modalLoadingText}>Looking up {infoItemName}...</Text>
+                <ProcessingRing label={`Looking up ${infoItemName}…`} expectedMs={5000} size={72} />
               </View>
             ) : (
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
