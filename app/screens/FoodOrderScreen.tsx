@@ -26,9 +26,11 @@ import { getDietaryRestrictions } from '../../services/dietaryService';
 import { generateFoodItemImage } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
 import { logScreenView } from '../../services/firebaseAnalytics';
+import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
 
 const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
+const MIN_SPICESTRONG_PROTEIN_DENSITY = 6.4;
 
 interface FoodOrderItem {
   id: string;
@@ -88,6 +90,18 @@ function extractFirstJsonArray(text: string): any[] {
   }
 
   throw new Error('Could not parse menu response. Try again.');
+}
+
+function proteinDensity(item: Pick<FoodOrderItem, 'calories' | 'proteinG'>): number {
+  return item.calories > 0 ? (item.proteinG / item.calories) * 100 : 0;
+}
+
+function isVegetarianSafeDish(item: Pick<FoodOrderItem, 'name' | 'description' | 'reason'>): boolean {
+  return !hasNonVegText(`${item.name ?? ''} ${item.description ?? ''} ${item.reason ?? ''}`);
+}
+
+function looksVegetarianOnlyRestaurant(name: string): boolean {
+  return /\b(mtr|saravana|udupi|sagar|annapurna|pure\s+veg|vegetarian|veg\b)/i.test(name);
 }
 
 export default function FoodOrderScreen() {
@@ -155,6 +169,8 @@ export default function FoodOrderScreen() {
         getFitnessProfile().catch(() => null),
         getDietaryRestrictions().catch(() => ({ dietaryTags: [], allergenTags: [] })),
       ]);
+      const dietPreference = await getDietPreference();
+      const restaurantIsVegetarianOnly = looksVegetarianOnlyRestaurant(restaurantName);
       const macros = profile ? calculateMacroTargets(profile) : null;
       const goalDesc = profile
         ? `User fitness goal: ${profile.goal.replace(/_/g, ' ')}. Daily targets: ~${macros?.calories ?? 2000} cal, ~${macros?.proteinG ?? 150}g protein.`
@@ -166,6 +182,14 @@ export default function FoodOrderScreen() {
       const dietaryPrefs = dietary.dietaryTags.length > 0
         ? `Dietary preferences (factor into ranking): ${dietary.dietaryTags.join(', ')}.`
         : '';
+      const defaultDietContext = dietPreference === 'veg'
+        ? 'The user selected Vegetarian as their default dietary choice. Do not recommend meat, eggs, fish, prawns, shrimp, seafood, gelatin, or any other non-vegetarian dish.'
+        : dietPreference === 'nonveg'
+          ? 'The user selected Non-vegetarian as their default dietary choice. Vegetarian and non-vegetarian dishes are allowed, but do not invent non-vegetarian items at vegetarian-only restaurants.'
+          : 'The user has not selected a default vegetarian/non-vegetarian dietary choice. Do not assume a preference.';
+      const restaurantDietContext = restaurantIsVegetarianOnly
+        ? `${restaurantName.trim()} appears to be a vegetarian-only restaurant. Recommend vegetarian dishes only. Do not recommend chicken, meat, fish, eggs, prawns, shrimp, or seafood.`
+        : 'First verify the restaurant/menu context. If the restaurant is vegetarian-only or the attached menu only shows vegetarian dishes, recommend vegetarian dishes only.';
 
       const imageBlocks = menuPhotos.slice(0, 3).map((p) => ({
         type: 'image' as const,
@@ -185,10 +209,18 @@ export default function FoodOrderScreen() {
           max_tokens: 2000,
           system: `You are a fitness nutrition expert for SpiceStrong, a high-protein cooking app.
 The user is eating at a restaurant and needs the 5 best menu items for their fitness goals.
-Use your knowledge of the restaurant's menu to recommend exactly 5 items.
+Use your knowledge of the restaurant's real menu, but do not invent dishes the restaurant is unlikely to sell.
 ${menuPhotos.length > 0 ? 'The user has attached menu photos — use them to refine your recommendations.' : ''}
 ${strictRestrictions}
 ${dietaryPrefs}
+${defaultDietContext}
+${restaurantDietContext}
+
+SpiceStrong minimum criteria:
+- Only return dishes with proteinG / calories * 100 >= ${MIN_SPICESTRONG_PROTEIN_DENSITY}
+- Estimate restaurant portions conservatively. Rice-heavy, dosa/idli/vada, sweets, fried snacks, and carb-forward dishes usually fail unless paired with enough protein.
+- If fewer than 5 dishes pass, return only the dishes that pass.
+- If no dishes pass, return [].
 
 IMPORTANT: Your entire response must be ONLY a raw JSON array. No explanation, no markdown, no code fences. Start with [ and end with ].
 
@@ -204,7 +236,7 @@ IMPORTANT: Your entire response must be ONLY a raw JSON array. No explanation, n
   }
 ]
 
-Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition data when available.`,
+Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition data when available. Never include an item below the SpiceStrong minimum protein density.`,
           messages: [{
             role: 'user',
             content: [
@@ -229,7 +261,7 @@ Give me the top 5 menu items for my fitness goals.`,
       const text = data.content?.[0]?.text || '';
       const parsed = extractFirstJsonArray(text);
 
-      const items: FoodOrderItem[] = parsed.slice(0, 5).map((item: any, i: number) => ({
+      const items: FoodOrderItem[] = parsed.map((item: any, i: number) => ({
         id: `fo_${Date.now()}_${i}`,
         name: String(item.name || ''),
         description: String(item.description || ''),
@@ -238,7 +270,22 @@ Give me the top 5 menu items for my fitness goals.`,
         proteinG: Math.round(Number(item.proteinG) || 0),
         carbsG: Math.round(Number(item.carbsG) || 0),
         fatG: Math.round(Number(item.fatG) || 0),
-      }));
+      }))
+        .filter((item) => {
+          const passesDietChoice = dietPreference !== 'veg' || isVegetarianSafeDish(item);
+          const passesRestaurantDiet = !restaurantIsVegetarianOnly || isVegetarianSafeDish(item);
+          return passesDietChoice && passesRestaurantDiet && proteinDensity(item) >= MIN_SPICESTRONG_PROTEIN_DENSITY;
+        })
+        .sort((a, b) => proteinDensity(b) - proteinDensity(a))
+        .slice(0, 5);
+
+      if (items.length === 0) {
+        Alert.alert(
+          'No SpiceStrong matches',
+          `No dishes passed the ${MIN_SPICESTRONG_PROTEIN_DENSITY}g protein per 100 calorie minimum${dietPreference === 'veg' || restaurantIsVegetarianOnly ? ' with vegetarian-safe filtering applied' : ''}.`
+        );
+        return;
+      }
 
       setResults(items);
       trackEvent('food_order', { screen: 'FoodOrderScreen', metadata: { restaurant: restaurantName.trim() } });
