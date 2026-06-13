@@ -1214,11 +1214,12 @@ export default function MealPlanScreen() {
 
   const loadEntries = useCallback(async (date: string) => {
     setLoading(true);
-    const entries = await getMealPlanForDate(date);
+    try {
+      const entries = await getMealPlanForDate(date);
 
-    // Enrich each entry with full recipe details + images + nutrition
-    const enrichedEntries = await Promise.all(
-      entries.map(async (entry): Promise<EnrichedEntry> => {
+      // Enrich each entry with full recipe details + images + nutrition
+      const enrichedEntries = await Promise.all(
+        entries.map(async (entry): Promise<EnrichedEntry> => {
         const isQuickAdd = entry.recipeId.startsWith('quick_');
         const isAutoplan = entry.recipeId.startsWith('autoplan_');
 
@@ -1313,11 +1314,16 @@ export default function MealPlanScreen() {
           }
         } catch {}
         return { ...entry, recipe, imageUri, photoUris, builtinImage, calories, proteinG, carbsG, fatG };
-      })
-    );
+        })
+      );
 
-    setEnriched(enrichedEntries);
-    setLoading(false);
+      setEnriched(enrichedEntries);
+    } catch (err) {
+      console.warn('[SpiceStrong] Could not load meal plan entries:', err);
+      setEnriched([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useFocusEffect(useCallback(() => {
@@ -1691,15 +1697,10 @@ export default function MealPlanScreen() {
         </Pressable>
       </Modal>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ProcessingRing label="Loading your plan…" expectedMs={3000} />
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
-          showsVerticalScrollIndicator={false}
-        >
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
+        showsVerticalScrollIndicator={false}
+      >
           <View style={styles.quickActions}>
             <TouchableOpacity
               style={styles.quickActionPrimary}
@@ -1718,6 +1719,13 @@ export default function MealPlanScreen() {
               <Text style={styles.quickActionSecondaryText}>Add Food</Text>
             </TouchableOpacity>
           </View>
+
+          {loading && (
+            <View style={styles.inlineLoadingCard}>
+              <ActivityIndicator size="small" color="#E8A87C" />
+              <Text style={styles.inlineLoadingText}>Updating tracker...</Text>
+            </View>
+          )}
 
           {/* Macro progress rings */}
           <View style={styles.ringsPanel}>
@@ -1962,7 +1970,6 @@ export default function MealPlanScreen() {
             );
           })}
         </ScrollView>
-      )}
 
       <Modal visible={labelCameraOpen} animationType="slide" onRequestClose={() => setLabelCameraOpen(false)}>
         <View style={styles.labelCameraWrap}>
@@ -3389,6 +3396,24 @@ const styles = StyleSheet.create({
   },
 
   quickActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  inlineLoadingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(232,168,124,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.22)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  inlineLoadingText: {
+    color: 'rgba(248,241,232,0.70)',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   quickActionPrimary: {
     flex: 1.4,
     minHeight: 44,
