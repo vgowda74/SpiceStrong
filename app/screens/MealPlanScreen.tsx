@@ -339,6 +339,12 @@ const RING_STROKE = 8;
 const RING_R = RING_SIZE / 2 - RING_STROKE / 2 - 2;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
+function formatMacroRingValue(value: number, unit: string, showPositiveSign: boolean): string {
+  const rounded = Math.round(value);
+  const prefix = showPositiveSign && rounded > 0 ? '+' : '';
+  return `${prefix}${rounded}${unit}`;
+}
+
 function MacroRing({
   label, color, target, consumed, displayMode, onPress, unit = 'g',
 }: {
@@ -357,8 +363,11 @@ function MacroRing({
   const cy = RING_SIZE / 2;
   const displayValue = displayMode === 'diff' ? diff : displayMode === 'target' ? target : consumed;
   const displayColor = displayMode === 'diff'
-    ? diff >= 0 ? '#86EFAC' : 'rgba(255,255,255,0.86)'
-    : displayMode === 'target' ? '#FFFFFF' : color;
+    ? diff >= 0 ? '#86EFAC' : '#FDE68A'
+    : displayMode === 'target' ? '#E8A87C' : '#FFFFFF';
+  const displayBg = displayMode === 'diff'
+    ? diff >= 0 ? 'rgba(34,197,94,0.18)' : 'rgba(245,158,11,0.18)'
+    : displayMode === 'target' ? 'rgba(232,168,124,0.16)' : 'rgba(255,255,255,0.12)';
 
   return (
     <View style={{ alignItems: 'center', width: RING_SIZE }}>
@@ -388,13 +397,15 @@ function MacroRing({
             origin={`${cx},${cy}`}
           />
         </Svg>
-        <View style={{ alignItems: 'center' }}>
-          <Text style={{ fontSize: 7, fontWeight: '800', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.8 }}>
+        <View style={{ alignItems: 'center', maxWidth: RING_SIZE - 10 }}>
+          <Text style={{ fontSize: 7, fontWeight: '900', color: displayColor, letterSpacing: 0.8 }}>
             {displayMode.toUpperCase()}
           </Text>
-          <Text style={{ fontSize: 17, fontWeight: '900', color: displayColor, lineHeight: 21 }}>
-            {displayMode === 'diff' && displayValue >= 0 ? '+' : ''}{displayValue}{unit}
-          </Text>
+          <View style={{ marginTop: 3, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: displayBg }}>
+            <Text style={{ fontSize: 16, fontWeight: '900', color: displayColor, lineHeight: 19, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+              {formatMacroRingValue(displayValue, unit, displayMode === 'diff')}
+            </Text>
+          </View>
         </View>
       </Pressable>
     </View>
