@@ -28,8 +28,8 @@ import { addToMealPlan, type MealSlot } from '../../services/mealPlanService';
 import { trackEvent } from '../../services/analyticsService';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 
 const SLOT_META: Record<MealSlot, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
@@ -101,8 +101,6 @@ function parseIngredientComponent(component: string): { name: string; calories: 
 }
 
 async function analyzeFoodPhotosDirect(photos: { base64: string }[], mealName = 'meal'): Promise<FoodPhotoAnalysis> {
-  if (!ANTHROPIC_KEY) throw new Error('Missing EXPO_PUBLIC_ANTHROPIC_KEY');
-
   const imageBlocks = photos.slice(0, 3).map((photo) => ({
     type: 'image',
     source: {
@@ -112,18 +110,10 @@ async function analyzeFoodPhotosDirect(photos: { base64: string }[], mealName = 
     },
   }));
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1200,
-      system: `You are a Cal AI-style nutrition estimator for SpiceStrong.
+  const data = await invokeAnthropicMessages({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1200,
+    system: `You are a Cal AI-style nutrition estimator for SpiceStrong.
 
 Return ONLY this JSON:
 {
@@ -149,22 +139,14 @@ Ingredient rules:
 - Prefer names like bell pepper, spinach, mixed vegetables, egg, cheese, rice, sauce.
 - Every component must be "Ingredient name | total cal | qty | Xg protein | Xg carbs | Xg fat".
 - Include estimated protein, carbs, and fat grams for each ingredient.`,
-      messages: [{
-        role: 'user',
-        content: [
-          ...imageBlocks,
-          { type: 'text', text: `Analyze this food scan: "${mealName}".` },
-        ],
-      }],
-    }),
+    messages: [{
+      role: 'user',
+      content: [
+        ...imageBlocks,
+        { type: 'text', text: `Analyze this food scan: "${mealName}".` },
+      ],
+    }],
   });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`API ${res.status}${body ? `: ${body.slice(0, 120)}` : ''}`);
-  }
-
-  const data = await res.json();
   const parsed = extractFirstJson(data.content?.[0]?.text || '');
   const calories = Math.round(Number(parsed.calories) || 0);
   return {

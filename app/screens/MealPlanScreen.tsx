@@ -52,8 +52,8 @@ import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { logScreenView } from '../../services/firebaseAnalytics';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
 
@@ -122,27 +122,15 @@ async function recalculateFromComponentsList(components: string[]): Promise<{
   proteinG: number; carbsG: number; fatG: number;
   confidence: 'high' | 'medium' | 'low';
 }> {
-  if (!ANTHROPIC_KEY) throw new Error('No API key');
   const list = components.map((c, i) => `${i + 1}. ${c}`).join('\n');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 400,
-      messages: [{
-        role: 'user',
-        content: `You are a nutrition expert. Calculate total macros for these food items:\n${list}\n\nReturn ONLY this JSON:\n{"calories":0,"caloriesMin":0,"caloriesMax":0,"proteinG":0,"carbsG":0,"fatG":0,"confidence":"medium"}`,
-      }],
-    }),
+  const data = await invokeAnthropicMessages({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 400,
+    messages: [{
+      role: 'user',
+      content: `You are a nutrition expert. Calculate total macros for these food items:\n${list}\n\nReturn ONLY this JSON:\n{"calories":0,"caloriesMin":0,"caloriesMax":0,"proteinG":0,"carbsG":0,"fatG":0,"confidence":"medium"}`,
+    }],
   });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const data = await res.json();
   const parsed = extractFirstJson(data.content?.[0]?.text || '');
   const calories = Math.round(Number(parsed.calories) || 0);
   return {
@@ -204,8 +192,6 @@ async function analyzeFoodPhotosDirect(
     feedbackHint?: 'too_low' | 'too_high' | null;
   },
 ): Promise<FoodPhotoAnalysis> {
-  if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
-
   const imageBlocks = images.map((img) => ({
     type: 'image',
     source: { type: 'base64', media_type: detectMediaType(img.base64), data: img.base64 },
@@ -223,15 +209,7 @@ async function analyzeFoodPhotosDirect(
     ? '\n\nREVISION: User says the previous estimate was too LOW. Look harder for hidden calories — denser portions, extra oil/sauce, or items initially missed. Revise meaningfully upward.'
     : '';
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
+  const data = await invokeAnthropicMessages({
       model: 'claude-sonnet-4-6',
       max_tokens: 700,
       system: `You are an expert nutritionist and visual portion estimator for a high-protein fitness app.
@@ -304,16 +282,7 @@ CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish;
           { type: 'text', text: `Analyze this meal: "${mealName || 'meal'}". Return the nutrition JSON.` },
         ],
       }],
-    }),
   });
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    console.error(`[SpiceStrong] Cal AI vision error ${res.status}:`, errBody);
-    throw new Error(`API ${res.status}`);
-  }
-
-  const data = await res.json();
   const text = data.content?.[0]?.text || '';
   console.log('[SpiceStrong] Cal AI vision response:', text);
 
@@ -1412,36 +1381,22 @@ export default function MealPlanScreen() {
       const proteinEmoji = entry.proteinEmoji || '🍗';
       const mealSlot = entry.slot;
 
-      if (!ANTHROPIC_KEY) throw new Error('No API key');
-
       const { SPICEBUILDER_SYSTEM_PROMPT } = require('../../src/prompts/spiceBuilderPrompt');
       const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : mealSlot === 'others' ? 'Meal' : 'Lunch/Dinner';
       const systemPrompt = SPICEBUILDER_SYSTEM_PROMPT;
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: `Generate a high-protein ${mealTypeLabel} recipe.
+      const data = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `Generate a high-protein ${mealTypeLabel} recipe.
 - proteinId: "${proteinId}"
 - proteinName: "${proteinName}"
 - proteinEmoji: "${proteinEmoji}"
 - mealType: "${mealTypeLabel}"
 - Target: ~${entry.calories} cal, ~${entry.proteinG}g protein per serving
 - Return ONLY the JSON object with: name, proteinId, proteinName, proteinEmoji, description, ingredients (with "2-3 servings" tier), steps (array with title, description, emoji, timerMinutes, tip), chefTip, mealType, aiNutrition (calories, proteinG, carbsG, fatG, fiberG, sugarG, sodiumMg)` }],
-        }),
       });
-
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
 
       // Extract JSON
