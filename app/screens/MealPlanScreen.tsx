@@ -421,13 +421,13 @@ function MacroRing({
           />
         </Svg>
         <View style={{ alignItems: 'center', maxWidth: RING_SIZE - 10 }}>
-          <View style={{ borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border, marginBottom: 3 }}>
-            <Text style={{ fontSize: 7, fontWeight: '900', color: modeMeta.color, letterSpacing: 0.6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+          <View style={{ borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border, marginBottom: 3 }}>
+            <Text style={{ fontSize: 8.5, fontWeight: '900', color: modeMeta.color, letterSpacing: 0.3 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.76}>
               {modeMeta.icon} {modeMeta.label}
             </Text>
           </View>
           <View style={{ borderRadius: 11, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border }}>
-            <Text style={{ fontSize: 16, fontWeight: '900', color: modeMeta.color, lineHeight: 19, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+            <Text style={{ fontSize: 14.5, fontWeight: '900', color: modeMeta.color, lineHeight: 18, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
               {formatMacroRingValue(displayValue, unit, displayMode === 'diff')}
             </Text>
           </View>
@@ -1569,10 +1569,6 @@ export default function MealPlanScreen() {
   const isToday = currentDate === today;
   const cycleCronometerMode = () =>
     setCronometerMode((m) => m === 'consumed' ? 'target' : m === 'target' ? 'diff' : 'consumed');
-  const cronometerTitle =
-    cronometerMode === 'target' ? 'Target Macros' :
-    cronometerMode === 'diff' ? 'Diff Macros' :
-    'Consumed Macros';
 
   return (
     <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
@@ -1761,10 +1757,6 @@ export default function MealPlanScreen() {
               onPress={cycleCronometerMode}
             />
           </View>
-            <View style={styles.cronometerLegend}>
-              <Text style={styles.cronometerLegendText}>{cronometerTitle}</Text>
-            </View>
-
           {/* Calorie equation — Target − Consumed = Diff */}
           </View>
 
@@ -3491,22 +3483,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 4,
     marginBottom: 12,
-  },
-  cronometerLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    paddingTop: 10,
-    paddingHorizontal: 8,
-  },
-  cronometerLegendText: {
-    color: 'rgba(248,241,232,0.68)',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
   },
   // Calorie equation card
   calEqCard: {
