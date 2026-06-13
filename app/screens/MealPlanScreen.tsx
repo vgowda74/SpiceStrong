@@ -1578,8 +1578,7 @@ export default function MealPlanScreen() {
           <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerEyebrow}>{isToday ? 'Today' : 'Daily log'}</Text>
-          <Text style={styles.headerTitle}>Daily Cal Tracker</Text>
+          <Text style={styles.headerTitle}>Cal Tracker</Text>
         </View>
         <HomeButton />
       </View>
@@ -2967,14 +2966,6 @@ const styles = StyleSheet.create({
   },
   back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerCenter: { alignItems: 'center' },
-  headerEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#E8A87C',
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 2,
-  },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   autoPlanBtn: {
