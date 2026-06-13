@@ -36,6 +36,26 @@ function num(v: string) {
   return Math.max(0, Math.round(Number(v.replace(/[^\d]/g, '')) || 0));
 }
 
+function quantityAmount(v: string): number | null {
+  const mixedFraction = v.match(/(\d+(?:\.\d+)?)\s+(\d+)\/(\d+)/);
+  if (mixedFraction) {
+    const whole = Number(mixedFraction[1]);
+    const numerator = Number(mixedFraction[2]);
+    const denominator = Number(mixedFraction[3]);
+    if (denominator > 0) return whole + numerator / denominator;
+  }
+
+  const fraction = v.match(/(\d+)\/(\d+)/);
+  if (fraction) {
+    const numerator = Number(fraction[1]);
+    const denominator = Number(fraction[2]);
+    if (denominator > 0) return numerator / denominator;
+  }
+
+  const decimal = v.match(/\d+(?:\.\d+)?/);
+  return decimal ? Number(decimal[0]) : null;
+}
+
 export default function EditIngredientScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -55,6 +75,13 @@ export default function EditIngredientScreen() {
   const proteinRef = useRef<TextInput>(null);
   const carbsRef = useRef<TextInput>(null);
   const fatRef = useRef<TextInput>(null);
+  const originalRef = useRef<{
+    quantityAmount: number | null;
+    calories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+  } | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(INGREDIENT_EDIT_IN).then((raw) => {
@@ -71,6 +98,13 @@ export default function EditIngredientScreen() {
       setProteinG(String(data.proteinG ?? 0));
       setCarbsG(String(data.carbsG ?? 0));
       setFatG(String(data.fatG ?? 0));
+      originalRef.current = {
+        quantityAmount: quantityAmount(data.quantity),
+        calories: num(data.calories),
+        proteinG: Math.max(0, Math.round(data.proteinG ?? 0)),
+        carbsG: Math.max(0, Math.round(data.carbsG ?? 0)),
+        fatG: Math.max(0, Math.round(data.fatG ?? 0)),
+      };
       setLoading(false);
     }).catch(() => {
       Alert.alert('Error', 'Could not load ingredient.');
@@ -112,6 +146,20 @@ export default function EditIngredientScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleQuantityChange = (value: string) => {
+    setQuantity(value);
+
+    const original = originalRef.current;
+    const nextAmount = quantityAmount(value);
+    if (!original?.quantityAmount || !nextAmount) return;
+
+    const scale = nextAmount / original.quantityAmount;
+    setCalories(String(Math.round(original.calories * scale)));
+    setProteinG(String(Math.round(original.proteinG * scale)));
+    setCarbsG(String(Math.round(original.carbsG * scale)));
+    setFatG(String(Math.round(original.fatG * scale)));
   };
 
   if (loading) {
@@ -158,7 +206,7 @@ export default function EditIngredientScreen() {
             ref={qtyRef}
             style={styles.fieldInput}
             value={quantity}
-            onChangeText={setQuantity}
+            onChangeText={handleQuantityChange}
             placeholder="e.g. 2 large, 1 cup, 100g"
             placeholderTextColor="rgba(248,241,232,0.34)"
             returnKeyType="next"
