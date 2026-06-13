@@ -11,8 +11,7 @@ import { trackAppOpen } from '../services/analyticsService';
 import { initFirebaseAnalytics, setFirebaseUserId, setFirebaseUserProperties } from '../services/firebaseAnalytics';
 import { getFitnessProfile } from '../services/fitnessProfileService';
 import { getDietaryRestrictions } from '../services/dietaryService';
-// pruneImageCache disabled — expo-file-system new API causes TurboModule crash
-// import { pruneImageCache } from '../services/imageCacheService';
+import { pruneImageCache } from '../services/imageCacheService';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -95,8 +94,7 @@ export default function RootLayout() {
     // Pre-cache body-scan instruction images from Supabase Storage so they're
     // instant the first time the user opens the body-scan instructions screen.
     generateScanInstrImages().catch(() => {});
-    // pruneImageCache disabled — causes TurboModule crash
-    // pruneImageCache().catch(() => {});
+    pruneImageCache().catch(() => {});
   }, []);
 
   return (

@@ -6,7 +6,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Paths, File, Directory } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 
 const FAL_KEY = process.env.EXPO_PUBLIC_FAL_KEY || process.env.FAL_KEY;
 const AI_IMAGES_PREFIX = 'spicestrong_ai_images_';
@@ -26,13 +26,18 @@ export interface RecipeImageResults {
   stepImages: Record<string, string | null>;   // stepIndex -> local file URI
 }
 
+function getImageDirUri(): string {
+  return `${FileSystem.documentDirectory}${IMAGE_DIR_NAME}/`;
+}
+
 /** Get or create the local image directory. */
-function getImageDir(): Directory {
-  const dir = new Directory(Paths.document, IMAGE_DIR_NAME);
-  if (!dir.exists) {
-    dir.create();
+async function ensureImageDir(): Promise<string> {
+  const dirUri = getImageDirUri();
+  const info = await FileSystem.getInfoAsync(dirUri);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
   }
-  return dir;
+  return dirUri;
 }
 
 /**
@@ -41,12 +46,13 @@ function getImageDir(): Directory {
  */
 async function downloadImage(remoteUrl: string, localFileName: string): Promise<string | null> {
   try {
-    const dir = getImageDir();
-    const destination = new File(dir, localFileName);
-    if (destination.exists) {
-      destination.delete();
+    const dirUri = await ensureImageDir();
+    const destination = dirUri + localFileName;
+    const info = await FileSystem.getInfoAsync(destination);
+    if (info.exists) {
+      await FileSystem.deleteAsync(destination, { idempotent: true });
     }
-    const downloaded = await File.downloadFileAsync(remoteUrl, destination);
+    const downloaded = await FileSystem.downloadAsync(remoteUrl, destination);
     console.log(`[SpiceStrong] Image saved: ${localFileName} -> ${downloaded.uri}`);
     return downloaded.uri;
   } catch (e) {
@@ -188,8 +194,8 @@ export async function generateBodyScanSample(gender: 'male' | 'female'): Promise
   try {
     const cached = await AsyncStorage.getItem(cacheKey);
     if (cached) {
-      const file = new File(cached);
-      if (file.exists) return cached;
+      const info = await FileSystem.getInfoAsync(cached);
+      if (info.exists) return cached;
     }
   } catch { /* regenerate below */ }
 
@@ -266,12 +272,14 @@ export async function generateScanInstrImages(
     const cached = await AsyncStorage.getItem(SCAN_INSTR_CACHE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached) as ScanInstrImages;
-      const allValid = (Object.keys(parsed) as (keyof ScanInstrImages)[]).every((k) => {
-        const uri = parsed[k];
-        if (!uri) return false;
-        try { return new File(uri).exists; } catch { return false; }
-      });
-      if (allValid) {
+      const existsChecks = await Promise.all(
+        (Object.keys(parsed) as (keyof ScanInstrImages)[]).map(async (k) => {
+          const uri = parsed[k];
+          if (!uri) return false;
+          try { return (await FileSystem.getInfoAsync(uri)).exists; } catch { return false; }
+        }),
+      );
+      if (existsChecks.every(Boolean)) {
         console.log('[SpiceStrong] scan instr images: loaded from local cache');
         return parsed;
       }
@@ -279,7 +287,7 @@ export async function generateScanInstrImages(
   } catch { /* fall through */ }
 
   const result: ScanInstrImages = { ...empty };
-  getImageDir();
+  await ensureImageDir();
   const keys = Object.keys(SCAN_INSTR_PROMPTS) as (keyof ScanInstrImages)[];
 
   // 2. Supabase Storage — download pre-seeded static images in parallel
@@ -507,7 +515,7 @@ export async function generateAllRecipeImages(
     ?? [];
 
   console.log(`[SpiceStrong] Generating images for: ${recipeName} (1 hero + ${steps.length} steps, ${ingredientList.length} ingredients)`);
-  getImageDir();
+  await ensureImageDir();
 
   // Generate hero image first — context-aware with visible ingredients
   const dishResult = await generateDishImage(recipeName, recipeId, ingredientList);
@@ -569,7 +577,7 @@ export async function generateSingleStepImage(
     ?? Object.values(recipe.ingredients ?? {})[0]
     ?? [];
 
-  getImageDir();
+  await ensureImageDir();
   return generateStepImage(
     recipe.name,
     recipeId,

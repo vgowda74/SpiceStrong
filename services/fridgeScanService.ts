@@ -66,15 +66,7 @@ export function prepareImagesFromBase64(
   const results: { base64: string; mediaType: string }[] = [];
   for (const img of base64Images) {
     let b64 = img.base64;
-    // Fallback: read from file if picker didn't return base64
-    if (!b64) {
-      try {
-        const { File } = require('expo-file-system');
-        b64 = new File(img.uri).base64();
-      } catch (e) {
-        console.warn('[SpiceStrong] Could not read base64 from file:', e);
-      }
-    }
+    // Picker is always called with base64:true; if b64 is missing the image is skipped below
     if (!b64 || typeof b64 !== 'string') {
       console.warn('[SpiceStrong] Skipping image — no base64 available:', img.uri);
       continue;

@@ -1,5 +1,5 @@
 import { Audio } from 'expo-av';
-import { File, Paths } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import * as Speech from 'expo-speech';
 
 const ELEVENLABS_KEY = process.env.EXPO_PUBLIC_ELEVENLABS_KEY;
@@ -15,16 +15,16 @@ function hashText(text: string): string {
   return Math.abs(h).toString(36);
 }
 
-// In-memory cache: text hash → File instance
-const audioCache = new Map<string, File>();
+// In-memory cache: text hash → local file URI
+const audioCache = new Map<string, string>();
 
 let currentSound: Audio.Sound | null = null;
 
 async function playFromElevenLabs(text: string): Promise<void> {
   const key = hashText(text);
-  let file = audioCache.get(key);
+  let fileUri = audioCache.get(key);
 
-  if (!file || !file.exists) {
+  if (!fileUri || !(await FileSystem.getInfoAsync(fileUri)).exists) {
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -50,9 +50,9 @@ async function playFromElevenLabs(text: string): Promise<void> {
       new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
     );
 
-    file = new File(Paths.cache, `tts_${key}.mp3`);
-    file.write(base64, { encoding: 'base64' });
-    audioCache.set(key, file);
+    fileUri = `${FileSystem.cacheDirectory}tts_${key}.mp3`;
+    await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
+    audioCache.set(key, fileUri);
   }
 
   await Audio.setAudioModeAsync({
@@ -61,7 +61,7 @@ async function playFromElevenLabs(text: string): Promise<void> {
   });
 
   const { sound } = await Audio.Sound.createAsync(
-    { uri: file.uri },
+    { uri: fileUri! },
     { shouldPlay: true, volume: 1.0 }
   );
   currentSound = sound;

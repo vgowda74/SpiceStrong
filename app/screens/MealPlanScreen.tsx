@@ -30,7 +30,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { File, Directory, Paths } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -94,9 +94,10 @@ async function hydrateMealPhotos(photos: { uri: string; base64: string }[]) {
 }
 
 async function persistMealPhotoUris(photos: { uri: string; base64: string }[], prefix: string): Promise<string[]> {
-  const dir = new Directory(Paths.document, 'meal_photos');
+  const dirUri = `${FileSystem.documentDirectory}meal_photos/`;
   try {
-    if (!dir.exists) dir.create();
+    const info = await FileSystem.getInfoAsync(dirUri);
+    if (!info.exists) await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
   } catch {}
 
   const saved: string[] = [];
@@ -107,10 +108,11 @@ async function persistMealPhotoUris(photos: { uri: string; base64: string }[], p
       continue;
     }
     try {
-      const dest = new File(dir, `${prefix}_${Date.now()}_${i}.jpg`);
-      if (dest.exists) dest.delete();
-      new File(uri).move(dest);
-      uri = dest.uri;
+      const destUri = `${dirUri}${prefix}_${Date.now()}_${i}.jpg`;
+      const destInfo = await FileSystem.getInfoAsync(destUri);
+      if (destInfo.exists) await FileSystem.deleteAsync(destUri, { idempotent: true });
+      await FileSystem.moveAsync({ from: uri, to: destUri });
+      uri = destUri;
     } catch {}
     saved.push(uri);
   }
