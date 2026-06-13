@@ -441,7 +441,6 @@ export default function ScanFoodScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.slotRow}>
-          <Text style={styles.slotHint}>{slot ? '' : 'Optional · saved as Others if skipped'}</Text>
           {(Object.keys(SLOT_META) as MealSlot[]).map((item) => {
             const active = slot === item;
             return (
@@ -716,7 +715,6 @@ const styles = StyleSheet.create({
   actionText: { color: '#F8F1E8', fontSize: 12, fontWeight: '900', textAlign: 'center' },
   actionPrimaryText: { color: '#0F0D0B', fontSize: 12, fontWeight: '900', textAlign: 'center' },
   slotRow: { gap: 10, paddingVertical: 16, alignItems: 'center' },
-  slotHint: { color: 'rgba(248,241,232,0.38)', fontSize: 11, fontWeight: '700', marginRight: 4 },
   slotPill: {
     minHeight: 42,
     borderRadius: 16,
