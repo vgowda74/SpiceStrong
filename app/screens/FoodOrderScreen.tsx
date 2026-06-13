@@ -109,6 +109,7 @@ export default function FoodOrderScreen() {
   const [restaurantName, setRestaurantName] = useState('');
   const [manualLocation, setManualLocation] = useState('');
   const [currentLocation, setCurrentLocation] = useState('');
+  const [currentLocationSearchContext, setCurrentLocationSearchContext] = useState('');
   const [locationLoading, setLocationLoading] = useState(false);
   const [restaurantInfo, setRestaurantInfo] = useState('');
   const [menuPhotos, setMenuPhotos] = useState<{ uri: string; base64: string }[]>([]);
@@ -120,8 +121,9 @@ export default function FoodOrderScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const locationContext = currentLocation || manualLocation.trim();
-  const canSearch = restaurantName.trim().length > 1 && locationContext.length > 1;
+  const locationDisplay = currentLocation || manualLocation.trim();
+  const locationSearchContext = currentLocationSearchContext || manualLocation.trim();
+  const canSearch = restaurantName.trim().length > 1 && locationSearchContext.length > 1;
 
   const addMenuPhoto = () => {
     Alert.alert('Add Menu Photo', 'Choose source', [
@@ -173,22 +175,15 @@ export default function FoodOrderScreen() {
         accuracy: Location.Accuracy.Balanced,
       });
       const { latitude, longitude } = position.coords;
-      let label = `Current location near ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      let label = 'Current location';
 
       try {
         const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
-        const parts = [
-          place?.city,
-          place?.district,
-          place?.region,
-          place?.country,
-        ].filter(Boolean);
-        if (parts.length > 0) {
-          label = `${parts.join(', ')} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
-        }
+        label = place?.city || place?.district || place?.region || place?.country || label;
       } catch {}
 
       setCurrentLocation(label);
+      setCurrentLocationSearchContext(`Search for restaurants within a 10 mile radius of latitude ${latitude.toFixed(5)}, longitude ${longitude.toFixed(5)}. User-facing city label: ${label}.`);
       setManualLocation('');
       setIssue(null);
     } catch (err: any) {
@@ -238,7 +233,7 @@ export default function FoodOrderScreen() {
       const restaurantDietContext = restaurantIsVegetarianOnly
         ? `${restaurantName.trim()} appears to be a vegetarian-only restaurant. Recommend vegetarian dishes only. Do not recommend chicken, meat, fish, eggs, prawns, shrimp, or seafood.`
         : 'First verify the restaurant/menu context. If the restaurant is vegetarian-only or the attached menu only shows vegetarian dishes, recommend vegetarian dishes only.';
-      const resolvedLocationContext = locationContext;
+      const resolvedLocationContext = locationSearchContext;
       const extraRestaurantInfo = restaurantInfo.trim()
         ? `Additional restaurant info from user: ${restaurantInfo.trim()}`
         : 'No website, menu link, or extra restaurant info was provided.';
@@ -277,7 +272,9 @@ SpiceStrong minimum criteria:
 
 Restaurant match rules:
 - If you cannot confidently identify the exact restaurant from name + location + any provided info, set "status" to "uncertain_match" and return no items.
+- Treat GPS-derived locations as a nearby search area with an approximate 10 mile radius.
 - Location may be GPS-derived, a neighborhood/city/country, or an international address. Do not assume this is in the United States.
+- You do not have live Google Maps search. If the restaurant is not known from your data or the provided website/menu/details/photos, set "status" to "uncertain_match" and ask for a website, menu link, Google Maps/Yelp link, or menu photo.
 - If the restaurant is identified but no dishes pass the SpiceStrong minimum, set "status" to "no_good_options" and return no items.
 - If the restaurant is identified and qualifying dishes exist, set "status" to "matched".
 
@@ -312,7 +309,7 @@ Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition da
 Location context: ${resolvedLocationContext}
 ${restaurantInfo.trim() ? `Website/menu/details: ${restaurantInfo.trim()}` : 'Website/menu/details: not provided'}
 ${goalDesc}
-Find qualifying SpiceStrong menu options. If you cannot confidently match the restaurant, ask for a website, menu link, Google Maps/Yelp link, or menu photos through the JSON status/message.`,
+Find qualifying SpiceStrong menu options within about 10 miles of the location context when GPS coordinates are provided. If you cannot confidently match the restaurant, ask for a website, menu link, Google Maps/Yelp link, or menu photos through the JSON status/message.`,
               },
             ],
           }],
@@ -487,7 +484,10 @@ Find qualifying SpiceStrong menu options. If you cannot confidently match the re
               value={manualLocation}
               onChangeText={(value) => {
                 setManualLocation(value);
-                if (value.trim()) setCurrentLocation('');
+                if (value.trim()) {
+                  setCurrentLocation('');
+                  setCurrentLocationSearchContext('');
+                }
               }}
               placeholder="Or enter area, city, country, address, or Maps link"
               placeholderTextColor="rgba(248,241,232,0.30)"
@@ -578,7 +578,7 @@ Find qualifying SpiceStrong menu options. If you cannot confidently match the re
         {results && !analyzing && (
           <View style={styles.resultsSection}>
             <Text style={styles.resultsTitle}>{results.length >= 5 ? 'Top 5 for your goals' : 'Best options found'}</Text>
-            <Text style={styles.resultsSubtitle}>{restaurantName} · {locationContext}</Text>
+            <Text style={styles.resultsSubtitle}>{restaurantName} · {locationDisplay}</Text>
 
             <View style={styles.disclaimerCard}>
               <Ionicons name="information-circle-outline" size={16} color="#E8A87C" />
