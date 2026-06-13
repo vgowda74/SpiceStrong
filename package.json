@@ -17,6 +17,7 @@
     "test:db:audit": "node scripts/audit-database.js",
     "test:db:audit:watch": "nodemon --exec node scripts/audit-database.js --ext js,ts",
     "test:all": "npm run test:e2e:ios && npm run test:db:audit",
+    "secrets:sync": "node scripts/sync-supabase-secrets.js",
     "android:build": "eas build --platform android --wait",
     "android:submit": "eas submit --platform android --latest",
     "android:release": "node scripts/android-release.js"
