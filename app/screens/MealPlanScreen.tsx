@@ -345,6 +345,34 @@ function formatMacroRingValue(value: number, unit: string, showPositiveSign: boo
   return `${prefix}${rounded}${unit}`;
 }
 
+function getMacroRingModeMeta(displayMode: 'diff' | 'target' | 'consumed', diff: number) {
+  if (displayMode === 'diff') {
+    return {
+      icon: diff >= 0 ? '▲' : '▼',
+      label: 'Diff',
+      color: diff >= 0 ? '#86EFAC' : '#FDE68A',
+      bg: diff >= 0 ? 'rgba(34,197,94,0.20)' : 'rgba(245,158,11,0.20)',
+      border: diff >= 0 ? 'rgba(134,239,172,0.44)' : 'rgba(253,230,138,0.44)',
+    };
+  }
+  if (displayMode === 'target') {
+    return {
+      icon: '◎',
+      label: 'Target',
+      color: '#E8A87C',
+      bg: 'rgba(232,168,124,0.18)',
+      border: 'rgba(232,168,124,0.42)',
+    };
+  }
+  return {
+    icon: '✓',
+    label: 'Eaten',
+    color: '#FFFFFF',
+    bg: 'rgba(59,130,246,0.18)',
+    border: 'rgba(147,197,253,0.36)',
+  };
+}
+
 function MacroRing({
   label, color, target, consumed, displayMode, onPress, unit = 'g',
 }: {
@@ -362,12 +390,7 @@ function MacroRing({
   const cx = RING_SIZE / 2;
   const cy = RING_SIZE / 2;
   const displayValue = displayMode === 'diff' ? diff : displayMode === 'target' ? target : consumed;
-  const displayColor = displayMode === 'diff'
-    ? diff >= 0 ? '#86EFAC' : '#FDE68A'
-    : displayMode === 'target' ? '#E8A87C' : '#FFFFFF';
-  const displayBg = displayMode === 'diff'
-    ? diff >= 0 ? 'rgba(34,197,94,0.18)' : 'rgba(245,158,11,0.18)'
-    : displayMode === 'target' ? 'rgba(232,168,124,0.16)' : 'rgba(255,255,255,0.12)';
+  const modeMeta = getMacroRingModeMeta(displayMode, diff);
 
   return (
     <View style={{ alignItems: 'center', width: RING_SIZE }}>
@@ -398,11 +421,13 @@ function MacroRing({
           />
         </Svg>
         <View style={{ alignItems: 'center', maxWidth: RING_SIZE - 10 }}>
-          <Text style={{ fontSize: 7, fontWeight: '900', color: displayColor, letterSpacing: 0.8 }}>
-            {displayMode.toUpperCase()}
-          </Text>
-          <View style={{ marginTop: 3, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: displayBg }}>
-            <Text style={{ fontSize: 16, fontWeight: '900', color: displayColor, lineHeight: 19, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+          <View style={{ borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border, marginBottom: 3 }}>
+            <Text style={{ fontSize: 7, fontWeight: '900', color: modeMeta.color, letterSpacing: 0.6 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+              {modeMeta.icon} {modeMeta.label}
+            </Text>
+          </View>
+          <View style={{ borderRadius: 11, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border }}>
+            <Text style={{ fontSize: 16, fontWeight: '900', color: modeMeta.color, lineHeight: 19, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
               {formatMacroRingValue(displayValue, unit, displayMode === 'diff')}
             </Text>
           </View>
