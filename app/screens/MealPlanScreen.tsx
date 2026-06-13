@@ -350,7 +350,7 @@ function getMacroRingModeMeta(displayMode: 'diff' | 'target' | 'consumed', diff:
     return {
       icon: diff >= 0 ? '▲' : '▼',
       label: 'Diff',
-      color: diff >= 0 ? '#86EFAC' : '#FDE68A',
+      color: '#FFFFFF',
       bg: diff >= 0 ? 'rgba(34,197,94,0.20)' : 'rgba(245,158,11,0.20)',
       border: diff >= 0 ? 'rgba(134,239,172,0.44)' : 'rgba(253,230,138,0.44)',
     };
@@ -359,7 +359,7 @@ function getMacroRingModeMeta(displayMode: 'diff' | 'target' | 'consumed', diff:
     return {
       icon: '◎',
       label: 'Target',
-      color: '#E8A87C',
+      color: '#FFFFFF',
       bg: 'rgba(232,168,124,0.18)',
       border: 'rgba(232,168,124,0.42)',
     };
