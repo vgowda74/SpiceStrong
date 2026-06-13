@@ -13,6 +13,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -106,8 +107,9 @@ export default function FoodOrderScreen() {
   const insets = useSafeAreaInsets();
 
   const [restaurantName, setRestaurantName] = useState('');
-  const [city, setCity] = useState('');
-  const [stateValue, setStateValue] = useState('');
+  const [manualLocation, setManualLocation] = useState('');
+  const [currentLocation, setCurrentLocation] = useState('');
+  const [locationLoading, setLocationLoading] = useState(false);
   const [restaurantInfo, setRestaurantInfo] = useState('');
   const [menuPhotos, setMenuPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
@@ -118,7 +120,8 @@ export default function FoodOrderScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const canSearch = restaurantName.trim().length > 1 && city.trim().length > 1 && stateValue.trim().length > 0;
+  const locationContext = currentLocation || manualLocation.trim();
+  const canSearch = restaurantName.trim().length > 1 && locationContext.length > 1;
 
   const addMenuPhoto = () => {
     Alert.alert('Add Menu Photo', 'Choose source', [
@@ -151,6 +154,52 @@ export default function FoodOrderScreen() {
       if (!base64) return;
       setMenuPhotos((prev) => [...prev, { uri, base64 }]);
     } catch {}
+  };
+
+  const useCurrentLocation = async () => {
+    setLocationLoading(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        setIssue({
+          type: 'uncertain_match',
+          title: 'Location needed',
+          message: 'Location permission was not granted. Enter a city, neighborhood, country, or paste a Maps link so we can match the right restaurant.',
+        });
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const { latitude, longitude } = position.coords;
+      let label = `Current location near ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+
+      try {
+        const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+        const parts = [
+          place?.city,
+          place?.district,
+          place?.region,
+          place?.country,
+        ].filter(Boolean);
+        if (parts.length > 0) {
+          label = `${parts.join(', ')} (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+        }
+      } catch {}
+
+      setCurrentLocation(label);
+      setManualLocation('');
+      setIssue(null);
+    } catch (err: any) {
+      setIssue({
+        type: 'uncertain_match',
+        title: 'Could not get current location',
+        message: err?.message || 'Enter a city, neighborhood, country, or paste a Maps link so we can match the right restaurant.',
+      });
+    } finally {
+      setLocationLoading(false);
+    }
   };
 
   const findBestDishes = async () => {
@@ -189,6 +238,7 @@ export default function FoodOrderScreen() {
       const restaurantDietContext = restaurantIsVegetarianOnly
         ? `${restaurantName.trim()} appears to be a vegetarian-only restaurant. Recommend vegetarian dishes only. Do not recommend chicken, meat, fish, eggs, prawns, shrimp, or seafood.`
         : 'First verify the restaurant/menu context. If the restaurant is vegetarian-only or the attached menu only shows vegetarian dishes, recommend vegetarian dishes only.';
+      const resolvedLocationContext = locationContext;
       const extraRestaurantInfo = restaurantInfo.trim()
         ? `Additional restaurant info from user: ${restaurantInfo.trim()}`
         : 'No website, menu link, or extra restaurant info was provided.';
@@ -226,7 +276,8 @@ SpiceStrong minimum criteria:
 - If no dishes pass, return [].
 
 Restaurant match rules:
-- If you cannot confidently identify the exact restaurant from name + city + state + any provided info, set "status" to "uncertain_match" and return no items.
+- If you cannot confidently identify the exact restaurant from name + location + any provided info, set "status" to "uncertain_match" and return no items.
+- Location may be GPS-derived, a neighborhood/city/country, or an international address. Do not assume this is in the United States.
 - If the restaurant is identified but no dishes pass the SpiceStrong minimum, set "status" to "no_good_options" and return no items.
 - If the restaurant is identified and qualifying dishes exist, set "status" to "matched".
 
@@ -257,7 +308,8 @@ Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition da
               ...imageBlocks,
               {
                 type: 'text' as const,
-                text: `Restaurant: ${restaurantName.trim()}, ${city.trim()}, ${stateValue.trim().toUpperCase()}
+                text: `Restaurant: ${restaurantName.trim()}
+Location context: ${resolvedLocationContext}
 ${restaurantInfo.trim() ? `Website/menu/details: ${restaurantInfo.trim()}` : 'Website/menu/details: not provided'}
 ${goalDesc}
 Find qualifying SpiceStrong menu options. If you cannot confidently match the restaurant, ask for a website, menu link, Google Maps/Yelp link, or menu photos through the JSON status/message.`,
@@ -288,7 +340,7 @@ Find qualifying SpiceStrong menu options. If you cannot confidently match the re
         setIssue({
           type: 'uncertain_match',
           title: 'Help us find the right restaurant',
-          message: responseMessage || 'We could not confidently match this restaurant from the name and city. Add a website, menu link, Google Maps/Yelp link, or menu photos so we can make accurate recommendations.',
+          message: responseMessage || 'We could not confidently match this restaurant from the name and location. Add a website, menu link, Google Maps/Yelp link, or menu photos so we can make accurate recommendations.',
         });
         return;
       }
@@ -413,31 +465,34 @@ Find qualifying SpiceStrong menu options. If you cannot confidently match the re
             returnKeyType="next"
           />
 
-          <View style={styles.cityStateRow}>
-            <View style={styles.cityField}>
-              <Text style={styles.fieldLabel}>City</Text>
-              <TextInput
-                style={styles.textInput}
-                value={city}
-                onChangeText={setCity}
-                placeholder="e.g. Austin"
-                placeholderTextColor="rgba(248,241,232,0.30)"
-                returnKeyType="next"
-              />
-            </View>
-            <View style={styles.stateField}>
-              <Text style={styles.fieldLabel}>State</Text>
-              <TextInput
-                style={styles.textInput}
-                value={stateValue}
-                onChangeText={setStateValue}
-                placeholder="TX"
-                placeholderTextColor="rgba(248,241,232,0.30)"
-                returnKeyType="done"
-                autoCapitalize="characters"
-                maxLength={2}
-              />
-            </View>
+          <View>
+            <Text style={styles.fieldLabel}>Location</Text>
+            <TouchableOpacity
+              style={[styles.locationBtn, currentLocation && styles.locationBtnActive]}
+              onPress={useCurrentLocation}
+              disabled={locationLoading}
+              activeOpacity={0.84}
+            >
+              {locationLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="navigate-outline" size={16} color={currentLocation ? '#22C55E' : '#FFFFFF'} />
+              )}
+              <Text style={styles.locationBtnText}>
+                {currentLocation || (locationLoading ? 'Finding your location...' : 'Use current location')}
+              </Text>
+            </TouchableOpacity>
+            <TextInput
+              style={[styles.textInput, styles.manualLocationInput]}
+              value={manualLocation}
+              onChangeText={(value) => {
+                setManualLocation(value);
+                if (value.trim()) setCurrentLocation('');
+              }}
+              placeholder="Or enter area, city, country, address, or Maps link"
+              placeholderTextColor="rgba(248,241,232,0.30)"
+              returnKeyType="next"
+            />
           </View>
 
           <View style={styles.photoSection}>
@@ -523,7 +578,7 @@ Find qualifying SpiceStrong menu options. If you cannot confidently match the re
         {results && !analyzing && (
           <View style={styles.resultsSection}>
             <Text style={styles.resultsTitle}>{results.length >= 5 ? 'Top 5 for your goals' : 'Best options found'}</Text>
-            <Text style={styles.resultsSubtitle}>{restaurantName} · {city}, {stateValue.toUpperCase()}</Text>
+            <Text style={styles.resultsSubtitle}>{restaurantName} · {locationContext}</Text>
 
             <View style={styles.disclaimerCard}>
               <Ionicons name="information-circle-outline" size={16} color="#E8A87C" />
@@ -711,9 +766,24 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     lineHeight: 20,
   },
-  cityStateRow: { flexDirection: 'row', gap: 10 },
-  cityField: { flex: 1.5 },
-  stateField: { flex: 0.7 },
+  locationBtn: {
+    minHeight: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(143,58,31,0.34)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.24)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+  },
+  locationBtnActive: {
+    backgroundColor: 'rgba(34,197,94,0.10)',
+    borderColor: 'rgba(34,197,94,0.26)',
+  },
+  locationBtnText: { flex: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '800', lineHeight: 18 },
+  manualLocationInput: { minHeight: 46 },
   photoSection: { gap: 0 },
   optionalLabel: { color: 'rgba(248,241,232,0.35)', fontWeight: '700', textTransform: 'none', letterSpacing: 0 },
   photoScroll: { gap: 10, paddingBottom: 4 },
