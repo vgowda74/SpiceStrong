@@ -1764,6 +1764,13 @@ export default function MealPlanScreen() {
               onPress={cycleCronometerMode}
             />
           </View>
+            <View style={styles.cronometerLegend}>
+              <Text style={styles.cronometerLegendText}>Target Macros</Text>
+              <Text style={styles.cronometerLegendDot}>/</Text>
+              <Text style={styles.cronometerLegendText}>Consumed Macros</Text>
+              <Text style={styles.cronometerLegendDot}>/</Text>
+              <Text style={styles.cronometerLegendText}>Diff Macros</Text>
+            </View>
 
           {/* Calorie equation — Target − Consumed = Diff */}
           </View>
@@ -3491,6 +3498,27 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 4,
     marginBottom: 12,
+  },
+  cronometerLegend: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingTop: 10,
+    paddingHorizontal: 8,
+  },
+  cronometerLegendText: {
+    color: 'rgba(248,241,232,0.68)',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  cronometerLegendDot: {
+    color: 'rgba(248,241,232,0.28)',
+    fontSize: 10,
+    fontWeight: '900',
   },
   // Calorie equation card
   calEqCard: {
