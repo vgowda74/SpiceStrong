@@ -56,6 +56,8 @@ import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
+const TRACKER_CACHE_PREFIX = 'spicestrong_tracker_snapshot_';
+const TRACKER_CACHE_VERSION = 1;
 
 interface MacroOverride {
   calories: number;
@@ -449,6 +451,13 @@ interface EnrichedEntry extends MealPlanEntry {
   isQuickAdd?: boolean; // true for manually added meals (no recipe)
 }
 
+interface TrackerCacheSnapshot {
+  version: number;
+  date: string;
+  savedAt: number;
+  entries: EnrichedEntry[];
+}
+
 interface MacroTotals {
   calories: number;
   proteinG: number;
@@ -463,6 +472,43 @@ function dateFromString(dateStr: string): Date {
 function stringFromDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
+
+function trackerCacheKey(date: string) {
+  return `${TRACKER_CACHE_PREFIX}${date}`;
+}
+
+async function readTrackerCache(date: string): Promise<EnrichedEntry[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(trackerCacheKey(date));
+    if (!raw) return null;
+    const snapshot: TrackerCacheSnapshot = JSON.parse(raw);
+    if (
+      snapshot.version !== TRACKER_CACHE_VERSION ||
+      snapshot.date !== date ||
+      !Array.isArray(snapshot.entries)
+    ) {
+      return null;
+    }
+    return snapshot.entries;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTrackerCache(date: string, entries: EnrichedEntry[]) {
+  try {
+    const snapshot: TrackerCacheSnapshot = {
+      version: TRACKER_CACHE_VERSION,
+      date,
+      savedAt: Date.now(),
+      entries,
+    };
+    await AsyncStorage.setItem(trackerCacheKey(date), JSON.stringify(snapshot));
+  } catch {
+    // Cache writes should never block the tracker.
+  }
+}
+
 function formatDisplayDate(dateStr: string): string {
   const d = dateFromString(dateStr);
   return `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
@@ -579,6 +625,7 @@ export default function MealPlanScreen() {
   const [currentDate, setCurrentDate] = useState(today);
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const activeLoadRef = useRef(0);
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
   const [overallAdherencePct, setOverallAdherencePct] = useState<number | null>(null);
   const [overallAdherenceLoading, setOverallAdherenceLoading] = useState(false);
@@ -610,6 +657,14 @@ export default function MealPlanScreen() {
   const [manualProtein, setManualProtein] = useState('');
   const [manualCarbs, setManualCarbs] = useState('');
   const [manualFat, setManualFat] = useState('');
+
+  const updateEnrichedForCurrentDate = useCallback((updater: (entries: EnrichedEntry[]) => EnrichedEntry[]) => {
+    setEnriched((prev) => {
+      const next = updater(prev);
+      void writeTrackerCache(currentDate, next);
+      return next;
+    });
+  }, [currentDate]);
 
   const openCorrectMacros = async (entry: EnrichedEntry) => {
     setCorrectEntry(entry);
@@ -779,7 +834,7 @@ export default function MealPlanScreen() {
     const existingPhotoUris = correctEntry.photoUris ?? (correctEntry.imageUri ? [correctEntry.imageUri] : []);
     const override: MacroOverride = { ...macros, photoUri: existingPhotoUris[0] ?? '', photoUris: existingPhotoUris };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
-    setEnriched((prev) =>
+    updateEnrichedForCurrentDate((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
           ? { ...e, ...macros, imageUri: existingPhotoUris[0] ?? e.imageUri, photoUris: existingPhotoUris }
@@ -836,7 +891,7 @@ export default function MealPlanScreen() {
       photoUris: existingPhotoUris,
     };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
-    setEnriched((prev) =>
+    updateEnrichedForCurrentDate((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
           ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: existingPhotoUris[0] ?? e.imageUri, photoUris: existingPhotoUris }
@@ -1213,6 +1268,7 @@ export default function MealPlanScreen() {
   };
 
   const loadEntries = useCallback(async (date: string) => {
+    const loadId = ++activeLoadRef.current;
     setLoading(true);
     try {
       const entries = await getMealPlanForDate(date);
@@ -1317,22 +1373,40 @@ export default function MealPlanScreen() {
         })
       );
 
+      if (loadId !== activeLoadRef.current) return;
       setEnriched(enrichedEntries);
+      void writeTrackerCache(date, enrichedEntries);
     } catch (err) {
-      console.warn('[SpiceStrong] Could not load meal plan entries:', err);
-      setEnriched([]);
+      if (loadId === activeLoadRef.current) {
+        console.warn('[SpiceStrong] Could not load meal plan entries:', err);
+      }
     } finally {
-      setLoading(false);
+      if (loadId === activeLoadRef.current) setLoading(false);
     }
   }, []);
 
   useFocusEffect(useCallback(() => {
-    loadEntries(currentDate);
+    let cancelled = false;
+    activeLoadRef.current += 1;
+
+    readTrackerCache(currentDate).then((cachedEntries) => {
+      if (cancelled) return;
+      setEnriched(cachedEntries ?? []);
+      loadEntries(currentDate);
+    });
+
     getFitnessProfile().then((profile) => {
+      if (cancelled) return;
       if (profile) setMacroTargets(calculateMacroTargets(profile));
       else setMacroTargets(null);
     }).catch(() => {});
-    AsyncStorage.getItem(TRACKING_START_KEY).then((v) => setTrackingStartDate(v)).catch(() => {});
+    AsyncStorage.getItem(TRACKING_START_KEY).then((v) => {
+      if (!cancelled) setTrackingStartDate(v);
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [currentDate, loadEntries]));
 
   useEffect(() => { logScreenView('MealPlanScreen'); }, []);
