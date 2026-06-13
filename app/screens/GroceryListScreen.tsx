@@ -41,6 +41,7 @@ import { PremiumScreen } from '../../components/PremiumScreen';
 import { getIngredientInfo } from '../../services/ingredientInfoService';
 import { trackEvent } from '../../services/analyticsService';
 import { getDietPreference, isNonVegIngredientName, type DietPreference } from '../../src/utils/dietPreference';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -98,18 +99,13 @@ export default function GroceryListScreen() {
     setSummaryVisible(true);
     setSummaryLoading(true);
     setSummaryText('');
-    const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-    if (!apiKey) { setSummaryText('AI is not configured.'); setSummaryLoading(false); return; }
     try {
       const toBuy = items.filter((i) => !i.checked).map((i) => `${i.name} (${i.quantity})`).join(', ');
       const done = items.filter((i) => i.checked).map((i) => `${i.name} (${i.quantity})`).join(', ');
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 600,
-          messages: [{ role: 'user', content: `You are a brutally honest fitness shopping advisor. Analyze this grocery list using the Protein Source Quality framework. Be direct — call out bad choices.
+      const data = await invokeAnthropicMessages({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 600,
+        messages: [{ role: 'user', content: `You are a brutally honest fitness shopping advisor. Analyze this grocery list using the Protein Source Quality framework. Be direct — call out bad choices.
 
 PROTEIN TIER SYSTEM:
 - S-Tier (Supreme): chicken breast, turkey, tuna in water, whey isolate, egg whites, tilapia, cod
@@ -130,17 +126,9 @@ Give a shopping report card (use emojis):
 5. Budget tip — how to get more protein per dollar from their current list
 
 Keep it under 250 words. Be specific to THEIR items.` }],
-        }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setSummaryText(data.content?.[0]?.text || 'Could not generate summary.');
-        recordUsage('nutrition_iq');
-      } else {
-        const errBody = await res.text().catch(() => '');
-        console.error('[SpiceStrong] Smart Summary error:', res.status, errBody);
-        setSummaryText('Could not generate summary. Please try again.');
-      }
+      setSummaryText(data.content?.[0]?.text || 'Could not generate summary.');
+      recordUsage('nutrition_iq');
     } catch (err) {
       console.error('[SpiceStrong] Smart Summary failed:', err);
       setSummaryText('Could not connect. Check your internet and try again.');

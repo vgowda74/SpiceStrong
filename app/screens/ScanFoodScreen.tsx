@@ -100,6 +100,14 @@ function parseIngredientComponent(component: string): { name: string; calories: 
   return { name, calories, quantity, proteinG, carbsG, fatG };
 }
 
+function getFoodAnalysisErrorMessage(err: any): string {
+  const message = String(err?.message || '');
+  if (/non-2xx|function|proxy|anthropic/i.test(message)) {
+    return 'Food analysis is temporarily unavailable. Please try again, or use a clearer photo from your gallery.';
+  }
+  return message || 'Try another photo or use gallery.';
+}
+
 async function analyzeFoodPhotosDirect(photos: { base64: string }[], mealName = 'meal'): Promise<FoodPhotoAnalysis> {
   const imageBlocks = photos.slice(0, 3).map((photo) => ({
     type: 'image',
@@ -274,7 +282,7 @@ export default function ScanFoodScreen() {
       setEditMode(false);
       trackEvent('scan_food', { screen: 'ScanFoodScreen', metadata: { slot: slot ?? 'others', confidence: result.confidence } });
     } catch (err: any) {
-      Alert.alert('Analysis failed', err?.message ?? 'Try another photo or use gallery.');
+      Alert.alert('Analysis failed', getFoodAnalysisErrorMessage(err));
     } finally {
       setScanning(false);
     }

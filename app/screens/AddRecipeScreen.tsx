@@ -18,6 +18,7 @@ import { QUANTITY_TIERS, type QuantityTier, type IngredientsByTier, type Cooking
 import { saveAIRecipe, uploadRecipeHeroImage, uploadStepImage, updateRecipeStatus } from '../../services/recipeService';
 import { generateAllRecipeImages, saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import { PROTEINS } from '../../src/theme';
 import { filterProteinsForPreference, getDietPreference, hasNonVegText, isNonVegProteinId, type DietPreference } from '../../src/utils/dietPreference';
@@ -521,26 +522,15 @@ export default function AddRecipeScreen() {
     setExtractionError(null);
     setExtractionProgress('Analyzing your photo...');
     try {
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
       const b64 = importImageBase64;
       let mediaType = 'image/jpeg';
       if (b64.startsWith('iVBOR')) mediaType = 'image/png';
       else if (b64.startsWith('UklGR')) mediaType = 'image/webp';
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2048,
-          system: `You are a recipe extraction engine for a high-protein cooking app.
+      const data = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system: `You are a recipe extraction engine for a high-protein cooking app.
 
 STEP 1: Determine if the image contains food.
 - If the image is NOT food (person, landscape, object, text without recipe, etc.), return: {"error": "not_food"}
@@ -572,21 +562,14 @@ CRITICAL RULES:
 - ingredientsUsed for each step must ONLY list ingredients actually used in THAT step — never include ingredients from other steps
 - Every ingredient from the ingredient list must appear in exactly one step's ingredientsUsed
 - Step description must mention each ingredient in ingredientsUsed with its quantity`,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-              { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
-            ],
-          }],
-        }),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+            { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
+          ],
+        }],
       });
-
-      if (!res.ok) {
-        const errBody = await res.text().catch(() => '');
-        throw new Error(`API returned ${res.status}: ${errBody.slice(0, 200)}`);
-      }
-      const data = await res.json();
       let text = (data.content?.[0]?.text || '').trim();
       text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       const firstBrace = text.indexOf('{');
@@ -663,18 +646,10 @@ CRITICAL RULES:
       // Validate + auto-fix recipe to meet SpiceStrong standards
       setExtractionProgress('Optimizing for high-protein standards...');
       try {
-        const fixRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 2048,
-            system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
+        const fixData = await invokeAnthropicMessages({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
 
 1. PROTEIN DENSITY: proteinG / calories × 100 >= 6.4 (CRITICAL)
    - If too low: increase protein source quantity, reduce oils/carbs, add protein-rich ingredients
@@ -690,11 +665,9 @@ CRITICAL RULES:
 
 Return the FIXED recipe as the same JSON format. If already compliant, return as-is.
 Return ONLY the JSON, no explanation.`,
-            messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
-          }),
+          messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
         });
-        if (fixRes.ok) {
-          const fixData = await fixRes.json();
+        if (fixData) {
           const fixText = (fixData.content?.[0]?.text || '').trim();
           const fixFirst = fixText.indexOf('{');
           const fixLast = fixText.lastIndexOf('}');

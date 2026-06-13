@@ -29,6 +29,7 @@ import { PremiumScreen } from '../../components/PremiumScreen';
 import BodyOutline from '../../components/BodyOutline';
 import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ORANGE = '#E85D26';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -107,31 +108,18 @@ export default function BodyScanScreen() {
   };
 
   const assessPhoto = async (base64: string, p: Pose): Promise<{ ok: boolean; feedback: string }> => {
-    const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-    if (!apiKey) return { ok: true, feedback: '' };
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 180,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
-              { type: 'text', text: `Body-scan photo quality check. Is this ${p} pose photo usable for body composition analysis? Full body head-to-feet visible, centered, usable lighting, not very blurry, pose matches ${p === 'front' ? 'front-facing' : 'side-facing'}.\nReturn ONLY JSON: {"ok": boolean, "feedback": "short instruction"}` },
-            ],
-          }],
-        }),
+      const data = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 180,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'text', text: `Body-scan photo quality check. Is this ${p} pose photo usable for body composition analysis? Full body head-to-feet visible, centered, usable lighting, not very blurry, pose matches ${p === 'front' ? 'front-facing' : 'side-facing'}.\nReturn ONLY JSON: {"ok": boolean, "feedback": "short instruction"}` },
+          ],
+        }],
       });
-      if (!res.ok) return { ok: true, feedback: '' };
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
       const s = text.indexOf('{'); const e = text.lastIndexOf('}');
       if (s === -1 || e === -1) return { ok: true, feedback: '' };
@@ -329,9 +317,6 @@ export default function BodyScanScreen() {
     setScanResult(null);
     setScanning(true);
     try {
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
       const gender = profile?.gender ?? 'male';
       const age = profile?.age ?? 30;
       const weightKg = profile?.weightKg ?? 77;
@@ -362,19 +347,7 @@ Return ONLY this JSON:
         },
       ];
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 320, messages: [{ role: 'user', content }] }),
-      });
-
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
+      const data = await invokeAnthropicMessages({ model: 'claude-sonnet-4-6', max_tokens: 320, messages: [{ role: 'user', content }] });
       const text = data.content?.[0]?.text || '';
       const s = text.indexOf('{'); let depth = 0, e = -1;
       for (let i = s; i < text.length; i++) {

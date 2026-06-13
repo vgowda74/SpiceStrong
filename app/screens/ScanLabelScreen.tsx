@@ -40,6 +40,7 @@ import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
@@ -212,22 +213,11 @@ export default function ScanLabelScreen() {
       );
       const b64 = manipulated.base64 || '';
 
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
       // Step 1: Extract label data
-      const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 1500,
-          system: `You are a nutrition label reader. Extract ALL information from this nutrition facts label photo.
+      const data = await invokeAnthropicMessages({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1500,
+        system: `You are a nutrition label reader. Extract ALL information from this nutrition facts label photo.
 
 Return ONLY this JSON:
 {
@@ -267,18 +257,14 @@ Rules:
   - "vegan": contains NO animal-derived ingredients at all — fully plant-based.
   - "unknown": ONLY use when an ingredient is genuinely ambiguous and you cannot tell its source (e.g. "natural flavors", "mono- and diglycerides", unspecified "lecithin", "vitamin D3", "enzymes"). When unsure, prefer "unknown" over guessing "vegan". NEVER label something "vegan" unless you are confident.
   - dietReason: one short phrase naming the deciding ingredient(s) or "All plant-based ingredients".`,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-              { type: 'text', text: 'Read this nutrition label. Extract all values, ingredients, additives, and allergens.' },
-            ],
-          }],
-        }),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+            { type: 'text', text: 'Read this nutrition label. Extract all values, ingredients, additives, and allergens.' },
+          ],
+        }],
       });
-
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
       const start = text.indexOf('{');
       let depth = 0, end = -1;
@@ -343,18 +329,10 @@ Rules:
       }
 
       // Step 5: Generate AI health summary
-      const summaryRes = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 300,
-          messages: [{ role: 'user', content: `You are a fitness nutrition expert. Give a 2-3 sentence health assessment of this product for someone focused on high-protein fitness nutrition.
+      const summaryData = await invokeAnthropicMessages({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 300,
+        messages: [{ role: 'user', content: `You are a fitness nutrition expert. Give a 2-3 sentence health assessment of this product for someone focused on high-protein fitness nutrition.
 
 Product: ${label.productName}
 Per serving (${label.servingSize}): ${label.calories} cal, ${label.proteinG}g protein, ${label.carbsG}g carbs, ${label.fatG}g fat, ${label.sugarG}g sugar, ${label.sodiumMg}mg sodium
@@ -363,12 +341,8 @@ Additives: ${label.additives.length > 0 ? label.additives.join(', ') : 'None det
 ${violations.length > 0 ? `Dietary violations: ${violations.join(', ')}` : ''}
 
 Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specific numbers.` }],
-        }),
       });
-      if (summaryRes.ok) {
-        const summaryData = await summaryRes.json();
-        setAiSummary(summaryData.content?.[0]?.text || '');
-      }
+      setAiSummary(summaryData.content?.[0]?.text || '');
     } catch (err: any) {
       console.error('[SpiceStrong] Label scan failed:', err);
       const msg = err?.message || '';
@@ -611,15 +585,10 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       } catch (e) { console.log('[SpiceStrong] Macro targets failed', e); }
 
       try {
-        const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-        if (apiKey) {
-          const summaryRes = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-            body: JSON.stringify({
-              model: ANTHROPIC_MODEL,
-              max_tokens: 300,
-              messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
+        const sd = await invokeAnthropicMessages({
+          model: ANTHROPIC_MODEL,
+          max_tokens: 300,
+          messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
 
 PROTEIN TIER SYSTEM:
 - S-Tier (Supreme): Highest protein, very low fat/calories. Examples: chicken breast, turkey, tuna in water, whey isolate, egg whites.
@@ -639,13 +608,8 @@ Give a 2-3 sentence verdict. Include:
 - Calories needed to get 25g protein from this product
 - Whether this helps or hurts fitness goals — be direct, no sugarcoating
 Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
-            }),
-          });
-          if (summaryRes.ok) {
-            const sd = await summaryRes.json();
-            setAiSummary(sd.content?.[0]?.text || '');
-          }
-        }
+        });
+        setAiSummary(sd.content?.[0]?.text || '');
       } catch (e) { console.log('[SpiceStrong] AI summary failed', e); }
     } catch (err: any) {
       if (!barcodeOpenRef.current) return;

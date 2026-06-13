@@ -28,8 +28,7 @@ import { generateFoodItemImage } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
-
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 const MIN_SPICESTRONG_PROTEIN_DENSITY = 6.4;
 
@@ -198,7 +197,7 @@ export default function FoodOrderScreen() {
   };
 
   const findBestDishes = async () => {
-    if (!canSearch || !ANTHROPIC_KEY) return;
+    if (!canSearch) return;
     Keyboard.dismiss();
     setAnalyzing(true);
     setResults(null);
@@ -243,18 +242,10 @@ export default function FoodOrderScreen() {
         source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: p.base64 },
       }));
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2000,
-          system: `You are a fitness nutrition expert for SpiceStrong, a high-protein cooking app.
+      const data = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        system: `You are a fitness nutrition expert for SpiceStrong, a high-protein cooking app.
 The user is eating at a restaurant and needs the 5 best menu items for their fitness goals.
 Use your knowledge of the restaurant's real menu, but do not invent dishes the restaurant is unlikely to sell.
 ${menuPhotos.length > 0 ? 'The user has attached menu photos — use them to refine your recommendations.' : ''}
@@ -299,29 +290,22 @@ IMPORTANT: Your entire response must be ONLY one raw JSON object. No explanation
 }
 
 Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition data when available. Never include an item below the SpiceStrong minimum protein density.`,
-          messages: [{
-            role: 'user',
-            content: [
-              ...imageBlocks,
-              {
-                type: 'text' as const,
-                text: `Restaurant: ${restaurantName.trim()}
+        messages: [{
+          role: 'user',
+          content: [
+            ...imageBlocks,
+            {
+              type: 'text' as const,
+              text: `Restaurant: ${restaurantName.trim()}
 Location context: ${resolvedLocationContext}
 ${restaurantInfo.trim() ? `Website/menu/details: ${restaurantInfo.trim()}` : 'Website/menu/details: not provided'}
 ${goalDesc}
 Find qualifying SpiceStrong menu options within about 10 miles of the location context when GPS coordinates are provided. If you cannot confidently match the restaurant, ask for a website, menu link, Google Maps/Yelp link, or menu photos through the JSON status/message.`,
-              },
-            ],
-          }],
-        }),
+            },
+          ],
+        }],
       });
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(`API ${res.status}${body ? `: ${body.slice(0, 120)}` : ''}`);
-      }
-
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
       const parsedResponse = extractFirstJsonValue(text);
       const parsedItems = Array.isArray(parsedResponse)

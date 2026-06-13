@@ -29,6 +29,7 @@ import { getRecipeById, getCompletionStats } from '../../src/store/recipes';
 import { getFitnessProfile, getBodyStatsHistory, type FitnessProfile, type BodyStatsEntry } from '../../services/fitnessProfileService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -117,28 +118,18 @@ export default function ProgressReportScreen() {
     // AI summary
     if (currentS.daysTracked > 0) {
       try {
-        const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-        if (apiKey) {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-6',
-              max_tokens: 200,
-              messages: [{ role: 'user', content: `Fitness coach — give a 2-3 sentence ${period} report card. Be encouraging but honest.
+        const data = await invokeAnthropicMessages({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 200,
+          messages: [{ role: 'user', content: `Fitness coach — give a 2-3 sentence ${period} report card. Be encouraging but honest.
 
 This ${period === 'weekly' ? 'week' : 'month'}: ${currentS.avgCalories} cal avg, ${currentS.avgProteinG}g protein avg, tracked ${currentS.daysTracked}/${currentS.totalDays} days, hit protein goal ${currentS.proteinGoalHits}/${currentS.daysTracked} days.
 Previous ${period === 'weekly' ? 'week' : 'month'}: ${previousS.avgCalories} cal avg, ${previousS.avgProteinG}g protein avg, tracked ${previousS.daysTracked}/${previousS.totalDays} days.
 ${prof ? `Goal: ${prof.goal}, Target: ~${Math.round(prof.weightKg * 2)}g protein/day` : ''}
 
 Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvements or concerns.` }],
-            }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setAiSummary(data.content?.[0]?.text || '');
-          }
-        }
+        });
+        setAiSummary(data.content?.[0]?.text || '');
       } catch {}
     }
 

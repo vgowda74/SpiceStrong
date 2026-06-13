@@ -8,9 +8,9 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import { invokeAnthropicMessages } from './anthropicService';
 
 const LOCAL_CACHE_PREFIX = 'spicestrong_ingredient_info_';
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
 /**
  * Get ingredient info with 3-tier caching:
@@ -50,9 +50,6 @@ export async function getIngredientInfo(name: string): Promise<string> {
   }
 
   // 3. Call Claude API
-  const apiKey = ANTHROPIC_KEY;
-  if (!apiKey) return 'AI is not configured.';
-
   console.log(`[SpiceStrong] Ingredient info cache miss — calling API: ${key}`);
 
   const prompt = `You are a brutally honest fitness nutritionist. Give the real truth about "${name}" — no sugarcoating. Use emojis for visual appeal.
@@ -79,37 +76,18 @@ Include ALL of these:
 
 Keep it under 250 words. Be the honest friend, not the polite nutritionist.`;
 
-  // Retry up to 2 times on 529
-  let res: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
+  let infoText: string;
+  try {
+    const data = await invokeAnthropicMessages({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: prompt }],
     });
-    if (res.status !== 529 || attempt === 2) break;
-    await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+    infoText = data.content?.[0]?.text || 'Could not generate info.';
+  } catch (err: any) {
+    console.error('[SpiceStrong] Ingredient info API error:', err);
+    return 'Could not load info. Please try again.';
   }
-
-  if (!res!.ok) {
-    const errBody = await res!.text().catch(() => '');
-    console.error(`[SpiceStrong] Ingredient info API error ${res!.status}:`, errBody);
-    return res!.status === 529
-      ? 'Server is busy, please try again in a moment.'
-      : 'Could not load info. Please try again.';
-  }
-
-  const data = await res!.json();
-  const infoText = data.content?.[0]?.text || 'Could not generate info.';
 
   // Cache locally
   await AsyncStorage.setItem(`${LOCAL_CACHE_PREFIX}${key}`, infoText).catch(() => {});

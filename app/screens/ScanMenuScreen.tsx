@@ -27,6 +27,7 @@ import { PremiumScreen } from '../../components/PremiumScreen';
 import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
 import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -98,9 +99,6 @@ export default function ScanMenuScreen() {
       );
       const b64 = manipulated.base64 || '';
 
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
       // Get dietary restrictions
       const dietary = await getDietaryRestrictions();
       const dietaryContext = dietary.allergenTags.length > 0
@@ -113,18 +111,10 @@ export default function ScanMenuScreen() {
           ? 'The user selected Non-vegetarian as their default dietary choice. Vegetarian and non-vegetarian dishes are allowed, but every suggested item must still satisfy the SpiceStrong protein-density floor.'
           : 'The user has not selected a default vegetarian/non-vegetarian dietary choice. Do not assume a preference, but every suggested item must still satisfy the SpiceStrong protein-density floor.';
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 3000,
-          system: `You are a fitness nutrition expert analyzing a restaurant menu. For each menu item visible, estimate macros and rate it for a high-protein fitness diet.
+      const data = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 3000,
+        system: `You are a fitness nutrition expert analyzing a restaurant menu. For each menu item visible, estimate macros and rate it for a high-protein fitness diet.
 
 ${dietaryContext}
 ${foodPreferenceContext}
@@ -163,18 +153,14 @@ Because sub-threshold items are not valid SpiceStrong suggestions, returned item
 
 If the image is NOT a menu, return: {"error": "not_menu"}
 Estimate portions as typically served at restaurants (larger than home portions).`,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-              { type: 'text', text: 'Analyze this restaurant menu. Rate each item for high-protein fitness nutrition.' },
-            ],
-          }],
-        }),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+            { type: 'text', text: 'Analyze this restaurant menu. Rate each item for high-protein fitness nutrition.' },
+          ],
+        }],
       });
-
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
       const start = text.indexOf('{');
       let depth = 0, end = -1;

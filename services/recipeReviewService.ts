@@ -18,8 +18,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
-
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+import { invokeAnthropicMessages } from './anthropicService';
 const NOTIFICATIONS_AVAILABLE = Constants.appOwnership !== 'expo';
 
 export interface ReviewResult {
@@ -301,28 +300,12 @@ Chef's Tip: ${recipe.chefTip || 'None'}
 LOCAL VALIDATION ISSUES (already detected):
 ${localIssues.length > 0 ? localIssues.map(i => `- ${i}`).join('\n') : 'None — passed local checks'}`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        system: REVIEW_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
+    const data = await invokeAnthropicMessages({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: REVIEW_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
     });
-
-    if (!response.ok) {
-      console.warn(`[SpiceStrong] Review API returned ${response.status}`);
-      return { approved: localIssues.length === 0, score: 75, issues: localIssues, suggestions: ['Claude review unavailable'] };
-    }
-
-    const data = await response.json();
     const text = data.content?.[0]?.text || '';
     const jsonStr = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
     const result: ReviewResult = JSON.parse(jsonStr);
@@ -380,52 +363,32 @@ async function verifyStepImage(
   imageUri: string,
   stepIndex: number,
 ): Promise<ImageVerification> {
-  if (!ANTHROPIC_KEY) {
-    return { stepIndex, matches: true, confidence: 'low', issue: 'No API key — skipped verification' };
-  }
-
   try {
     // Read image as base64
     const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 256,
-        system: IMAGE_REVIEW_PROMPT,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/jpeg',
-                data: base64,
-              },
+    const data = await invokeAnthropicMessages({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 256,
+      system: IMAGE_REVIEW_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: base64,
             },
-            {
-              type: 'text',
-              text: `Step ${stepIndex + 1}: "${stepTitle}"\nDescription: ${stepDescription}\n\nDoes this image match this cooking step?`,
-            },
-          ],
-        }],
-      }),
+          },
+          {
+            type: 'text',
+            text: `Step ${stepIndex + 1}: "${stepTitle}"\nDescription: ${stepDescription}\n\nDoes this image match this cooking step?`,
+          },
+        ],
+      }],
     });
-
-    if (!response.ok) {
-      console.warn(`[SpiceStrong] Image verification API returned ${response.status}`);
-      return { stepIndex, matches: true, confidence: 'low', issue: 'API error — skipped' };
-    }
-
-    const data = await response.json();
     const text = data.content?.[0]?.text || '';
     const jsonStr = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
     const result = JSON.parse(jsonStr);
@@ -450,50 +413,31 @@ async function verifyHeroImage(
   description: string,
   imageUri: string,
 ): Promise<ImageVerification> {
-  if (!ANTHROPIC_KEY) {
-    return { stepIndex: -1, matches: true, confidence: 'low' };
-  }
-
   try {
     const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: FileSystem.EncodingType.Base64 });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 256,
-        system: IMAGE_REVIEW_PROMPT,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/jpeg',
-                data: base64,
-              },
+    const data = await invokeAnthropicMessages({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 256,
+      system: IMAGE_REVIEW_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: base64,
             },
-            {
-              type: 'text',
-              text: `This should be the hero/final photo of: "${recipeName}"\nDescription: ${description}\n\nDoes this image show the finished dish?`,
-            },
-          ],
-        }],
-      }),
+          },
+          {
+            type: 'text',
+            text: `This should be the hero/final photo of: "${recipeName}"\nDescription: ${description}\n\nDoes this image show the finished dish?`,
+          },
+        ],
+      }],
     });
-
-    if (!response.ok) {
-      return { stepIndex: -1, matches: true, confidence: 'low', issue: 'API error' };
-    }
-
-    const data = await response.json();
     const text = data.content?.[0]?.text || '';
     const jsonStr = text.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
     const result = JSON.parse(jsonStr);
