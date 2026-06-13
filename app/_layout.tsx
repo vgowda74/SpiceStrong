@@ -4,14 +4,12 @@ import Constants from 'expo-constants';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { refreshRecipeCache, syncPendingAIRecipes } from '../services/recipeService';
-import { generateScanInstrImages } from '../services/imageGenerationService';
 import { getDeviceId } from '../services/adminService';
 import { initPurchases, checkSubscription } from '../services/purchaseService';
 import { trackAppOpen } from '../services/analyticsService';
 import { initFirebaseAnalytics, setFirebaseUserId, setFirebaseUserProperties } from '../services/firebaseAnalytics';
 import { getFitnessProfile } from '../services/fitnessProfileService';
 import { getDietaryRestrictions } from '../services/dietaryService';
-import { pruneImageCache } from '../services/imageCacheService';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -91,10 +89,17 @@ export default function RootLayout() {
     // Background recipe sync & cache management
     refreshRecipeCache().catch(() => {});
     syncPendingAIRecipes().catch(() => {});
-    // Pre-cache body-scan instruction images from Supabase Storage so they're
-    // instant the first time the user opens the body-scan instructions screen.
-    generateScanInstrImages().catch(() => {});
-    pruneImageCache().catch(() => {});
+    // Avoid Android startup filesystem work. This app previously hit Android
+    // TurboModule crashes from expo-file-system during launch; do cache work
+    // lazily from the feature screens instead of blocking app open.
+    if (Platform.OS !== 'android') {
+      import('../services/imageGenerationService')
+        .then(({ generateScanInstrImages }) => generateScanInstrImages())
+        .catch(() => {});
+      import('../services/imageCacheService')
+        .then(({ pruneImageCache }) => pruneImageCache())
+        .catch(() => {});
+    }
   }, []);
 
   return (
