@@ -30,6 +30,7 @@
       "autoIncrement": true,
       "credentialsSource": "remote",
       "channel": "preview",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
         "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1",
