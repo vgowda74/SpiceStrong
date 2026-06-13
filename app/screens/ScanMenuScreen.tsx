@@ -35,6 +35,7 @@ const GREEN = '#22C55E';
 const YELLOW = '#F59E0B';
 const RED = '#EF4444';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const MIN_SPICESTRONG_PROTEIN_DENSITY = 6.4;
 
 interface MenuItem {
   name: string;
@@ -47,6 +48,14 @@ interface MenuItem {
   rating: 'excellent' | 'good' | 'poor' | 'avoid';
   dietaryFlags: string[];
   recommendation: string;
+}
+
+function getProteinDensity(item: Pick<MenuItem, 'estimatedCalories' | 'estimatedProteinG'>): number {
+  return item.estimatedCalories > 0 ? (item.estimatedProteinG / item.estimatedCalories) * 100 : 0;
+}
+
+function isVegetarianSafeMenuItem(item: Pick<MenuItem, 'name' | 'description'>): boolean {
+  return !hasNonVegText(`${item.name ?? ''} ${item.description ?? ''}`);
 }
 
 export default function ScanMenuScreen() {
@@ -99,8 +108,10 @@ export default function ScanMenuScreen() {
         : '';
       const dietPreference = await getDietPreference();
       const foodPreferenceContext = dietPreference === 'veg'
-        ? 'The user selected Vegetarian mode. Do not list meat, eggs, fish, prawns, shrimp, seafood, or any other non-vegetarian dishes. Only return vegetarian items; if no vegetarian item is visible, return an empty items array and a vegetarian-safe bestChoice message.'
-        : '';
+        ? 'The user selected Vegetarian as their default dietary choice. Do not list meat, eggs, fish, prawns, shrimp, seafood, gelatin, or any other non-vegetarian dishes. Only return vegetarian items; if no vegetarian item is visible, return an empty items array and a vegetarian-safe bestChoice message.'
+        : dietPreference === 'nonveg'
+          ? 'The user selected Non-vegetarian as their default dietary choice. Vegetarian and non-vegetarian dishes are allowed, but every suggested item must still satisfy the SpiceStrong protein-density floor.'
+          : 'The user has not selected a default vegetarian/non-vegetarian dietary choice. Do not assume a preference, but every suggested item must still satisfy the SpiceStrong protein-density floor.';
 
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -117,6 +128,11 @@ export default function ScanMenuScreen() {
 
 ${dietaryContext}
 ${foodPreferenceContext}
+
+Only suggest menu options that pass SpiceStrong's minimum nutrition criteria:
+- estimatedProteinG / estimatedCalories * 100 must be >= ${MIN_SPICESTRONG_PROTEIN_DENSITY}
+- Do not include items below this threshold in "items"
+- "bestChoice" must be selected from the returned items only
 
 Return ONLY this JSON:
 {
@@ -138,10 +154,12 @@ Return ONLY this JSON:
 }
 
 RATING RULES:
-- "excellent": proteinG/calories*100 >= 6.4 AND reasonable macros
-- "good": proteinG/calories*100 >= 4.0 AND moderate macros
+- "excellent": proteinG/calories*100 >= ${MIN_SPICESTRONG_PROTEIN_DENSITY} AND reasonable macros
+- "good": proteinG/calories*100 >= ${MIN_SPICESTRONG_PROTEIN_DENSITY} but macros are less balanced than excellent
 - "poor": low protein density OR very high fat/carbs
 - "avoid": fried, heavy cream, excessive sugar, very low protein
+
+Because sub-threshold items are not valid SpiceStrong suggestions, returned items should normally be rated "excellent". Only use lower ratings if you need to preserve visible menu context, but never choose them as bestChoice.
 
 If the image is NOT a menu, return: {"error": "not_menu"}
 Estimate portions as typically served at restaurants (larger than home portions).`,
@@ -174,19 +192,46 @@ Estimate portions as typically served at restaurants (larger than home portions)
       }
 
       setRestaurantName(parsed.restaurantName || 'Restaurant Menu');
-      setBestChoice(dietPreference === 'veg' && hasNonVegText(parsed.bestChoice || '') ? '' : parsed.bestChoice || '');
 
       const items: MenuItem[] = (parsed.items || [])
-        .filter((item: any) => dietPreference !== 'veg' || !hasNonVegText(`${item.name ?? ''} ${item.description ?? ''}`))
         .map((item: any) => ({
           ...item,
-          proteinDensity: item.estimatedCalories > 0 ? (item.estimatedProteinG / item.estimatedCalories) * 100 : 0,
-        }));
+          estimatedCalories: Number(item.estimatedCalories) || 0,
+          estimatedProteinG: Number(item.estimatedProteinG) || 0,
+          estimatedCarbsG: Number(item.estimatedCarbsG) || 0,
+          estimatedFatG: Number(item.estimatedFatG) || 0,
+        }))
+        .map((item: MenuItem) => ({
+          ...item,
+          proteinDensity: getProteinDensity(item),
+        }))
+        .filter((item: MenuItem) => {
+          const passesDefaultDiet = dietPreference !== 'veg' || isVegetarianSafeMenuItem(item);
+          return passesDefaultDiet && item.proteinDensity >= MIN_SPICESTRONG_PROTEIN_DENSITY;
+        });
 
       // Sort: excellent first, then good, poor, avoid
       const ratingOrder = { excellent: 0, good: 1, poor: 2, avoid: 3 };
       items.sort((a: MenuItem, b: MenuItem) => (ratingOrder[a.rating] ?? 3) - (ratingOrder[b.rating] ?? 3));
 
+      const parsedBestChoice = String(parsed.bestChoice || '');
+      const bestChoiceAllowed =
+        parsedBestChoice &&
+        (dietPreference !== 'veg' || isVegetarianSafeMenuItem({ name: parsedBestChoice, description: '' })) &&
+        items.some((item) => parsedBestChoice.toLowerCase().includes(item.name.toLowerCase()));
+
+      if (items.length === 0) {
+        setBestChoice('');
+        setError(
+          dietPreference === 'veg'
+            ? `No vegetarian menu options passed SpiceStrong's ${MIN_SPICESTRONG_PROTEIN_DENSITY}g protein per 100 calorie minimum.`
+            : `No menu options passed SpiceStrong's ${MIN_SPICESTRONG_PROTEIN_DENSITY}g protein per 100 calorie minimum.`
+        );
+        setScanning(false);
+        return;
+      }
+
+      setBestChoice(bestChoiceAllowed ? parsedBestChoice : `${items[0].name} - highest-ranked option that passes SpiceStrong's ${MIN_SPICESTRONG_PROTEIN_DENSITY}g protein per 100 calorie minimum.`);
       setMenuItems(items);
     } catch (err: any) {
       setError(err?.message || 'Could not analyze the menu.');
