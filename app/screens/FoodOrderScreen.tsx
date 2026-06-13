@@ -43,6 +43,12 @@ interface FoodOrderItem {
   fatG: number;
 }
 
+type FoodOrderIssue = {
+  type: 'uncertain_match' | 'no_good_options';
+  title: string;
+  message: string;
+};
+
 const SLOT_META: Record<MealSlot, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   breakfast: { label: 'Breakfast', icon: 'sunny-outline' },
   lunch_dinner: { label: 'Lunch/Dinner', icon: 'restaurant-outline' },
@@ -55,35 +61,25 @@ function todayIso() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function extractFirstJsonArray(text: string): any[] {
+function extractFirstJsonValue(text: string): any {
   // Strip markdown code fences if present
   const stripped = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
 
-  // Try direct array first
-  const arrStart = stripped.indexOf('[');
-  if (arrStart !== -1) {
-    let depth = 0;
-    for (let i = arrStart; i < stripped.length; i++) {
-      const ch = stripped[i];
-      if (ch === '[') depth++;
-      if (ch === ']') { depth--; if (depth === 0) { return JSON.parse(stripped.slice(arrStart, i + 1)); } }
-    }
-  }
+  const starts = [stripped.indexOf('{'), stripped.indexOf('[')]
+    .filter((i) => i >= 0)
+    .sort((a, b) => a - b);
 
-  // Fallback: try JSON object wrapping an array
-  const objStart = stripped.indexOf('{');
-  if (objStart !== -1) {
+  for (const start of starts) {
+    const opener = stripped[start];
+    const closer = opener === '{' ? '}' : ']';
     let depth = 0;
-    for (let i = objStart; i < stripped.length; i++) {
+    for (let i = start; i < stripped.length; i++) {
       const ch = stripped[i];
-      if (ch === '{') depth++;
-      if (ch === '}') {
+      if (ch === opener) depth++;
+      if (ch === closer) {
         depth--;
         if (depth === 0) {
-          const obj = JSON.parse(stripped.slice(objStart, i + 1));
-          const arr = Object.values(obj).find((v) => Array.isArray(v));
-          if (arr) return arr as any[];
-          break;
+          return JSON.parse(stripped.slice(start, i + 1));
         }
       }
     }
@@ -112,9 +108,11 @@ export default function FoodOrderScreen() {
   const [restaurantName, setRestaurantName] = useState('');
   const [city, setCity] = useState('');
   const [stateValue, setStateValue] = useState('');
+  const [restaurantInfo, setRestaurantInfo] = useState('');
   const [menuPhotos, setMenuPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
   const [results, setResults] = useState<FoodOrderItem[] | null>(null);
+  const [issue, setIssue] = useState<FoodOrderIssue | null>(null);
   const [heroImages, setHeroImages] = useState<Record<string, string>>({});
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -160,6 +158,7 @@ export default function FoodOrderScreen() {
     Keyboard.dismiss();
     setAnalyzing(true);
     setResults(null);
+    setIssue(null);
     setHeroImages({});
     setSavedIds(new Set());
     setExpandedId(null);
@@ -190,6 +189,9 @@ export default function FoodOrderScreen() {
       const restaurantDietContext = restaurantIsVegetarianOnly
         ? `${restaurantName.trim()} appears to be a vegetarian-only restaurant. Recommend vegetarian dishes only. Do not recommend chicken, meat, fish, eggs, prawns, shrimp, or seafood.`
         : 'First verify the restaurant/menu context. If the restaurant is vegetarian-only or the attached menu only shows vegetarian dishes, recommend vegetarian dishes only.';
+      const extraRestaurantInfo = restaurantInfo.trim()
+        ? `Additional restaurant info from user: ${restaurantInfo.trim()}`
+        : 'No website, menu link, or extra restaurant info was provided.';
 
       const imageBlocks = menuPhotos.slice(0, 3).map((p) => ({
         type: 'image' as const,
@@ -215,6 +217,7 @@ ${strictRestrictions}
 ${dietaryPrefs}
 ${defaultDietContext}
 ${restaurantDietContext}
+${extraRestaurantInfo}
 
 SpiceStrong minimum criteria:
 - Only return dishes with proteinG / calories * 100 >= ${MIN_SPICESTRONG_PROTEIN_DENSITY}
@@ -222,19 +225,30 @@ SpiceStrong minimum criteria:
 - If fewer than 5 dishes pass, return only the dishes that pass.
 - If no dishes pass, return [].
 
-IMPORTANT: Your entire response must be ONLY a raw JSON array. No explanation, no markdown, no code fences. Start with [ and end with ].
+Restaurant match rules:
+- If you cannot confidently identify the exact restaurant from name + city + state + any provided info, set "status" to "uncertain_match" and return no items.
+- If the restaurant is identified but no dishes pass the SpiceStrong minimum, set "status" to "no_good_options" and return no items.
+- If the restaurant is identified and qualifying dishes exist, set "status" to "matched".
 
-[
-  {
-    "name": "Exact menu item name",
-    "description": "One sentence description of the dish",
-    "reason": "One sentence why this fits their fitness goal",
-    "calories": 650,
-    "proteinG": 45,
-    "carbsG": 55,
-    "fatG": 18
-  }
-]
+IMPORTANT: Your entire response must be ONLY one raw JSON object. No explanation, no markdown, no code fences. Start with { and end with }.
+
+{
+  "status": "matched|uncertain_match|no_good_options",
+  "restaurantConfidence": 0.0,
+  "matchedRestaurantName": "Exact restaurant name, or empty string",
+  "message": "Short user-facing explanation",
+  "items": [
+    {
+      "name": "Exact menu item name",
+      "description": "One sentence description of the dish",
+      "reason": "One sentence why this fits their fitness goal",
+      "calories": 650,
+      "proteinG": 45,
+      "carbsG": 55,
+      "fatG": 18
+    }
+  ]
+}
 
 Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition data when available. Never include an item below the SpiceStrong minimum protein density.`,
           messages: [{
@@ -244,8 +258,9 @@ Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition da
               {
                 type: 'text' as const,
                 text: `Restaurant: ${restaurantName.trim()}, ${city.trim()}, ${stateValue.trim().toUpperCase()}
+${restaurantInfo.trim() ? `Website/menu/details: ${restaurantInfo.trim()}` : 'Website/menu/details: not provided'}
 ${goalDesc}
-Give me the top 5 menu items for my fitness goals.`,
+Find qualifying SpiceStrong menu options. If you cannot confidently match the restaurant, ask for a website, menu link, Google Maps/Yelp link, or menu photos through the JSON status/message.`,
               },
             ],
           }],
@@ -259,9 +274,26 @@ Give me the top 5 menu items for my fitness goals.`,
 
       const data = await res.json();
       const text = data.content?.[0]?.text || '';
-      const parsed = extractFirstJsonArray(text);
+      const parsedResponse = extractFirstJsonValue(text);
+      const parsedItems = Array.isArray(parsedResponse)
+        ? parsedResponse
+        : Array.isArray(parsedResponse?.items)
+          ? parsedResponse.items
+          : [];
+      const status = Array.isArray(parsedResponse) ? 'matched' : String(parsedResponse?.status || 'matched');
+      const confidence = Number(parsedResponse?.restaurantConfidence ?? 1);
+      const responseMessage = String(parsedResponse?.message || '');
 
-      const items: FoodOrderItem[] = parsed.map((item: any, i: number) => ({
+      if (status === 'uncertain_match' || confidence < 0.65) {
+        setIssue({
+          type: 'uncertain_match',
+          title: 'Help us find the right restaurant',
+          message: responseMessage || 'We could not confidently match this restaurant from the name and city. Add a website, menu link, Google Maps/Yelp link, or menu photos so we can make accurate recommendations.',
+        });
+        return;
+      }
+
+      const items: FoodOrderItem[] = parsedItems.map((item: any, i: number) => ({
         id: `fo_${Date.now()}_${i}`,
         name: String(item.name || ''),
         description: String(item.description || ''),
@@ -280,13 +312,15 @@ Give me the top 5 menu items for my fitness goals.`,
         .slice(0, 5);
 
       if (items.length === 0) {
-        Alert.alert(
-          'No SpiceStrong matches',
-          `No dishes passed the ${MIN_SPICESTRONG_PROTEIN_DENSITY}g protein per 100 calorie minimum${dietPreference === 'veg' || restaurantIsVegetarianOnly ? ' with vegetarian-safe filtering applied' : ''}.`
-        );
+        setIssue({
+          type: 'no_good_options',
+          title: 'No strong SpiceStrong options found',
+          message: responseMessage || `We do not have good high-protein options here. Nothing passed the ${MIN_SPICESTRONG_PROTEIN_DENSITY}g protein per 100 calorie minimum${dietPreference === 'veg' || restaurantIsVegetarianOnly ? ' with vegetarian-safe filtering applied' : ''}.`,
+        });
         return;
       }
 
+      setIssue(null);
       setResults(items);
       trackEvent('food_order', { screen: 'FoodOrderScreen', metadata: { restaurant: restaurantName.trim() } });
       generateHeroImages(items);
@@ -428,6 +462,19 @@ Give me the top 5 menu items for my fitness goals.`,
             </ScrollView>
           </View>
 
+          <View>
+            <Text style={styles.fieldLabel}>Website or menu details <Text style={styles.optionalLabel}>(optional)</Text></Text>
+            <TextInput
+              style={[styles.textInput, styles.detailsInput]}
+              value={restaurantInfo}
+              onChangeText={setRestaurantInfo}
+              placeholder="Paste a website, menu link, Google Maps/Yelp link, or notes"
+              placeholderTextColor="rgba(248,241,232,0.30)"
+              multiline
+              textAlignVertical="top"
+            />
+          </View>
+
           <TouchableOpacity
             style={[styles.searchBtn, (!canSearch || analyzing) && styles.searchBtnDisabled]}
             onPress={findBestDishes}
@@ -451,9 +498,31 @@ Give me the top 5 menu items for my fitness goals.`,
           </View>
         )}
 
+        {issue && !analyzing && (
+          <View style={[styles.issueCard, issue.type === 'no_good_options' && styles.noOptionsCard]}>
+            <Ionicons
+              name={issue.type === 'uncertain_match' ? 'search-outline' : 'alert-circle-outline'}
+              size={22}
+              color={issue.type === 'uncertain_match' ? '#E8A87C' : '#F59E0B'}
+            />
+            <View style={styles.issueTextWrap}>
+              <Text style={styles.issueTitle}>{issue.title}</Text>
+              <Text style={styles.issueMessage}>{issue.message}</Text>
+              {issue.type === 'uncertain_match' && (
+                <View style={styles.issueActions}>
+                  <TouchableOpacity style={styles.issueActionBtn} onPress={addMenuPhoto} activeOpacity={0.82}>
+                    <Ionicons name="camera-outline" size={14} color="#FFFFFF" />
+                    <Text style={styles.issueActionText}>Add menu photo</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
         {results && !analyzing && (
           <View style={styles.resultsSection}>
-            <Text style={styles.resultsTitle}>Top 5 for your goals</Text>
+            <Text style={styles.resultsTitle}>{results.length >= 5 ? 'Top 5 for your goals' : 'Best options found'}</Text>
             <Text style={styles.resultsSubtitle}>{restaurantName} · {city}, {stateValue.toUpperCase()}</Text>
 
             <View style={styles.disclaimerCard}>
@@ -637,6 +706,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  detailsInput: {
+    minHeight: 82,
+    paddingTop: 12,
+    lineHeight: 20,
+  },
   cityStateRow: { flexDirection: 'row', gap: 10 },
   cityField: { flex: 1.5 },
   stateField: { flex: 0.7 },
@@ -683,6 +757,37 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     marginBottom: 16,
   },
+  issueCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(232,168,124,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.24)',
+    padding: 14,
+    marginBottom: 16,
+  },
+  noOptionsCard: {
+    backgroundColor: 'rgba(245,158,11,0.10)',
+    borderColor: 'rgba(245,158,11,0.24)',
+  },
+  issueTextWrap: { flex: 1 },
+  issueTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', marginBottom: 5 },
+  issueMessage: { color: 'rgba(248,241,232,0.64)', fontSize: 12, fontWeight: '600', lineHeight: 18 },
+  issueActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  issueActionBtn: {
+    minHeight: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(143,58,31,0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.28)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  issueActionText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   resultsSection: { gap: 0 },
   resultsTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', marginBottom: 4 },
   resultsSubtitle: { color: 'rgba(248,241,232,0.46)', fontSize: 12, fontWeight: '700', marginBottom: 10 },
