@@ -89,8 +89,18 @@ export default function EditMealNutritionScreen() {
           setMeal((prev) => {
             if (!prev) return prev;
             const components = [...prev.components];
+            const current = components[result.index] ? parseIngredientComponent(components[result.index]) : null;
             if (result.deleted) {
               components.splice(result.index, 1);
+              const currentCalories = current ? Number(current.calories.replace(/[^\d]/g, '')) || 0 : 0;
+              return {
+                ...prev,
+                calories: Math.max(0, prev.calories - currentCalories),
+                proteinG: Math.max(0, prev.proteinG - (current?.proteinG ?? 0)),
+                carbsG: Math.max(0, prev.carbsG - (current?.carbsG ?? 0)),
+                fatG: Math.max(0, prev.fatG - (current?.fatG ?? 0)),
+                components,
+              };
             } else {
               const macros = [
                 result.proteinG ? `${result.proteinG}g protein` : '',
@@ -99,7 +109,16 @@ export default function EditMealNutritionScreen() {
               ].filter(Boolean).join(' | ');
               components[result.index] = [result.name, result.calories, result.quantity, macros].filter(Boolean).join(' | ');
             }
-            return { ...prev, components };
+            const currentCalories = current ? Number(current.calories.replace(/[^\d]/g, '')) || 0 : 0;
+            const nextCalories = Number(String(result.calories ?? '').replace(/[^\d]/g, '')) || 0;
+            return {
+              ...prev,
+              calories: Math.max(0, prev.calories + nextCalories - currentCalories),
+              proteinG: Math.max(0, prev.proteinG + Math.round(Number(result.proteinG) || 0) - (current?.proteinG ?? 0)),
+              carbsG: Math.max(0, prev.carbsG + Math.round(Number(result.carbsG) || 0) - (current?.carbsG ?? 0)),
+              fatG: Math.max(0, prev.fatG + Math.round(Number(result.fatG) || 0) - (current?.fatG ?? 0)),
+              components,
+            };
           });
         }
         return;
