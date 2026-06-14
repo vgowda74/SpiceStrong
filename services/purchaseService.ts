@@ -13,10 +13,9 @@
  */
 
 import Constants from 'expo-constants';
-import Purchases, {
-  type CustomerInfo,
-  type PurchasesPackage,
-  LOG_LEVEL,
+import type {
+  CustomerInfo,
+  PurchasesPackage,
 } from 'react-native-purchases';
 
 const RC_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '';
@@ -26,6 +25,14 @@ let unavailableReason: string | null = null;
 
 function isRunningInExpoGo(): boolean {
   return Constants.appOwnership === 'expo';
+}
+
+function getPurchasesModule() {
+  const mod = require('react-native-purchases');
+  return {
+    Purchases: mod.default ?? mod,
+    LOG_LEVEL: mod.LOG_LEVEL,
+  };
 }
 
 /**
@@ -44,6 +51,7 @@ export async function initPurchases(): Promise<void> {
     return;
   }
   try {
+    const { Purchases, LOG_LEVEL } = getPurchasesModule();
     if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.DEBUG);
     Purchases.configure({ apiKey: RC_API_KEY });
     initialized = true;
@@ -61,6 +69,7 @@ export async function checkSubscription(): Promise<boolean> {
   if (isRunningInExpoGo()) return false;
   if (!initialized) return false;
   try {
+    const { Purchases } = getPurchasesModule();
     const info: CustomerInfo = await Purchases.getCustomerInfo();
     const isPremium = info.entitlements.active[ENTITLEMENT_ID] !== undefined;
     console.log(`[SpiceStrong] Subscription check: ${isPremium ? 'PREMIUM' : 'FREE'}`);
@@ -78,6 +87,7 @@ export async function getOfferings(): Promise<PurchasesPackage | null> {
   if (isRunningInExpoGo()) return null;
   if (!initialized) return null;
   try {
+    const { Purchases } = getPurchasesModule();
     const offerings = await Purchases.getOfferings();
     const current = offerings.current;
     if (!current || !current.availablePackages.length) {
@@ -99,6 +109,7 @@ export async function getAllOfferings(): Promise<{ annual: PurchasesPackage | nu
   if (isRunningInExpoGo()) return { annual: null, monthly: null };
   if (!initialized) return { annual: null, monthly: null };
   try {
+    const { Purchases } = getPurchasesModule();
     const offerings = await Purchases.getOfferings();
     const current = offerings.current;
     if (!current) return { annual: null, monthly: null };
@@ -149,6 +160,7 @@ export async function restorePurchases(): Promise<{ success: boolean; isPremium:
   if (isRunningInExpoGo()) return { success: false, isPremium: false };
   if (!initialized) return { success: false, isPremium: false };
   try {
+    const { Purchases } = getPurchasesModule();
     const info: CustomerInfo = await Purchases.restorePurchases();
     const isPremium = info.entitlements.active[ENTITLEMENT_ID] !== undefined;
     console.log(`[SpiceStrong] Restore: ${isPremium ? 'PREMIUM found' : 'no premium'}`);

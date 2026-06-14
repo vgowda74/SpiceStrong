@@ -1273,7 +1273,7 @@ Return ONLY the JSON, no explanation.`,
         {/* ── Entry screen: Choose mode ── */}
         {screenMode === 'choose' && !generating && (
           <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { justifyContent: 'center', paddingTop: 40 }]} showsVerticalScrollIndicator={false}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               How would you like to create?
             </Text>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28 }}>
@@ -1337,7 +1337,7 @@ Return ONLY the JSON, no explanation.`,
             {importImageUri && (
               <Image source={{ uri: importImageUri }} style={{ width: 280, height: 380, borderRadius: 20, marginBottom: 20 }} contentFit="contain" />
             )}
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               Ready to import
             </Text>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28, paddingHorizontal: 20 }}>
@@ -1377,7 +1377,7 @@ Return ONLY the JSON, no explanation.`,
             {importImageUri && (
               <Image source={{ uri: importImageUri }} style={{ width: 220, height: 220, borderRadius: 20, marginBottom: 16 }} contentFit="cover" />
             )}
-            <Text style={{ fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+            <Text style={{ fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               {importedRecipe.name}
             </Text>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 6 }}>
@@ -1723,7 +1723,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     textAlign: 'center',
-    fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }),
+    fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }),
   },
   genStep: {
     fontSize: 15,

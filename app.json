@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "spicestrong",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "updates": {
       "enabled": false
     },
@@ -76,7 +76,7 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "router": {},

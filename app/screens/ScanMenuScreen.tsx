@@ -35,7 +35,7 @@ const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const YELLOW = '#F59E0B';
 const RED = '#EF4444';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 const MIN_SPICESTRONG_PROTEIN_DENSITY = 6.4;
 
 interface MenuItem {

@@ -25,7 +25,7 @@ const GREEN = '#22C55E';
 const BG = '#1A1A1A';
 const SURFACE = '#252525';
 const BORDER = 'rgba(255,255,255,0.08)';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 const BASE_FEATURES = [
   { label: 'Curated recipes', free: '300+', pro: '300+', freeCheck: true, proCheck: true },

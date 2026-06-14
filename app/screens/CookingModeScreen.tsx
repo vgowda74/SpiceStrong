@@ -1755,7 +1755,7 @@ const styles = StyleSheet.create({
   },
   completionEmoji: { fontSize: 72, marginBottom: 16 },
   completionTitle: {
-    fontFamily: Platform.OS === 'ios' || Platform.OS === 'android' ? 'PlayfairDisplay_700Bold' : SERIF_FONT,
+    fontFamily: Platform.OS === 'ios' ? 'PlayfairDisplay_700Bold' : SERIF_FONT,
     fontSize: 34,
     fontWeight: 'bold',
     color: '#FFFFFF',

@@ -30,7 +30,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import { File, Directory, Paths } from 'expo-file-system';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -96,10 +96,9 @@ async function hydrateMealPhotos(photos: { uri: string; base64: string }[]) {
 }
 
 async function persistMealPhotoUris(photos: { uri: string; base64: string }[], prefix: string): Promise<string[]> {
-  const dirUri = `${FileSystem.documentDirectory}meal_photos/`;
+  const dir = new Directory(Paths.document, 'meal_photos');
   try {
-    const info = await FileSystem.getInfoAsync(dirUri);
-    if (!info.exists) await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+    if (!dir.exists) dir.create();
   } catch {}
 
   const saved: string[] = [];
@@ -110,11 +109,10 @@ async function persistMealPhotoUris(photos: { uri: string; base64: string }[], p
       continue;
     }
     try {
-      const destUri = `${dirUri}${prefix}_${Date.now()}_${i}.jpg`;
-      const destInfo = await FileSystem.getInfoAsync(destUri);
-      if (destInfo.exists) await FileSystem.deleteAsync(destUri, { idempotent: true });
-      await FileSystem.moveAsync({ from: uri, to: destUri });
-      uri = destUri;
+      const dest = new File(dir, `${prefix}_${Date.now()}_${i}.jpg`);
+      if (dest.exists) dest.delete();
+      new File(uri).move(dest);
+      uri = dest.uri;
     } catch {}
     saved.push(uri);
   }
@@ -313,7 +311,7 @@ const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 

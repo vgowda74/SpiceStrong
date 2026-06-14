@@ -17,7 +17,7 @@ import { getRecipeById, SavedRecipe } from '../../src/store/recipes';
 import { openAmazonFresh } from '../../src/utils/shoppingListHelper';
 
 const ORANGE = '#8F3A1F';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 function getCookTimeMin(recipe: SavedRecipe): number {
   const total = recipe.steps.reduce((acc, s) => acc + (s.timerMinutes ?? 0), 0);

@@ -31,7 +31,7 @@ const BORDER = 'rgba(248,241,232,0.12)';
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.78;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 

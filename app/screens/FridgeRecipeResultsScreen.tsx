@@ -40,7 +40,7 @@ const BORDER = 'rgba(248,241,232,0.12)';
 const CARD_W = Dimensions.get('window').width - 48;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 

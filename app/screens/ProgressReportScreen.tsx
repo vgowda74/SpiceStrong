@@ -36,7 +36,7 @@ const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const RED = '#EF4444';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 const PROGRESS_PHOTOS_KEY = 'spicestrong_progress_photos';
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
