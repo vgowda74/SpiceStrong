@@ -19,6 +19,9 @@ import type {
   PurchasesPackage,
 } from 'react-native-purchases';
 
+const revenueCatKeyName = Platform.OS === 'android'
+  ? 'EXPO_PUBLIC_REVENUECAT_ANDROID_KEY'
+  : 'EXPO_PUBLIC_REVENUECAT_IOS_KEY';
 const RC_API_KEY =
   Platform.OS === 'android'
     ? (process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '')
@@ -61,8 +64,8 @@ async function initPurchasesInternal(): Promise<void> {
   }
 
   if (initialized || !RC_API_KEY) {
-    if (!RC_API_KEY) unavailableReason = 'RevenueCat key not set - IAP disabled';
-    if (!RC_API_KEY) console.warn('[SpiceStrong] RevenueCat key not set — IAP disabled');
+    if (!RC_API_KEY) unavailableReason = `${revenueCatKeyName} not set - IAP disabled`;
+    if (!RC_API_KEY) console.warn(`[SpiceStrong] ${unavailableReason}`);
     return;
   }
   try {
@@ -149,12 +152,13 @@ export async function getAllOfferings(): Promise<{ annual: PurchasesPackage | nu
 export async function purchasePremium(plan: 'yearly' | 'monthly' = 'yearly'): Promise<{ success: boolean; error?: string }> {
   if (isRunningInExpoGo()) return { success: false, error: unavailableReason ?? 'Store not available in Expo Go' };
   if (!initialized) await initPurchases();
-  if (!initialized) return { success: false, error: unavailableReason ?? 'Store not available' };
+  if (!initialized) return { success: false, error: unavailableReason ?? `Store not available on ${Platform.OS}` };
   try {
     const { annual, monthly } = await getAllOfferings();
     const pkg = plan === 'monthly' ? (monthly ?? annual) : (annual ?? monthly);
     if (!pkg) return { success: false, error: 'No subscription package available' };
 
+    const { Purchases } = getPurchasesModule();
     const { customerInfo } = await Purchases.purchasePackage(pkg);
     const isPremium = customerInfo.entitlements.active[ENTITLEMENT_ID] !== undefined;
 
@@ -190,3 +194,4 @@ export async function restorePurchases(): Promise<{ success: boolean; isPremium:
     return { success: false, isPremium: false };
   }
 }
+
