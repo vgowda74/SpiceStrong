@@ -1,12 +1,29 @@
 import { Stack } from 'expo-router';
 import Constants from 'expo-constants';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
 export default function RootLayout() {
   useEffect(() => {
+    let authSubscription: { remove: () => void } | null = null;
+
+    import('../services/authService')
+      .then(({ handleAuthUrl }) => {
+        Linking.getInitialURL()
+          .then((url) => {
+            if (url) return handleAuthUrl(url);
+            return false;
+          })
+          .catch(() => {});
+
+        authSubscription = Linking.addEventListener('url', ({ url }) => {
+          handleAuthUrl(url).catch(() => {});
+        });
+      })
+      .catch(() => {});
+
     const startupTimer = setTimeout(() => {
       // Keep first paint free of native-module startup work on Android.
       // Every task is lazy-imported and isolated so a failed integration cannot
@@ -77,7 +94,10 @@ export default function RootLayout() {
       }
     }, 1200);
 
-    return () => clearTimeout(startupTimer);
+    return () => {
+      clearTimeout(startupTimer);
+      authSubscription?.remove();
+    };
   }, []);
 
   return (

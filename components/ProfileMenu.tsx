@@ -111,12 +111,14 @@ export function ProfileMenu() {
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
   const handleFoodOrder = () => closeMenu(() => router.push('/screens/FoodOrderScreen'));
+  const handleAccount = () => closeMenu(() => router.push('/screens/MagicLinkLoginScreen'));
 
   // ── Menu items (flat list, no section headers) ──
   const SECTIONS: MenuSection[] = [
     {
       items: [
         { icon: 'body-outline',          label: 'Fitness Goals',         onPress: handleFitnessProfile },
+        { icon: 'person-circle-outline', label: 'Account',               onPress: handleAccount },
         { icon: 'scan-outline',          label: 'AI Body Scan',          onPress: handleBodyScan },
         { icon: 'stats-chart-outline',   label: 'Progress Report',       onPress: handleProgressReport },
         { icon: 'leaf-outline',          label: 'Dietary Preferences',   onPress: handleDietary },
