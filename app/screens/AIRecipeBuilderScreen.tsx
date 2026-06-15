@@ -245,8 +245,8 @@ const DRINK_FLAVOR_OPTIONS = [
 const TARGET_LIMITS = {
   calories: { min: 100, max: 700, fallback: 450, label: 'Calories' },
   protein: { min: 5, max: 80, fallback: 35, label: 'Protein' },
-  carbs: { min: 0, max: 120, fallback: 30, label: 'Carbs' },
-  fat: { min: 0, max: 60, fallback: 15, label: 'Fat' },
+  carbs: { min: 0, max: 80, fallback: 30, label: 'Carbs' },
+  fat: { min: 0, max: 35, fallback: 15, label: 'Fat' },
 } as const;
 
 type TargetField = keyof typeof TARGET_LIMITS;
@@ -360,6 +360,12 @@ The nutrition values ("protein", "calories", "fatG", "carbsG", etc.) must be the
 Formula: per-serving value × 2.5 = batch total.
 Example: if per-serving protein is 37g → report "protein": "92g" (37 × 2.5 ≈ 92)
 
+IMPORTANT - TARGET HANDLING:
+- Always return the JSON recipe object. Never explain why targets are difficult, incompatible, or outside a fitness goal.
+- Treat target calories/macros as approximate guidance, not a reason to refuse.
+- If requested targets conflict, choose the closest realistic high-protein meal under 700 calories per serving.
+- Keep per-serving fat at or below 35g and carbs at or below 80g unless the user's calorie target makes that impossible.
+
 Return this exact JSON structure (no markdown, no preamble):
 {
   "name": "Recipe Full Name",
@@ -402,8 +408,12 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
 - If the image shows food with a DIFFERENT protein than "${proteinName}", adapt the recipe to use ${proteinName} instead while keeping the same cooking style and flavors.
 - If the image conflicts with dietary filters (e.g. image shows dairy but user selected dairy-free), prioritize the user's dietary filters.
 - The recipe MUST use ${proteinName} as the primary protein regardless of what the image shows.
-- Focus on recreating the cooking style, cuisine, and flavor profile from the image — not the exact ingredients.`
-    : `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;
+- Focus on recreating the cooking style, cuisine, and flavor profile from the image — not the exact ingredients.
+
+Return ONLY the raw JSON object requested by the system prompt. Do not include analysis, fitness-goal matching, explanations, markdown, or preamble.`
+    : `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}
+
+Return ONLY the raw JSON object requested by the system prompt. Do not include analysis, fitness-goal matching, explanations, markdown, or preamble.`;
 
   // Build message content — with optional reference image
   const messageContent: any = referenceImageBase64
