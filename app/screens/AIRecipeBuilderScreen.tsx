@@ -400,9 +400,11 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
     ],
   });
 
-  // Prefill forces the response to start mid-JSON — prepend the '{' back
   const rawText = data.content?.[0]?.text ?? '';
-  const text = '{' + rawText;
+  // Assistant prefill usually makes Claude continue after "{", but some models
+  // still return a full JSON object. Accept both shapes.
+  const rawTrimmed = rawText.trim();
+  const text = rawTrimmed.startsWith('{') ? rawTrimmed : `{${rawText}`;
   console.log('[SpiceStrong] Raw Claude response length:', text.length);
   // Strip markdown fences and extract JSON object
   let cleaned = text.replace(/```json|```/g, '').trim();
@@ -1222,6 +1224,7 @@ Return ONLY the JSON, no explanation.`,
       })();
 
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error('[SpiceStrong] Recipe generation failed:', err);
       try {
         const toFix = saved ?? placeholder;
@@ -1230,7 +1233,7 @@ Return ONLY the JSON, no explanation.`,
         await saveAIRecipe(toFix);
       } catch { /* best effort */ }
       setGenerating(false);
-      Alert.alert('Generation Failed', 'Something went wrong. Please try again.');
+      Alert.alert('Generation Failed', message || 'Something went wrong. Please try again.');
     }
   };
 
