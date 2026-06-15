@@ -1,25 +1,19 @@
 /**
- * MacroProgressBar.tsx — Premium Macro Progress Component
- * Horizontal progress bar with gradient fill & animated transitions
+ * MacroProgressBar.tsx - Premium Macro Progress Component
+ * Horizontal progress bar with threshold fill.
  */
 
-import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  interpolateColor,
-} from 'react-native-reanimated';
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 
 interface MacroProgressBarProps {
   label: string;
   target: number;
   consumed: number;
   unit: string;
-  color: string; // Start color
-  colorMid?: string; // Mid color (75%)
-  colorFull?: string; // End color (>100%)
+  color: string;
+  colorMid?: string;
+  colorFull?: string;
   height?: number;
   showPercentage?: boolean;
   showRemaining?: boolean;
@@ -37,51 +31,15 @@ const MacroProgressBar: React.FC<MacroProgressBarProps> = ({
   showPercentage = true,
   showRemaining = true,
 }) => {
-  const percentage = Math.min((consumed / target) * 100, 100);
+  const safeTarget = Math.max(target, 1);
+  const percentage = Math.min((consumed / safeTarget) * 100, 100);
   const isOver = consumed > target;
   const remaining = Math.max(target - consumed, 0);
-
-  const animProgress = useSharedValue(0);
-
-  useEffect(() => {
-    animProgress.value = withSpring(percentage / 100, {
-      damping: 10,
-      mass: 1,
-      overshootClamping: false,
-    });
-  }, [percentage, animProgress]);
-
-  const animatedBarStyle = useAnimatedStyle(() => {
-    const widthPercent = animProgress.value * 100;
-    // Color interpolation: green → yellow → red
-    let finalColor = color;
-    if (animProgress.value > 0.75) {
-      const t = (animProgress.value - 0.75) / 0.25; // 0-1 for 75%-100%
-      finalColor = interpolateColor(
-        animProgress.value,
-        [0.75, 1],
-        [colorMid, colorFull]
-      );
-    } else if (animProgress.value > 0.5) {
-      const t = (animProgress.value - 0.5) / 0.25; // 0-1 for 50%-75%
-      finalColor = interpolateColor(
-        animProgress.value,
-        [0.5, 0.75],
-        [color, colorMid]
-      );
-    }
-
-    return {
-      width: `${widthPercent}%`,
-      backgroundColor: finalColor,
-    };
-  });
-
-  const displayPercent = Math.round((consumed / target) * 100);
+  const displayPercent = Math.round((consumed / safeTarget) * 100);
+  const fillColor = percentage >= 75 ? colorFull : percentage >= 50 ? colorMid : color;
 
   return (
     <View style={styles.container}>
-      {/* Header: Label + Stat */}
       <View style={styles.header}>
         <Text style={styles.label}>{label}</Text>
         <View style={styles.statRow}>
@@ -96,16 +54,20 @@ const MacroProgressBar: React.FC<MacroProgressBarProps> = ({
         </View>
       </View>
 
-      {/* Progress Bar Container */}
       <View style={[styles.barContainer, { height }]}>
-        {/* Background track */}
         <View style={[styles.barTrack, { height }]} />
-
-        {/* Animated fill */}
-        <Animated.View style={[styles.barFill, { height }, animatedBarStyle]} />
+        <View
+          style={[
+            styles.barFill,
+            {
+              height,
+              width: `${percentage}%`,
+              backgroundColor: fillColor,
+            },
+          ]}
+        />
       </View>
 
-      {/* Footer: Consumed + Remaining */}
       {showRemaining && (
         <View style={styles.footer}>
           <Text style={styles.consumed}>
