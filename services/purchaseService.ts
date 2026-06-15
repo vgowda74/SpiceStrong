@@ -13,15 +13,20 @@
  */
 
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import type {
   CustomerInfo,
   PurchasesPackage,
 } from 'react-native-purchases';
 
-const RC_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '';
+const RC_API_KEY =
+  Platform.OS === 'android'
+    ? (process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '')
+    : (process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? process.env.EXPO_PUBLIC_REVENUECAT_KEY ?? '');
 const ENTITLEMENT_ID = 'premium'; // Must match RevenueCat entitlement identifier
 let initialized = false;
 let unavailableReason: string | null = null;
+let initPromise: Promise<void> | null = null;
 
 function isRunningInExpoGo(): boolean {
   return Constants.appOwnership === 'expo';
@@ -39,6 +44,16 @@ function getPurchasesModule() {
  * Initialize RevenueCat. Call once on app startup.
  */
 export async function initPurchases(): Promise<void> {
+  if (initPromise) return initPromise;
+
+  initPromise = initPurchasesInternal().finally(() => {
+    initPromise = null;
+  });
+
+  return initPromise;
+}
+
+async function initPurchasesInternal(): Promise<void> {
   if (isRunningInExpoGo()) {
     unavailableReason = 'RevenueCat native purchases are disabled in Expo Go. Use a development build for IAP testing.';
     if (__DEV__) console.log(`[SpiceStrong] ${unavailableReason}`);
@@ -67,6 +82,7 @@ export async function initPurchases(): Promise<void> {
  */
 export async function checkSubscription(): Promise<boolean> {
   if (isRunningInExpoGo()) return false;
+  if (!initialized) await initPurchases();
   if (!initialized) return false;
   try {
     const { Purchases } = getPurchasesModule();
@@ -85,6 +101,7 @@ export async function checkSubscription(): Promise<boolean> {
  */
 export async function getOfferings(): Promise<PurchasesPackage | null> {
   if (isRunningInExpoGo()) return null;
+  if (!initialized) await initPurchases();
   if (!initialized) return null;
   try {
     const { Purchases } = getPurchasesModule();
@@ -107,6 +124,7 @@ export async function getOfferings(): Promise<PurchasesPackage | null> {
  */
 export async function getAllOfferings(): Promise<{ annual: PurchasesPackage | null; monthly: PurchasesPackage | null }> {
   if (isRunningInExpoGo()) return { annual: null, monthly: null };
+  if (!initialized) await initPurchases();
   if (!initialized) return { annual: null, monthly: null };
   try {
     const { Purchases } = getPurchasesModule();
@@ -130,6 +148,7 @@ export async function getAllOfferings(): Promise<{ annual: PurchasesPackage | nu
  */
 export async function purchasePremium(plan: 'yearly' | 'monthly' = 'yearly'): Promise<{ success: boolean; error?: string }> {
   if (isRunningInExpoGo()) return { success: false, error: unavailableReason ?? 'Store not available in Expo Go' };
+  if (!initialized) await initPurchases();
   if (!initialized) return { success: false, error: unavailableReason ?? 'Store not available' };
   try {
     const { annual, monthly } = await getAllOfferings();
@@ -158,6 +177,7 @@ export async function purchasePremium(plan: 'yearly' | 'monthly' = 'yearly'): Pr
  */
 export async function restorePurchases(): Promise<{ success: boolean; isPremium: boolean }> {
   if (isRunningInExpoGo()) return { success: false, isPremium: false };
+  if (!initialized) await initPurchases();
   if (!initialized) return { success: false, isPremium: false };
   try {
     const { Purchases } = getPurchasesModule();
