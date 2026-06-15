@@ -242,6 +242,29 @@ const DRINK_FLAVOR_OPTIONS = [
   { id: 'traditional', label: '🇮🇳 Traditional' },
 ];
 
+const TARGET_LIMITS = {
+  calories: { min: 100, max: 700, fallback: 450, label: 'Calories' },
+  protein: { min: 5, max: 80, fallback: 35, label: 'Protein' },
+  carbs: { min: 0, max: 120, fallback: 30, label: 'Carbs' },
+  fat: { min: 0, max: 60, fallback: 15, label: 'Fat' },
+} as const;
+
+type TargetField = keyof typeof TARGET_LIMITS;
+
+function sanitizeTargetInput(value: string, field: TargetField): string {
+  const digitsOnly = value.replace(/[^\d]/g, '');
+  if (!digitsOnly) return '';
+  const limit = TARGET_LIMITS[field];
+  return String(Math.min(Number(digitsOnly), limit.max));
+}
+
+function normalizeTargetInput(value: string, field: TargetField): string {
+  const limit = TARGET_LIMITS[field];
+  const digitsOnly = value.replace(/[^\d]/g, '');
+  const numeric = digitsOnly ? Number(digitsOnly) : limit.fallback;
+  return String(Math.min(Math.max(numeric, limit.min), limit.max));
+}
+
 async function callClaudeAPI(
   proteinId: string,
   proteinName: string,
@@ -396,15 +419,12 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
     system: systemPrompt,
     messages: [
       { role: 'user', content: messageContent },
-      { role: 'assistant', content: '{' },
     ],
   });
 
   const rawText = data.content?.[0]?.text ?? '';
-  // Assistant prefill usually makes Claude continue after "{", but some models
-  // still return a full JSON object. Accept both shapes.
   const rawTrimmed = rawText.trim();
-  const text = rawTrimmed.startsWith('{') ? rawTrimmed : `{${rawText}`;
+  const text = rawTrimmed;
   console.log('[SpiceStrong] Raw Claude response length:', text.length);
   // Strip markdown fences and extract JSON object
   let cleaned = text.replace(/```json|```/g, '').trim();
@@ -580,6 +600,28 @@ export default function AIRecipeBuilderScreen() {
   const [targetProtein, setTargetProtein] = useState('35');
   const [targetCarbs, setTargetCarbs] = useState('30');
   const [targetFat, setTargetFat] = useState('15');
+
+  const updateTargetValue = (field: TargetField, value: string) => {
+    const next = sanitizeTargetInput(value, field);
+    if (field === 'calories') setTargetCal(next);
+    else if (field === 'protein') setTargetProtein(next);
+    else if (field === 'carbs') setTargetCarbs(next);
+    else setTargetFat(next);
+  };
+
+  const normalizeTargetValue = (field: TargetField) => {
+    if (field === 'calories') setTargetCal((value) => normalizeTargetInput(value, field));
+    else if (field === 'protein') setTargetProtein((value) => normalizeTargetInput(value, field));
+    else if (field === 'carbs') setTargetCarbs((value) => normalizeTargetInput(value, field));
+    else setTargetFat((value) => normalizeTargetInput(value, field));
+  };
+
+  const getNormalizedTargets = () => ({
+    targetCal: normalizeTargetInput(targetCal, 'calories'),
+    targetProtein: normalizeTargetInput(targetProtein, 'protein'),
+    targetCarbs: normalizeTargetInput(targetCarbs, 'carbs'),
+    targetFat: normalizeTargetInput(targetFat, 'fat'),
+  });
 
   useEffect(() => { logScreenView('AIRecipeBuilderScreen'); }, []);
 
@@ -1100,6 +1142,11 @@ Return ONLY the JSON, no explanation.`,
 
     const proteinId = paramProteinId ?? 'chicken';
     const proteinName = paramProteinName ?? 'Chicken';
+    const normalizedTargets = getNormalizedTargets();
+    setTargetCal(normalizedTargets.targetCal);
+    setTargetProtein(normalizedTargets.targetProtein);
+    setTargetCarbs(normalizedTargets.targetCarbs);
+    setTargetFat(normalizedTargets.targetFat);
     const proteinEmojiVal = proteinEmoji ?? '🍗';
 
     // Save placeholder recipe immediately with status: 'building'
@@ -1165,7 +1212,7 @@ Return ONLY the JSON, no explanation.`,
               spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
               dietary: mergedDietary,
               cuisine: '',
-              targetCal, targetProtein, targetCarbs, targetFat,
+              ...normalizedTargets,
             }
           : {
               meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
@@ -1175,7 +1222,7 @@ Return ONLY the JSON, no explanation.`,
               spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
               dietary: mergedDietary,
               cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
-              targetCal, targetProtein, targetCarbs, targetFat,
+              ...normalizedTargets,
             },
         proteinEmojiVal,
         referenceImageBase64,
@@ -1519,19 +1566,19 @@ Return ONLY the JSON, no explanation.`,
               <Text style={styles.sectionLabel}>🎯 TARGET PER SERVING</Text>
               <View style={styles.macroInputRow}>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={styles.macroInputField} value={targetCal} onChangeText={setTargetCal} keyboardType="numeric" returnKeyType="done" placeholder="450" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={styles.macroInputField} value={targetCal} onChangeText={(value) => updateTargetValue('calories', value)} onBlur={() => normalizeTargetValue('calories')} keyboardType="numeric" returnKeyType="done" placeholder="450" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={styles.macroInputUnit}>cal</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={[styles.macroInputField, { color: '#8F3A1F' }]} value={targetProtein} onChangeText={setTargetProtein} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={[styles.macroInputField, { color: '#8F3A1F' }]} value={targetProtein} onChangeText={(value) => updateTargetValue('protein', value)} onBlur={() => normalizeTargetValue('protein')} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={[styles.macroInputUnit, { color: '#8F3A1F' }]}>g P</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={styles.macroInputField} value={targetCarbs} onChangeText={setTargetCarbs} keyboardType="numeric" returnKeyType="done" placeholder="30" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={styles.macroInputField} value={targetCarbs} onChangeText={(value) => updateTargetValue('carbs', value)} onBlur={() => normalizeTargetValue('carbs')} keyboardType="numeric" returnKeyType="done" placeholder="30" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={styles.macroInputUnit}>g C</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={styles.macroInputField} value={targetFat} onChangeText={setTargetFat} keyboardType="numeric" returnKeyType="done" placeholder="15" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={styles.macroInputField} value={targetFat} onChangeText={(value) => updateTargetValue('fat', value)} onBlur={() => normalizeTargetValue('fat')} keyboardType="numeric" returnKeyType="done" placeholder="15" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={styles.macroInputUnit}>g F</Text>
                 </View>
               </View>
