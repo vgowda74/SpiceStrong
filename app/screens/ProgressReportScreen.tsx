@@ -28,7 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { getMealPlanForDate } from '../../services/mealPlanService';
 import { getRecipeById, getCompletionStats } from '../../src/store/recipes';
-import { getFitnessProfile, getBodyStatsHistory, type FitnessProfile, type BodyStatsEntry } from '../../services/fitnessProfileService';
+import { calculateMacroTargets, getFitnessProfile, getBodyStatsHistory, type FitnessProfile, type BodyStatsEntry, type MacroTargets } from '../../services/fitnessProfileService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { invokeAnthropicMessages } from '../../services/anthropicService';
@@ -50,9 +50,11 @@ interface PeriodStats {
   avgProteinG: number;
   avgCarbsG: number;
   avgFatG: number;
+  avgRating: number;
   daysTracked: number;
   proteinGoalHits: number;
   totalDays: number;
+  dailyReports: DailyProgressReport[];
 }
 
 interface ProgressPhoto {
@@ -61,8 +63,71 @@ interface ProgressPhoto {
   label: string;
 }
 
+interface MacroDiff {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
+interface DailyProgressReport {
+  date: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  diff: MacroDiff;
+  rating: number;
+  tracked: boolean;
+}
+
 function formatDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function getFallbackTargets(prof: FitnessProfile | null): MacroTargets {
+  if (prof) return calculateMacroTargets(prof);
+  return { calories: 2000, proteinG: 130, carbsG: 200, fatG: 70, tdee: 2000, bmr: 1600 };
+}
+
+function scoreCloseness(actual: number, target: number, tolerance: number): number {
+  const safeTarget = Math.max(target, 1);
+  const missRatio = Math.max(0, Math.abs(actual - target) / safeTarget - tolerance);
+  return Math.max(0, Math.round(100 - missRatio * 160));
+}
+
+function scoreAtLeast(actual: number, target: number, tolerance: number): number {
+  const safeTarget = Math.max(target, 1);
+  const missRatio = Math.max(0, (target - actual) / safeTarget - tolerance);
+  return Math.max(0, Math.round(100 - missRatio * 180));
+}
+
+function calculateDailyRating(day: Omit<DailyProgressReport, 'diff' | 'rating' | 'tracked'>, targets: MacroTargets): number {
+  if (day.calories <= 0) return 0;
+  const calorieScore = scoreCloseness(day.calories, targets.calories, 0.08);
+  const proteinScore = scoreAtLeast(day.proteinG, targets.proteinG, 0.05);
+  const carbsScore = scoreCloseness(day.carbsG, targets.carbsG, 0.18);
+  const fatScore = scoreCloseness(day.fatG, targets.fatG, 0.18);
+
+  return Math.round(
+    calorieScore * 0.35 +
+    proteinScore * 0.35 +
+    carbsScore * 0.15 +
+    fatScore * 0.15
+  );
+}
+
+function getRatingLabel(rating: number): string {
+  if (rating >= 90) return 'Elite';
+  if (rating >= 80) return 'Strong';
+  if (rating >= 70) return 'Solid';
+  if (rating >= 60) return 'Building';
+  return 'Reset';
+}
+
+function formatDiff(value: number, unit = ''): string {
+  if (value === 0) return `0${unit}`;
+  return `${value > 0 ? '+' : ''}${value}${unit}`;
 }
 
 export default function ProgressReportScreen() {
@@ -145,11 +210,12 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
     let totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
     let daysTracked = 0;
     let proteinGoalHits = 0;
-    const dailyProteinTarget = prof ? Math.round(prof.weightKg * 2) : 130;
+    let ratingTotal = 0;
+    const dailyReports: DailyProgressReport[] = [];
+    const targets = getFallbackTargets(prof);
 
     for (const date of dates) {
       const entries = await getMealPlanForDate(date);
-      if (entries.length === 0) continue;
 
       let dayCal = 0, dayPro = 0, dayCarb = 0, dayFat = 0;
       for (const entry of entries) {
@@ -177,13 +243,35 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
         }
       }
 
-      if (dayCal > 0) {
+      const tracked = dayCal > 0;
+      const baseDay = {
+        date,
+        calories: Math.round(dayCal),
+        proteinG: Math.round(dayPro),
+        carbsG: Math.round(dayCarb),
+        fatG: Math.round(dayFat),
+      };
+      const rating = tracked ? calculateDailyRating(baseDay, targets) : 0;
+      dailyReports.push({
+        ...baseDay,
+        diff: {
+          calories: Math.round(dayCal - targets.calories),
+          proteinG: Math.round(dayPro - targets.proteinG),
+          carbsG: Math.round(dayCarb - targets.carbsG),
+          fatG: Math.round(dayFat - targets.fatG),
+        },
+        rating,
+        tracked,
+      });
+
+      if (tracked) {
         daysTracked++;
         totalCal += dayCal;
         totalPro += dayPro;
         totalCarb += dayCarb;
         totalFat += dayFat;
-        if (dayPro >= dailyProteinTarget) proteinGoalHits++;
+        ratingTotal += rating;
+        if (dayPro >= targets.proteinG) proteinGoalHits++;
       }
     }
 
@@ -192,9 +280,11 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
       avgProteinG: daysTracked > 0 ? Math.round(totalPro / daysTracked) : 0,
       avgCarbsG: daysTracked > 0 ? Math.round(totalCarb / daysTracked) : 0,
       avgFatG: daysTracked > 0 ? Math.round(totalFat / daysTracked) : 0,
+      avgRating: daysTracked > 0 ? Math.round(ratingTotal / dates.length) : 0,
       daysTracked,
       proteinGoalHits,
       totalDays: dates.length,
+      dailyReports,
     };
   }
 
@@ -344,13 +434,10 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
         color: muted,
       });
 
-      const adherence = currentStats.daysTracked > 0
-        ? Math.round((currentStats.proteinGoalHits / currentStats.daysTracked) * 100)
-        : 0;
       [
         { label: 'Days Tracked', value: `${currentStats.daysTracked}/${currentStats.totalDays}`, color: cream },
         { label: 'Protein Hits', value: `${currentStats.proteinGoalHits}/${currentStats.daysTracked}`, color: green },
-        { label: 'Adherence', value: `${adherence}%`, color: adherence >= 70 ? green : copper },
+        { label: 'Weighted Rating', value: `${currentStats.avgRating}`, color: currentStats.avgRating >= 80 ? green : copper },
       ].forEach((card, index) => {
         const x = 38 + index * 178;
         page.drawRectangle({
@@ -398,8 +485,45 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
       });
 
       y -= 18;
+      page.drawText('Daily Macro Scorecard', { x: 38, y, size: 16, font: bold, color: cream });
+      y -= 20;
+      page.drawText('Date', { x: 48, y, size: 9, font: bold, color: muted });
+      page.drawText('Cal Diff', { x: 140, y, size: 9, font: bold, color: muted });
+      page.drawText('P Diff', { x: 220, y, size: 9, font: bold, color: muted });
+      page.drawText('C Diff', { x: 295, y, size: 9, font: bold, color: muted });
+      page.drawText('F Diff', { x: 370, y, size: 9, font: bold, color: muted });
+      page.drawText('Rating', { x: 450, y, size: 9, font: bold, color: muted });
+      y -= 16;
+      const dailyRows = currentStats.dailyReports.slice(0, period === 'weekly' ? 7 : 8);
+      dailyRows.forEach((day) => {
+        page.drawText(day.date.slice(5), { x: 48, y, size: 9, font, color: day.tracked ? cream : muted });
+        page.drawText(day.tracked ? formatDiff(day.diff.calories) : 'not tracked', { x: 140, y, size: 9, font, color: muted });
+        page.drawText(day.tracked ? formatDiff(day.diff.proteinG, 'g') : '-', { x: 220, y, size: 9, font, color: day.diff.proteinG >= 0 ? green : red });
+        page.drawText(day.tracked ? formatDiff(day.diff.carbsG, 'g') : '-', { x: 295, y, size: 9, font, color: muted });
+        page.drawText(day.tracked ? formatDiff(day.diff.fatG, 'g') : '-', { x: 370, y, size: 9, font, color: muted });
+        page.drawText(day.tracked ? `${day.rating} ${getRatingLabel(day.rating)}` : '0 Reset', {
+          x: 450,
+          y,
+          size: 9,
+          font: bold,
+          color: day.rating >= 80 ? green : day.rating >= 60 ? copper : red,
+        });
+        y -= 14;
+      });
+      if (period === 'monthly' && currentStats.dailyReports.length > dailyRows.length) {
+        page.drawText(`Plus ${currentStats.dailyReports.length - dailyRows.length} more days in the app.`, {
+          x: 48,
+          y,
+          size: 9,
+          font,
+          color: muted,
+        });
+        y -= 16;
+      }
+
+      y -= 18;
       const body = getBodySnapshot();
-      if (body) {
+      if (body && y > 120) {
         page.drawText('Body Snapshot', { x: 38, y, size: 16, font: bold, color: cream });
         y -= 24;
         page.drawText(`Weight: ${Math.round(body.currentWeightKg * 2.20462)} lbs`, { x: 48, y, size: 11, font: bold, color: cream });
@@ -552,6 +676,53 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
           )}
 
           {/* Body Stats — current vs previous period */}
+          {currentStats && (
+            <View style={styles.ratingCard}>
+              <View style={styles.ratingCopy}>
+                <Text style={styles.ratingEyebrow}>Weighted Rating</Text>
+                <Text style={styles.ratingTitle}>{currentStats.avgRating}/100</Text>
+                <Text style={styles.ratingSub}>{getRatingLabel(currentStats.avgRating)} - calories 35%, protein 35%, carbs 15%, fat 15%</Text>
+              </View>
+              <View style={styles.ratingBadge}>
+                <Text style={styles.ratingBadgeText}>{getRatingLabel(currentStats.avgRating)}</Text>
+              </View>
+            </View>
+          )}
+
+          {currentStats && (
+            <View style={styles.dailyCard}>
+              <Text style={styles.cardTitle}>Daily Macro Scorecard</Text>
+              <View style={styles.dailyHeader}>
+                <Text style={styles.dailyDate}>Day</Text>
+                <Text style={styles.dailyDiff}>Cal</Text>
+                <Text style={styles.dailyDiff}>P</Text>
+                <Text style={styles.dailyDiff}>C</Text>
+                <Text style={styles.dailyDiff}>F</Text>
+                <Text style={styles.dailyRating}>Score</Text>
+              </View>
+              {currentStats.dailyReports.slice(0, period === 'weekly' ? 7 : 10).map((day) => (
+                <View key={day.date} style={styles.dailyRow}>
+                  <Text style={styles.dailyDate}>{day.date.slice(5)}</Text>
+                  <Text style={styles.dailyDiff}>{day.tracked ? formatDiff(day.diff.calories) : '-'}</Text>
+                  <Text style={[styles.dailyDiff, day.tracked && { color: day.diff.proteinG >= 0 ? GREEN : RED }]}>
+                    {day.tracked ? formatDiff(day.diff.proteinG, 'g') : '-'}
+                  </Text>
+                  <Text style={styles.dailyDiff}>{day.tracked ? formatDiff(day.diff.carbsG, 'g') : '-'}</Text>
+                  <Text style={styles.dailyDiff}>{day.tracked ? formatDiff(day.diff.fatG, 'g') : '-'}</Text>
+                  <Text style={[
+                    styles.dailyRating,
+                    { color: day.rating >= 80 ? GREEN : day.rating >= 60 ? ORANGE : RED },
+                  ]}>
+                    {day.rating}
+                  </Text>
+                </View>
+              ))}
+              {period === 'monthly' && currentStats.dailyReports.length > 10 ? (
+                <Text style={styles.dailyMore}>Full monthly scoring is included in the consolidated rating.</Text>
+              ) : null}
+            </View>
+          )}
+
           {profile && (
             <View style={styles.bodyCard}>
               <Text style={styles.cardTitle}>Body Stats</Text>
@@ -720,6 +891,55 @@ const styles = StyleSheet.create({
   trackingValue: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
   trackingLabel: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 4 },
   trackingDivider: { width: 1, height: 36, backgroundColor: BORDER },
+
+  // Weighted rating
+  ratingCard: {
+    backgroundColor: 'rgba(143,58,31,0.12)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(143,58,31,0.26)',
+    padding: 16,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  ratingCopy: { flex: 1 },
+  ratingEyebrow: { fontSize: 11, fontWeight: '900', color: 'rgba(248,241,232,0.50)', textTransform: 'uppercase' },
+  ratingTitle: { fontSize: 32, fontWeight: '900', color: '#FFFFFF', marginTop: 4 },
+  ratingSub: { fontSize: 12, lineHeight: 17, fontWeight: '700', color: 'rgba(248,241,232,0.58)', marginTop: 2 },
+  ratingBadge: {
+    minWidth: 72,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(34,197,94,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.26)',
+    alignItems: 'center',
+  },
+  ratingBadgeText: { fontSize: 12, fontWeight: '900', color: GREEN },
+
+  // Daily scorecard
+  dailyCard: { backgroundColor: SURFACE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
+  dailyHeader: {
+    flexDirection: 'row',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  dailyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 34,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  dailyDate: { flex: 1.05, fontSize: 12, fontWeight: '800', color: 'rgba(248,241,232,0.70)' },
+  dailyDiff: { flex: 0.9, fontSize: 11, fontWeight: '800', color: 'rgba(248,241,232,0.58)', textAlign: 'center' },
+  dailyRating: { flex: 0.9, fontSize: 12, fontWeight: '900', color: '#FFFFFF', textAlign: 'right' },
+  dailyMore: { marginTop: 10, fontSize: 11, lineHeight: 16, fontWeight: '700', color: 'rgba(248,241,232,0.45)' },
 
   // Body stats
   bodyCard: { backgroundColor: SURFACE, borderRadius: 14, borderWidth: 1, borderColor: BORDER, padding: 16, marginBottom: 14 },
