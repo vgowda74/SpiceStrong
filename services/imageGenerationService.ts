@@ -6,9 +6,9 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { supabase } from './supabase';
 
-const FAL_KEY = process.env.EXPO_PUBLIC_FAL_KEY || process.env.FAL_KEY;
 const AI_IMAGES_PREFIX = 'spicestrong_ai_images_';
 const IMAGE_DIR_NAME = 'ai_recipe_images';
 
@@ -66,99 +66,43 @@ async function downloadImage(remoteUrl: string, localFileName: string): Promise<
  * ~$0.003 per image.
  */
 type FalModel = 'schnell' | 'dev';
-const FAL_MODEL_PATHS: Record<FalModel, string> = {
-  schnell: 'fal-ai/flux/schnell',
-  dev: 'fal-ai/flux/dev',
-};
 
 async function callFal(prompt: string, label: string, model: FalModel = 'schnell'): Promise<{ url: string | null; error?: string }> {
-  if (!FAL_KEY) return { url: null, error: 'No FAL_KEY set' };
-
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`[SpiceStrong] fal.ai request for "${label}" (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+      console.log(`[SpiceStrong] fal.ai proxy request for "${label}" (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
 
-      // Submit to queue
-      const submitRes = await fetch(`https://queue.fal.run/${FAL_MODEL_PATHS[model]}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Key ${FAL_KEY}`,
-        },
-        body: JSON.stringify({
-          prompt,
-          image_size: 'square_hd',
-          num_images: 1,
-          enable_safety_checker: false,
-        }),
+      const { data, error } = await supabase.functions.invoke('fal-image-proxy', {
+        body: { prompt, label, model },
       });
 
-      if (!submitRes.ok) {
-        const err = await submitRes.text().catch(() => '');
-        console.warn(`[SpiceStrong] fal.ai submit error ${submitRes.status}: ${err}`);
-        if (submitRes.status === 429 && attempt < MAX_RETRIES) {
-          await delay(5000);
+      if (error) {
+        const message = await getFunctionErrorMessage(error);
+        console.warn(`[SpiceStrong] fal.ai proxy error for "${label}": ${message}`);
+        if (attempt < MAX_RETRIES) {
+          await delay(3000);
           continue;
         }
-        return { url: null, error: `fal.ai ${submitRes.status}` };
+        return { url: null, error: message };
       }
 
-      let submitData;
-      try { submitData = await submitRes.json(); } catch { return { url: null, error: 'Invalid response from fal.ai' }; }
-
-      // If response has images directly (synchronous response)
-      if (submitData.images?.[0]?.url) {
-        console.log(`[SpiceStrong] fal.ai instant response for "${label}"`);
-        return { url: submitData.images[0].url };
+      const result = data as { url?: string | null; error?: string } | null;
+      if (result?.url) {
+        console.log(`[SpiceStrong] fal.ai proxy success for "${label}"`);
+        return { url: result.url };
       }
 
-      // Queue-based: poll for result
-      const responseUrl = submitData.response_url;
-      if (!responseUrl) {
-        return { url: null, error: 'No response_url from fal.ai' };
+      const message = result?.error || 'No image URL returned from fal.ai proxy';
+      console.warn(`[SpiceStrong] fal.ai proxy returned no image for "${label}": ${message}`);
+      if (attempt < MAX_RETRIES) {
+        await delay(3000);
+        continue;
       }
-
-      // Poll for up to 60 seconds
-      const maxWait = 60000;
-      const pollInterval = 2000;
-      const startTime = Date.now();
-
-      while (Date.now() - startTime < maxWait) {
-        await delay(pollInterval);
-        const pollRes = await fetch(responseUrl, {
-          headers: { Authorization: `Key ${FAL_KEY}` },
-        });
-
-        if (!pollRes.ok) {
-          const err = await pollRes.text().catch(() => '');
-          console.warn(`[SpiceStrong] fal.ai poll error ${pollRes.status}: ${err}`);
-          continue;
-        }
-
-        let pollData;
-        try { pollData = await pollRes.json(); } catch { continue; }
-
-        if (pollData.images?.[0]?.url) {
-          console.log(`[SpiceStrong] fal.ai success for "${label}"`);
-          return { url: pollData.images[0].url };
-        }
-
-        // Still processing
-        if (pollData.status === 'IN_QUEUE' || pollData.status === 'IN_PROGRESS') {
-          continue;
-        }
-
-        // Failed
-        if (pollData.status === 'COMPLETED' && !pollData.images?.[0]?.url) {
-          return { url: null, error: 'No image in completed response' };
-        }
-      }
-
-      return { url: null, error: 'Timed out waiting for fal.ai (60s)' };
+      return { url: null, error: message };
     } catch (networkErr) {
       const errMsg = networkErr instanceof Error ? networkErr.message : 'Network error';
-      console.warn(`[SpiceStrong] Network error for "${label}": ${errMsg}`);
+      console.warn(`[SpiceStrong] fal.ai proxy network error for "${label}": ${errMsg}`);
       if (attempt < MAX_RETRIES) {
         await delay(3000);
         continue;
@@ -167,6 +111,24 @@ async function callFal(prompt: string, label: string, model: FalModel = 'schnell
     }
   }
   return { url: null, error: 'Max retries exceeded' };
+}
+
+async function getFunctionErrorMessage(error: any): Promise<string> {
+  const fallback = error?.message || 'fal.ai proxy failed';
+  try {
+    const context = error?.context;
+    if (!context) return fallback;
+    const text = await context.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed?.error || parsed?.message || fallback;
+    } catch {
+      return text.slice(0, 220);
+    }
+  } catch {
+    return fallback;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -187,7 +149,7 @@ const BODY_SCAN_SAMPLE_PROMPTS: Record<'male' | 'female', string> = {
  * Get the local URI of the front-pose reference sample for a gender.
  * Returns a cached local file if available; otherwise generates one via fal.ai,
  * downloads it, caches the URI, and returns it. Returns null on failure
- * (e.g. no FAL_KEY) so the caller can fall back to a placeholder.
+ * so the caller can fall back to a placeholder.
  */
 export async function generateBodyScanSample(gender: 'male' | 'female'): Promise<string | null> {
   const cacheKey = `${BODY_SCAN_SAMPLE_PREFIX}${gender}`;
@@ -315,7 +277,6 @@ export async function generateScanInstrImages(
   }
 
   // 3. fal.ai generation — last resort (before bucket is seeded)
-  if (!FAL_KEY) return result;
   await Promise.all(
     keys.map(async (key) => {
       if (result[key]) return; // already loaded from Supabase
@@ -501,11 +462,6 @@ export async function generateAllRecipeImages(
     steps: { title?: string; description?: string }[];
   },
 ): Promise<RecipeImageResults> {
-  if (!FAL_KEY) {
-    console.warn('[SpiceStrong] FAL_KEY is not set — skipping image generation');
-    return { dishImage: null, ingredientImages: {}, stepImages: {} };
-  }
-
   const recipeId = recipe.id ?? recipe.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
   const recipeName = recipe.name;
   const steps = recipe.steps ?? [];
@@ -563,11 +519,6 @@ export async function generateSingleStepImage(
   },
   stepIndex: number,
 ): Promise<ImageResult> {
-  if (!FAL_KEY) {
-    console.warn('[SpiceStrong] FAL_KEY is not set - skipping step image generation');
-    return { url: null, error: 'No FAL_KEY set' };
-  }
-
   const steps = recipe.steps ?? [];
   const step = steps[stepIndex];
   if (!step) return { url: null, error: 'Step not found' };
