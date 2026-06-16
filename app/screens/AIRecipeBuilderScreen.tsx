@@ -652,6 +652,7 @@ export default function AIRecipeBuilderScreen() {
   const [generating, setGenerating] = useState(false);
   const [genStep, setGenStep] = useState('');
   const [genRecipeId, setGenRecipeId] = useState<string | null>(null);
+  const [recipeReady, setRecipeReady] = useState(false);
   // Image upload for reference photo
   const [referenceImageUri, setReferenceImageUri] = useState<string | null>(null);
   const [referenceImageBase64, setReferenceImageBase64] = useState<string | null>(null);
@@ -1187,6 +1188,8 @@ Return ONLY the JSON, no explanation.`,
 
     // Stay on screen with progress steps
     setGenerating(true);
+    setRecipeReady(false);
+    setGenRecipeId(null);
     setGenStep('Understanding your preferences...');
     trackEvent('ai_recipe_generated', {
       screen: 'AIRecipeBuilderScreen',
@@ -1256,7 +1259,8 @@ Return ONLY the JSON, no explanation.`,
 
       // Show recipe immediately — user can view it while images generate
       setGenRecipeId(saved.id);
-      setGenStep('Your recipe is ready! Generating images...');
+      setRecipeReady(true);
+      setGenStep('Images will keep finishing in the background.');
 
       // All remaining work in BACKGROUND (non-blocking)
       const bgSavedId = saved.id;
@@ -1273,8 +1277,10 @@ Return ONLY the JSON, no explanation.`,
           const imgResult = await genImages({ id: bgSavedId, name: bgName, ingredients: bgIngredients, steps: bgSteps });
           await saveImgs(bgSavedId, imgResult);
           if (imgResult.dishImage) uploadRecipeHeroImage(bgSavedId, imgResult.dishImage).catch(() => {});
+          setGenStep('Images added to your recipe.');
           console.log(`[SpiceStrong] Background images done for: ${bgName}`);
         } catch (e) {
+          setGenStep('Your recipe is ready. Images can be generated later.');
           console.warn('[SpiceStrong] Background image generation failed:', e);
         }
       })();
@@ -1503,9 +1509,19 @@ Return ONLY the JSON, no explanation.`,
         {generating && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ProcessingRing label={genStep} sublabel="AI is crafting your recipe" expectedMs={20000} size={108} />
-              <Text style={styles.genEmoji}>👨‍🍳</Text>
-              <Text style={styles.genTitle}>Creating Your Recipe</Text>
+              {recipeReady ? (
+                <>
+                  <Text style={styles.genEmoji}>👨‍🍳</Text>
+                  <Text style={styles.genTitle}>Recipe Ready</Text>
+                  <Text style={styles.genStep}>{genStep}</Text>
+                </>
+              ) : (
+                <>
+                  <ProcessingRing label={genStep} sublabel="AI is crafting your recipe" expectedMs={20000} size={108} />
+                  <Text style={styles.genEmoji}>👨‍🍳</Text>
+                  <Text style={styles.genTitle}>Creating Your Recipe</Text>
+                </>
+              )}
               {genRecipeId && (
                 <TouchableOpacity
                   style={styles.genViewBtn}
