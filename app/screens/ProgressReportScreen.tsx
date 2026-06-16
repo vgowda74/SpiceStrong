@@ -7,7 +7,7 @@
  * - AI weekly summary
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   Alert,
@@ -20,11 +20,13 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { getMealPlanForDate, type MealPlanEntry } from '../../services/mealPlanService';
+import { getMealPlanForDate } from '../../services/mealPlanService';
 import { getRecipeById, getCompletionStats } from '../../src/store/recipes';
 import { getFitnessProfile, getBodyStatsHistory, type FitnessProfile, type BodyStatsEntry } from '../../services/fitnessProfileService';
 import { PremiumScreen } from '../../components/PremiumScreen';
@@ -75,6 +77,7 @@ export default function ProgressReportScreen() {
   const [aiSummary, setAiSummary] = useState('');
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   const [bodyHistory, setBodyHistory] = useState<BodyStatsEntry[]>([]);
+  const [sharingPdf, setSharingPdf] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -238,6 +241,222 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
     return { arrow: isUp ? '↑' : '↓', color: isGood ? GREEN : RED };
   };
 
+  const getBodySnapshot = () => {
+    if (!profile) return null;
+    const daysBack = period === 'weekly' ? 7 : 30;
+    const now = new Date();
+    const currentPeriodStart = new Date(now);
+    currentPeriodStart.setDate(now.getDate() - daysBack);
+    const prevPeriodStart = new Date(now);
+    prevPeriodStart.setDate(now.getDate() - daysBack * 2);
+
+    const currentEntry = bodyHistory
+      .filter((e) => new Date(e.date) >= currentPeriodStart)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    const prevEntry = bodyHistory
+      .filter((e) => new Date(e.date) >= prevPeriodStart && new Date(e.date) < currentPeriodStart)
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    return {
+      currentWeightKg: currentEntry?.weightKg ?? profile.weightKg,
+      previousWeightKg: prevEntry?.weightKg ?? (currentEntry?.weightKg ?? profile.weightKg),
+      currentBodyFat: currentEntry?.bodyFatPercent ?? profile.bodyFatPercent,
+      previousBodyFat: prevEntry?.bodyFatPercent,
+      targetWeightKg: profile.targetWeightKg,
+    };
+  };
+
+  const getMotivationLine = () => {
+    if (!currentStats || currentStats.daysTracked === 0) {
+      return 'This is your reset point. Track one meal today and restart the momentum.';
+    }
+    const adherence = Math.round((currentStats.proteinGoalHits / currentStats.daysTracked) * 100);
+    if (adherence >= 80) return 'You are stacking strong, repeatable wins. Keep protecting the habits that got you here.';
+    if (currentStats.daysTracked >= Math.ceil(currentStats.totalDays * 0.6)) {
+      return 'Your consistency is building. Tighten protein at one meal and this turns into a breakout week.';
+    }
+    return 'Progress does not need perfection. Win the next meal, then the next day.';
+  };
+
+  const wrapPdfText = (text: string, maxChars: number) => {
+    const words = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+    const lines: string[] = [];
+    let line = '';
+    words.forEach((word) => {
+      const next = line ? `${line} ${word}` : word;
+      if (next.length > maxChars && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    });
+    if (line) lines.push(line);
+    return lines;
+  };
+
+  const embedProgressPhoto = async (pdfDoc: PDFDocument, uri: string) => {
+    const base64 = await new File(uri).base64();
+    return uri.toLowerCase().endsWith('.png') ? pdfDoc.embedPng(base64) : pdfDoc.embedJpg(base64);
+  };
+
+  const shareProgressPdf = async () => {
+    if (!currentStats || !previousStats) {
+      Alert.alert('Report Not Ready', 'Your progress data is still loading.');
+      return;
+    }
+    if (!(await Sharing.isAvailableAsync())) {
+      Alert.alert('Sharing Unavailable', 'Sharing is not available on this device.');
+      return;
+    }
+
+    setSharingPdf(true);
+    try {
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage([612, 792]);
+      const { width, height } = page.getSize();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const dark = rgb(0.06, 0.05, 0.04);
+      const cream = rgb(0.97, 0.94, 0.89);
+      const muted = rgb(0.68, 0.62, 0.56);
+      const copper = rgb(0.91, 0.36, 0.15);
+      const green = rgb(0.13, 0.77, 0.37);
+      const red = rgb(0.94, 0.27, 0.27);
+
+      page.drawRectangle({ x: 0, y: 0, width, height, color: dark });
+      page.drawRectangle({ x: 0, y: height - 154, width, height: 154, color: rgb(0.14, 0.07, 0.04) });
+      page.drawRectangle({ x: 38, y: height - 132, width: 6, height: 92, color: copper });
+      page.drawText('SpiceStrong', { x: 56, y: height - 70, size: 30, font: bold, color: copper });
+      page.drawText(`${period === 'weekly' ? 'Weekly' : 'Monthly'} Progress Report`, {
+        x: 56,
+        y: height - 100,
+        size: 20,
+        font: bold,
+        color: cream,
+      });
+      page.drawText(formatDate(new Date()), { x: 470, y: height - 66, size: 11, font, color: muted });
+      page.drawText(profile?.goal ? `Goal: ${profile.goal.replace(/_/g, ' ')}` : 'Goal: Keep building', {
+        x: 470,
+        y: height - 84,
+        size: 11,
+        font,
+        color: muted,
+      });
+
+      const adherence = currentStats.daysTracked > 0
+        ? Math.round((currentStats.proteinGoalHits / currentStats.daysTracked) * 100)
+        : 0;
+      [
+        { label: 'Days Tracked', value: `${currentStats.daysTracked}/${currentStats.totalDays}`, color: cream },
+        { label: 'Protein Hits', value: `${currentStats.proteinGoalHits}/${currentStats.daysTracked}`, color: green },
+        { label: 'Adherence', value: `${adherence}%`, color: adherence >= 70 ? green : copper },
+      ].forEach((card, index) => {
+        const x = 38 + index * 178;
+        page.drawRectangle({
+          x,
+          y: height - 228,
+          width: 160,
+          height: 72,
+          borderColor: rgb(0.31, 0.25, 0.20),
+          borderWidth: 1,
+          color: rgb(0.10, 0.09, 0.08),
+        });
+        page.drawText(card.value, { x: x + 16, y: height - 190, size: 24, font: bold, color: card.color });
+        page.drawText(card.label, { x: x + 16, y: height - 210, size: 10, font, color: muted });
+      });
+
+      let y = height - 270;
+      page.drawText('Coach Note', { x: 38, y, size: 16, font: bold, color: cream });
+      y -= 24;
+      wrapPdfText(aiSummary || getMotivationLine(), 88).slice(0, 4).forEach((line) => {
+        page.drawText(line, { x: 38, y, size: 11, font, color: muted });
+        y -= 15;
+      });
+      y -= 4;
+      wrapPdfText(getMotivationLine(), 78).slice(0, 2).forEach((line) => {
+        page.drawText(line, { x: 38, y, size: 12, font: bold, color: copper });
+        y -= 16;
+      });
+
+      y -= 18;
+      page.drawText('Macro Momentum', { x: 38, y, size: 16, font: bold, color: cream });
+      y -= 22;
+      [
+        { label: 'Avg Calories', current: currentStats.avgCalories, previous: previousStats.avgCalories, unit: '' },
+        { label: 'Avg Protein', current: currentStats.avgProteinG, previous: previousStats.avgProteinG, unit: 'g' },
+        { label: 'Avg Carbs', current: currentStats.avgCarbsG, previous: previousStats.avgCarbsG, unit: 'g' },
+        { label: 'Avg Fat', current: currentStats.avgFatG, previous: previousStats.avgFatG, unit: 'g' },
+      ].forEach((row) => {
+        const diff = row.current - row.previous;
+        const diffText = row.previous === 0 ? 'new baseline' : `${diff >= 0 ? '+' : ''}${diff}${row.unit}`;
+        page.drawText(row.label, { x: 48, y, size: 11, font, color: muted });
+        page.drawText(`${row.current}${row.unit}`, { x: 235, y, size: 12, font: bold, color: cream });
+        page.drawText(`prev ${row.previous}${row.unit}`, { x: 325, y, size: 10, font, color: muted });
+        page.drawText(diffText, { x: 430, y, size: 11, font: bold, color: diff >= 0 ? green : red });
+        y -= 25;
+      });
+
+      y -= 18;
+      const body = getBodySnapshot();
+      if (body) {
+        page.drawText('Body Snapshot', { x: 38, y, size: 16, font: bold, color: cream });
+        y -= 24;
+        page.drawText(`Weight: ${Math.round(body.currentWeightKg * 2.20462)} lbs`, { x: 48, y, size: 11, font: bold, color: cream });
+        page.drawText(`Previous: ${Math.round(body.previousWeightKg * 2.20462)} lbs`, { x: 190, y, size: 11, font, color: muted });
+        if (body.targetWeightKg) {
+          page.drawText(`Target: ${Math.round(body.targetWeightKg * 2.20462)} lbs`, { x: 350, y, size: 11, font, color: muted });
+        }
+        y -= 22;
+        if (body.currentBodyFat != null) {
+          page.drawText(`Body Fat: ${body.currentBodyFat}%`, { x: 48, y, size: 11, font: bold, color: copper });
+          if (body.previousBodyFat != null) {
+            page.drawText(`Previous: ${body.previousBodyFat}%`, { x: 190, y, size: 11, font, color: muted });
+          }
+          y -= 18;
+        }
+      }
+
+      if (photos.length > 0 && y > 170) {
+        y -= 18;
+        page.drawText('Progress Photos', { x: 38, y, size: 16, font: bold, color: cream });
+        const selectedPhotos = photos.slice(-2);
+        await Promise.all(selectedPhotos.map(async (photo, index) => {
+          try {
+            const embedded = await embedProgressPhoto(pdfDoc, photo.uri);
+            const photoX = 48 + index * 172;
+            const photoY = y - 142;
+            page.drawImage(embedded, { x: photoX, y: photoY, width: 138, height: 112 });
+            page.drawText(photo.date, { x: photoX, y: photoY - 16, size: 9, font, color: muted });
+          } catch {}
+        }));
+      }
+
+      page.drawRectangle({ x: 0, y: 0, width, height: 44, color: rgb(0.08, 0.07, 0.06) });
+      page.drawText('Built by SpiceStrong - one strong meal at a time.', {
+        x: 38,
+        y: 17,
+        size: 10,
+        font: bold,
+        color: muted,
+      });
+
+      const pdfBase64 = await pdfDoc.saveAsBase64();
+      const file = new File(Paths.cache, `spicestrong-${period}-progress-report.pdf`);
+      file.write(pdfBase64, { encoding: 'base64' });
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Share your SpiceStrong progress report',
+        UTI: 'com.adobe.pdf',
+      });
+    } catch (error) {
+      console.error('[SpiceStrong] Progress PDF share failed:', error);
+      Alert.alert('Could Not Share Report', 'Please try again in a moment.');
+    } finally {
+      setSharingPdf(false);
+    }
+  };
+
   return (
     <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -256,6 +475,17 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
         </TouchableOpacity>
         <TouchableOpacity style={[styles.toggleBtn, period === 'monthly' && styles.toggleBtnActive]} onPress={() => setPeriod('monthly')}>
           <Text style={[styles.toggleText, period === 'monthly' && styles.toggleTextActive]}>Monthly</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.shareRow}>
+        <TouchableOpacity
+          style={[styles.shareBtn, (sharingPdf || loading) && styles.shareBtnDisabled]}
+          onPress={shareProgressPdf}
+          disabled={sharingPdf || loading}
+          activeOpacity={0.82}
+        >
+          <Text style={styles.shareBtnText}>{sharingPdf ? 'Creating PDF...' : 'Share Fancy PDF'}</Text>
         </TouchableOpacity>
       </View>
 
@@ -442,6 +672,27 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: ORANGE },
   toggleText: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.50)' },
   toggleTextActive: { color: '#FFFFFF' },
+  shareRow: {
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  shareBtn: {
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(143,58,31,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.18)',
+  },
+  shareBtnDisabled: {
+    opacity: 0.62,
+  },
+  shareBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900',
+  },
 
   scroll: { paddingHorizontal: 20, paddingTop: 12 },
 
