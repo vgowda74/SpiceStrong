@@ -57,7 +57,7 @@ import { invokeAnthropicMessages } from '../../services/anthropicService';
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
 const TRACKER_CACHE_PREFIX = 'spicestrong_tracker_snapshot_';
-const TRACKER_CACHE_VERSION = 1;
+const TRACKER_CACHE_VERSION = 2;
 
 interface MacroOverride {
   calories: number;
@@ -1496,10 +1496,18 @@ export default function MealPlanScreen() {
       const proteinName = entry.recipe?.proteinName || 'Chicken';
       const proteinEmoji = entry.proteinEmoji || '🍗';
       const mealSlot = entry.slot;
+      const cuisineStyle = entry.recipe?.cuisineType || entry.recipe?.cuisine || '';
+      const cookTimeBucket = entry.recipe?.cookTimeBucket || '';
 
       const { SPICEBUILDER_SYSTEM_PROMPT } = require('../../src/prompts/spiceBuilderPrompt');
       const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : mealSlot === 'others' ? 'Meal' : 'Lunch/Dinner';
       const systemPrompt = SPICEBUILDER_SYSTEM_PROMPT;
+      const cuisineInstruction = cuisineStyle
+        ? `- Cuisine style: "${cuisineStyle}". This is mandatory. Do not switch to another cuisine.`
+        : '';
+      const cookTimeInstruction = cookTimeBucket
+        ? `- Cook time preference: "${cookTimeBucket}". Keep the recipe within this time range when possible.`
+        : '';
 
       const data = await invokeAnthropicMessages({
         model: 'claude-sonnet-4-6',
@@ -1511,6 +1519,9 @@ export default function MealPlanScreen() {
 - proteinEmoji: "${proteinEmoji}"
 - mealType: "${mealTypeLabel}"
 - Target: ~${entry.calories} cal, ~${entry.proteinG}g protein per serving
+- The recipe name, ingredients, seasoning, and cooking technique must match the requested meal type and cuisine.
+${cuisineInstruction}
+${cookTimeInstruction}
 - Return ONLY the JSON object with: name, proteinId, proteinName, proteinEmoji, description, ingredients (with "2-3 servings" tier), steps (array with title, description, emoji, timerMinutes, tip), chefTip, mealType, aiNutrition (calories, proteinG, carbsG, fatG, fiberG, sugarG, sodiumMg)` }],
       });
       const text = data.content?.[0]?.text || '';
@@ -1571,6 +1582,9 @@ export default function MealPlanScreen() {
         mealType: mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack_dessert' : mealSlot === 'others' ? 'others' : 'lunch_dinner',
         status: 'ready',
         source: 'ai',
+        cuisine: cuisineStyle || recipeData.cuisine || undefined,
+        cuisineType: cuisineStyle || recipeData.cuisineType || undefined,
+        cookTimeBucket: cookTimeBucket || recipeData.cookTimeBucket || undefined,
         aiNutrition: recipeData.aiNutrition || entry.recipe?.aiNutrition,
       };
 

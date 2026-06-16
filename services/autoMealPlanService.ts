@@ -82,7 +82,10 @@ function recipeMatchesCuisine(recipe: SavedRecipe, cuisineStyle?: string | null)
   const selected = normalizeTag(cuisineStyle);
   const cuisine = normalizeTag(recipe.cuisine);
   const cuisineType = normalizeTag(recipe.cuisineType);
-  return cuisine === selected || cuisineType === selected || cuisine.includes(selected) || cuisineType.includes(selected);
+  if (selected === 'indian') {
+    return cuisine.endsWith('indian') || cuisineType.endsWith('indian');
+  }
+  return cuisine === selected || cuisineType === selected;
 }
 
 function recipeMatchesCookTime(recipe: SavedRecipe, cookTimeOption?: AutoPlanPreferences['cookTimeOption']): boolean {
@@ -211,6 +214,7 @@ function createPlaceholderRecipe(
     snack_dessert: `${cuisinePrefix}Protein Snack`,
   };
   const cookTime = prefs.cookTimeOption ? COOK_TIME_OPTIONS[prefs.cookTimeOption] : null;
+  const placeholderIngredients = getPlaceholderIngredients(slot, dietPreference, prefs.cuisineStyle);
 
   const id = `autoplan_${slot}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
@@ -221,7 +225,10 @@ function createPlaceholderRecipe(
     proteinName: 'Auto Plan',
     proteinEmoji: '🍽',
     description: `Auto-planned ${prefs.cuisineStyle ? `${prefs.cuisineStyle} ` : ''}meal (~${targetCal} cal, ~${targetProtein}g protein${cookTime ? `, ${cookTime.label}` : ''}). Tap to generate full recipe.`,
-    ingredients: { '2-3 servings': [], '4-6 servings': [] },
+    ingredients: {
+      '2-3 servings': placeholderIngredients,
+      '4-6 servings': placeholderIngredients.map((i) => ({ ...i, quantity: `2x ${i.quantity}` })),
+    },
     steps: [],
     chefTip: '',
     createdAt: Date.now(),
@@ -243,6 +250,37 @@ function createPlaceholderRecipe(
       sodiumMg: 0,
     },
   };
+}
+
+function getPlaceholderIngredients(
+  slot: MealSlot,
+  dietPreference: Awaited<ReturnType<typeof getDietPreference>>,
+  cuisineStyle?: string | null,
+): { name: string; quantity: string }[] {
+  const protein = dietPreference === 'veg' ? 'paneer' : slot === 'snack_dessert' ? 'Greek yogurt' : 'eggs';
+  const cuisine = normalizeTag(cuisineStyle);
+  if (cuisine.endsWith('indian')) {
+    if (slot === 'breakfast') {
+      return [
+        { name: protein, quantity: '150g' },
+        { name: 'spinach', quantity: '1 cup' },
+        { name: 'tomato', quantity: '1 medium' },
+        { name: 'Indian spices', quantity: '2 tsp' },
+      ];
+    }
+    return [
+      { name: dietPreference === 'veg' ? 'paneer' : 'chicken', quantity: '180g' },
+      { name: 'basmati rice', quantity: '1 cup' },
+      { name: 'onion', quantity: '1 medium' },
+      { name: 'Indian spices', quantity: '2 tsp' },
+    ];
+  }
+  return [
+    { name: protein, quantity: '150g' },
+    { name: 'vegetables', quantity: '1 cup' },
+    { name: 'whole grains', quantity: '1 serving' },
+    { name: 'fresh herbs', quantity: '1 tbsp' },
+  ];
 }
 
 // ═══════════════════════════════════════
@@ -321,11 +359,13 @@ export async function generateAutoMealPlan(
           })
           .filter((r) => !usedThisWeek.has(r.id));
 
-        const preferredPool = slotPool.filter((r) =>
-          recipeMatchesCuisine(r, prefs.cuisineStyle) &&
-          recipeMatchesCookTime(r, prefs.cookTimeOption)
-        );
-        const candidatePool = preferredPool.length > 0 ? preferredPool : slotPool;
+        const cuisinePool = prefs.cuisineStyle
+          ? slotPool.filter((r) => recipeMatchesCuisine(r, prefs.cuisineStyle))
+          : slotPool;
+        const cookTimePool = prefs.cookTimeOption
+          ? cuisinePool.filter((r) => recipeMatchesCookTime(r, prefs.cookTimeOption))
+          : cuisinePool;
+        const candidatePool = cookTimePool.length > 0 ? cookTimePool : cuisinePool;
 
         const slotRecipes = candidatePool
           .map((r) => ({
@@ -367,6 +407,9 @@ export async function generateAutoMealPlan(
           // Create placeholder — hero image only, full recipe generated on tap
           const placeholder = createPlaceholderRecipe(slot, targetCal, targetProtein, targetCarbs, targetFat, dietPreference, prefs);
 
+          // Save placeholder first so the tracker can resolve the recipe even if image generation is slow.
+          await saveAIRecipe(placeholder);
+
           try {
             // Generate hero image only
             onProgress?.(`Creating image for ${dayName} ${slot === 'breakfast' ? 'breakfast' : slot === 'snack_dessert' ? 'snack' : 'meal'}...`);
@@ -380,9 +423,6 @@ export async function generateAutoMealPlan(
           } catch (imgErr) {
             console.warn('[SpiceStrong] Auto plan image generation failed:', imgErr);
           }
-
-          // Save placeholder locally
-          await saveAIRecipe(placeholder);
 
           const addResult = await addToMealPlan(dateStr, slot, {
             id: placeholder.id,
