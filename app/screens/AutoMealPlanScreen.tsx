@@ -215,6 +215,44 @@ export default function AutoMealPlanScreen() {
               </View>
             </View>
 
+            <View style={styles.preferenceCard}>
+              <Text style={styles.preferenceTitle}>Cuisine Style</Text>
+              <View style={styles.preferenceChipRow}>
+                {CUISINE_OPTIONS.map((c) => {
+                  const selected = cuisineStyle === c;
+                  return (
+                    <TouchableOpacity
+                      key={c}
+                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
+                      onPress={() => setCuisineStyle(c)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>{c}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.preferenceCard}>
+              <Text style={styles.preferenceTitle}>Cook Time</Text>
+              <View style={styles.preferenceChipRow}>
+                {COOK_TIME_OPTIONS.map((opt) => {
+                  const selected = cookTimeOption === opt.key;
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
+                      onPress={() => setCookTimeOption(opt.key)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={styles.targetCard}>
               <Text style={styles.targetLabel}>Daily Calories</Text>
               <View style={styles.targetInputRow}>
@@ -309,44 +347,6 @@ export default function AutoMealPlanScreen() {
                 </TouchableOpacity>
               );
             })}
-
-            <View style={styles.preferenceCard}>
-              <Text style={styles.preferenceTitle}>Cuisine Style</Text>
-              <View style={styles.preferenceChipRow}>
-                {CUISINE_OPTIONS.map((c) => {
-                  const selected = cuisineStyle === c;
-                  return (
-                    <TouchableOpacity
-                      key={c}
-                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
-                      onPress={() => setCuisineStyle(c)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>{c}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.preferenceCard}>
-              <Text style={styles.preferenceTitle}>Cook Time</Text>
-              <View style={styles.preferenceChipRow}>
-                {COOK_TIME_OPTIONS.map((opt) => {
-                  const selected = cookTimeOption === opt.key;
-                  return (
-                    <TouchableOpacity
-                      key={opt.key}
-                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
-                      onPress={() => setCookTimeOption(opt.key)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>{opt.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
 
             {/* Options */}
             <View style={styles.optionSection}>
