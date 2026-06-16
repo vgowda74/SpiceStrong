@@ -11,8 +11,10 @@ import React, { useCallback, useRef, useState } from 'react';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   Alert,
+  ImageBackground,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -21,7 +23,7 @@ import {
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
-import { captureRef } from 'react-native-view-shot';
+import ViewShot from 'react-native-view-shot';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -129,10 +131,190 @@ function formatDiff(value: number, unit = ''): string {
   return `${value > 0 ? '+' : ''}${value}${unit}`;
 }
 
+function getProgressMotivation(stats: PeriodStats): string {
+  if (stats.daysTracked === 0) return 'Start with one tracked meal today. Momentum begins with a single honest rep.';
+  const adherence = Math.round((stats.proteinGoalHits / Math.max(stats.daysTracked, 1)) * 100);
+  if (stats.avgRating >= 85) return 'Strong week. You are turning discipline into proof.';
+  if (adherence >= 75) return 'Protein consistency is carrying your progress. Keep showing up.';
+  if (stats.daysTracked >= Math.ceil(stats.totalDays * 0.6)) return 'The habit is alive. Tighten one meal and the numbers will follow.';
+  return 'No reset is wasted. Win the next meal and rebuild the streak.';
+}
+
+function getBodySlideStats(profile: FitnessProfile | null, bodyHistory: BodyStatsEntry[], period: Period) {
+  if (!profile) return null;
+  const daysBack = period === 'weekly' ? 7 : 30;
+  const now = new Date();
+  const currentPeriodStart = new Date(now);
+  currentPeriodStart.setDate(now.getDate() - daysBack);
+  const prevPeriodStart = new Date(now);
+  prevPeriodStart.setDate(now.getDate() - daysBack * 2);
+  const currentEntry = bodyHistory
+    .filter((e) => new Date(e.date) >= currentPeriodStart)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  const prevEntry = bodyHistory
+    .filter((e) => new Date(e.date) >= prevPeriodStart && new Date(e.date) < currentPeriodStart)
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+  const currentWeight = currentEntry?.weightKg ?? profile.weightKg;
+  const previousWeight = prevEntry?.weightKg ?? currentWeight;
+  const targetWeight = profile.targetWeightKg;
+  return {
+    currentWeightLbs: Math.round(currentWeight * 2.20462),
+    previousWeightLbs: Math.round(previousWeight * 2.20462),
+    targetWeightLbs: targetWeight ? Math.round(targetWeight * 2.20462) : null,
+    bodyFatPercent: currentEntry?.bodyFatPercent ?? profile.bodyFatPercent,
+  };
+}
+
+function ProgressReportShareSlide({
+  period,
+  currentStats,
+  previousStats,
+  profile,
+  bodyHistory,
+  photos,
+  aiSummary,
+}: {
+  period: Period;
+  currentStats: PeriodStats;
+  previousStats: PeriodStats;
+  profile: FitnessProfile | null;
+  bodyHistory: BodyStatsEntry[];
+  photos: ProgressPhoto[];
+  aiSummary: string;
+}) {
+  const adherence = currentStats.daysTracked > 0
+    ? Math.round((currentStats.proteinGoalHits / currentStats.daysTracked) * 100)
+    : 0;
+  const body = getBodySlideStats(profile, bodyHistory, period);
+  const latestPhoto = photos[photos.length - 1];
+  const macroRows = [
+    { label: 'Calories', current: currentStats.avgCalories, previous: previousStats.avgCalories, unit: '' },
+    { label: 'Protein', current: currentStats.avgProteinG, previous: previousStats.avgProteinG, unit: 'g' },
+    { label: 'Carbs', current: currentStats.avgCarbsG, previous: previousStats.avgCarbsG, unit: 'g' },
+    { label: 'Fat', current: currentStats.avgFatG, previous: previousStats.avgFatG, unit: 'g' },
+  ];
+  const bestDays = currentStats.dailyReports
+    .filter((day) => day.tracked)
+    .slice(0, period === 'weekly' ? 7 : 10);
+  const note = aiSummary || getProgressMotivation(currentStats);
+
+  return (
+    <View style={slideStyles.cardOuter}>
+      <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={slideStyles.bg} resizeMode="cover">
+        <View style={slideStyles.overlay} />
+        <View style={slideStyles.headerRow}>
+          <View style={slideStyles.titleBanner}>
+            <Text style={slideStyles.brand}>SpiceStrong</Text>
+            <Text style={slideStyles.title}>{period === 'weekly' ? 'Weekly' : 'Monthly'} Progress Report</Text>
+          </View>
+          <View style={slideStyles.ratingBadge}>
+            <Text style={slideStyles.ratingValue}>{currentStats.avgRating}</Text>
+            <Text style={slideStyles.ratingLabel}>{getRatingLabel(currentStats.avgRating)}</Text>
+          </View>
+        </View>
+
+        <View style={slideStyles.heroRow}>
+          <View style={slideStyles.coachPanel}>
+            <Text style={slideStyles.panelEyebrow}>Coach Note</Text>
+            <Text style={slideStyles.coachText} numberOfLines={4}>{note}</Text>
+            <Text style={slideStyles.motivationText} numberOfLines={2}>{getProgressMotivation(currentStats)}</Text>
+          </View>
+          <View style={slideStyles.photoPanel}>
+            {latestPhoto ? (
+              <>
+                <Image source={{ uri: latestPhoto.uri }} style={slideStyles.progressPhoto} contentFit="cover" />
+                <Text style={slideStyles.photoDate}>{latestPhoto.date}</Text>
+              </>
+            ) : (
+              <View style={slideStyles.photoPlaceholder}>
+                <Text style={slideStyles.photoPlaceholderText}>Progress photo ready when you are.</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={slideStyles.metricRow}>
+          <View style={slideStyles.metricCard}>
+            <Text style={slideStyles.metricValue}>{currentStats.daysTracked}/{currentStats.totalDays}</Text>
+            <Text style={slideStyles.metricLabel}>Days Tracked</Text>
+          </View>
+          <View style={slideStyles.metricCard}>
+            <Text style={[slideStyles.metricValue, { color: GREEN }]}>{currentStats.proteinGoalHits}/{currentStats.daysTracked}</Text>
+            <Text style={slideStyles.metricLabel}>Protein Hits</Text>
+          </View>
+          <View style={slideStyles.metricCard}>
+            <Text style={slideStyles.metricValue}>{adherence}%</Text>
+            <Text style={slideStyles.metricLabel}>Adherence</Text>
+          </View>
+          <View style={slideStyles.metricCard}>
+            <Text style={slideStyles.metricValue}>{body?.currentWeightLbs ?? '--'}</Text>
+            <Text style={slideStyles.metricLabel}>Current Lbs</Text>
+          </View>
+        </View>
+
+        <View style={slideStyles.columnsRow}>
+          <View style={slideStyles.column}>
+            <View style={slideStyles.sectionHeader}>
+              <Text style={slideStyles.sectionHeaderText}>Macro Momentum</Text>
+            </View>
+            <View style={slideStyles.sectionBody}>
+              {macroRows.map((row) => {
+                const diff = row.current - row.previous;
+                return (
+                  <View key={row.label} style={slideStyles.macroRow}>
+                    <Text style={slideStyles.macroLabel}>{row.label}</Text>
+                    <Text style={slideStyles.macroCurrent}>{row.current}{row.unit}</Text>
+                    <Text style={slideStyles.macroPrevious}>prev {row.previous}{row.unit}</Text>
+                    <Text style={[slideStyles.macroDiff, { color: diff >= 0 ? GREEN : RED }]}>{formatDiff(diff, row.unit)}</Text>
+                  </View>
+                );
+              })}
+              {body ? (
+                <View style={slideStyles.bodySummary}>
+                  <Text style={slideStyles.bodySummaryText}>Weight {body.currentWeightLbs} lbs</Text>
+                  <Text style={slideStyles.bodySummarySub}>
+                    Previous {body.previousWeightLbs} lbs{body.targetWeightLbs ? `  |  Target ${body.targetWeightLbs} lbs` : ''}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={slideStyles.column}>
+            <View style={slideStyles.sectionHeader}>
+              <Text style={slideStyles.sectionHeaderText}>Daily Scorecard</Text>
+            </View>
+            <View style={slideStyles.sectionBody}>
+              {bestDays.map((day) => (
+                <View key={day.date} style={slideStyles.scoreRow}>
+                  <Text style={slideStyles.scoreDate}>{day.date.slice(5)}</Text>
+                  <View style={slideStyles.scoreTrack}>
+                    <View style={[slideStyles.scoreFill, { width: `${Math.min(day.rating, 100)}%` }]} />
+                  </View>
+                  <Text style={slideStyles.scoreValue}>{day.rating}</Text>
+                </View>
+              ))}
+              {bestDays.length === 0 ? (
+                <Text style={slideStyles.emptyScore}>Track meals to build your first scorecard.</Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+
+        <View style={slideStyles.footer}>
+          <Text style={slideStyles.footerTag}>Built by SpiceStrong - one strong meal at a time.</Text>
+          <Text style={slideStyles.footerUrl}>www.spicestrong.app</Text>
+        </View>
+      </ImageBackground>
+    </View>
+  );
+}
+
 export default function ProgressReportScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const reportRef = useRef<View>(null);
+  const shareSlideRef = useRef<{ capture?: () => Promise<string> } | null>(null);
 
   const [period, setPeriod] = useState<Period>('weekly');
   const [currentStats, setCurrentStats] = useState<PeriodStats | null>(null);
@@ -336,26 +518,25 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
       Alert.alert('Report Not Ready', 'Your progress data is still loading.');
       return;
     }
-    if (!reportRef.current) {
+    if (!shareSlideRef.current?.capture) {
       Alert.alert('Report Not Ready', 'Please try again in a moment.');
-      return;
-    }
-    if (!(await Sharing.isAvailableAsync())) {
-      Alert.alert('Sharing Unavailable', 'Sharing is not available on this device.');
       return;
     }
 
     setSharingReport(true);
     try {
-      const imageUri = await captureRef(reportRef, {
-        format: 'png',
-        quality: 1,
-        result: 'tmpfile',
-      });
-      await Sharing.shareAsync(imageUri, {
-        mimeType: 'image/png',
-        dialogTitle: 'Share your SpiceStrong progress report',
-        UTI: 'public.png',
+      const imageUri = await shareSlideRef.current.capture();
+      if (imageUri && (await Sharing.isAvailableAsync())) {
+        await Sharing.shareAsync(imageUri, {
+          mimeType: 'image/png',
+          dialogTitle: 'Share your SpiceStrong progress report',
+          UTI: 'public.png',
+        });
+        return;
+      }
+      await Share.share({
+        title: 'SpiceStrong Progress Report',
+        message: `${period === 'weekly' ? 'Weekly' : 'Monthly'} SpiceStrong progress: ${currentStats.avgRating}/100 rating, ${currentStats.daysTracked}/${currentStats.totalDays} days tracked, ${currentStats.proteinGoalHits}/${currentStats.daysTracked} protein hits.`,
       });
     } catch (error) {
       console.error('[SpiceStrong] Progress report share failed:', error);
@@ -390,7 +571,6 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
         <View style={styles.center}><ProcessingRing label="Loading your progress…" expectedMs={3000} /></View>
       ) : (
         <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
-          <View ref={reportRef} collapsable={false} style={styles.reportCapture}>
 
           {/* AI Summary */}
           {aiSummary ? (
@@ -581,8 +761,6 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
               <Text style={styles.photoEmpty}>Take your first progress photo to start tracking your transformation</Text>
             )}
           </View>
-          </View>
-
           <View style={styles.shareRow}>
             <TouchableOpacity
               style={[styles.shareBtn, sharingReport && styles.shareBtnDisabled]}
@@ -595,6 +773,21 @@ Start with a grade emoji (🅰️ 🅱️ 🆎 etc). Mention specific improvemen
           </View>
         </ScrollView>
       )}
+      {!loading && currentStats && previousStats ? (
+        <View style={styles.hiddenShareSlide} pointerEvents="none">
+          <ViewShot ref={shareSlideRef} options={{ format: 'png', quality: 1 }}>
+            <ProgressReportShareSlide
+              period={period}
+              currentStats={currentStats}
+              previousStats={previousStats}
+              profile={profile}
+              bodyHistory={bodyHistory}
+              photos={photos}
+              aiSummary={aiSummary}
+            />
+          </ViewShot>
+        </View>
+      ) : null}
     </PremiumScreen>
   );
 }
@@ -629,9 +822,7 @@ const styles = StyleSheet.create({
   toggleBtnActive: { backgroundColor: ORANGE },
   toggleText: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.50)' },
   toggleTextActive: { color: '#FFFFFF' },
-  reportCapture: {
-    backgroundColor: '#0F0F0F',
-  },
+  hiddenShareSlide: { position: 'absolute', left: -9999, top: 0 },
   shareRow: {
     paddingTop: 6,
     paddingBottom: 4,
@@ -758,4 +949,308 @@ const styles = StyleSheet.create({
   photoSingle: { alignItems: 'center' },
   photoHint: { fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 8, textAlign: 'center' },
   photoEmpty: { fontSize: 13, color: 'rgba(255,255,255,0.35)', textAlign: 'center', paddingVertical: 20 },
+});
+
+const slideStyles = StyleSheet.create({
+  cardOuter: {
+    width: 1400,
+    height: 900,
+    overflow: 'hidden',
+    backgroundColor: '#120B08',
+  },
+  bg: { flex: 1 },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(22,10,5,0.70)',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingTop: 34,
+    paddingHorizontal: 38,
+  },
+  titleBanner: {
+    maxWidth: 920,
+    paddingVertical: 18,
+    paddingHorizontal: 30,
+    backgroundColor: '#7B1A1A',
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255,248,240,0.16)',
+  },
+  brand: {
+    color: ORANGE,
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  title: {
+    color: '#FFF8F0',
+    fontSize: 48,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  ratingBadge: {
+    width: 190,
+    height: 150,
+    borderRadius: 14,
+    backgroundColor: 'rgba(245,230,200,0.94)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 5,
+    borderColor: '#FFFFFF',
+    transform: [{ rotate: '3deg' }],
+  },
+  ratingValue: {
+    color: '#3D1A0A',
+    fontSize: 62,
+    fontWeight: '900',
+    lineHeight: 70,
+  },
+  ratingLabel: {
+    color: ORANGE,
+    fontSize: 22,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  heroRow: {
+    flexDirection: 'row',
+    gap: 22,
+    paddingHorizontal: 38,
+    paddingTop: 22,
+  },
+  coachPanel: {
+    flex: 1,
+    minHeight: 188,
+    backgroundColor: 'rgba(245,230,200,0.92)',
+    borderRadius: 12,
+    padding: 24,
+  },
+  panelEyebrow: {
+    color: ORANGE,
+    fontSize: 18,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  coachText: {
+    color: '#3D1A0A',
+    fontSize: 30,
+    fontWeight: '800',
+    lineHeight: 38,
+    marginTop: 8,
+  },
+  motivationText: {
+    color: '#7B1A1A',
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 12,
+  },
+  photoPanel: {
+    width: 270,
+    height: 188,
+    borderRadius: 14,
+    borderWidth: 6,
+    borderColor: '#FFFFFF',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(245,230,200,0.92)',
+  },
+  progressPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  photoDate: {
+    position: 'absolute',
+    left: 12,
+    bottom: 10,
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    backgroundColor: 'rgba(0,0,0,0.52)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  photoPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 26,
+  },
+  photoPlaceholderText: {
+    color: '#3D1A0A',
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    gap: 16,
+    paddingHorizontal: 38,
+    paddingTop: 20,
+  },
+  metricCard: {
+    flex: 1,
+    height: 116,
+    backgroundColor: 'rgba(15,15,15,0.82)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(245,230,200,0.24)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metricValue: {
+    color: '#FFF8F0',
+    fontSize: 42,
+    fontWeight: '900',
+    lineHeight: 48,
+  },
+  metricLabel: {
+    color: 'rgba(255,248,240,0.62)',
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 6,
+    textTransform: 'uppercase',
+  },
+  columnsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 20,
+    paddingHorizontal: 38,
+    paddingTop: 20,
+  },
+  column: {
+    flex: 1,
+    backgroundColor: 'rgba(245,230,200,0.92)',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sectionHeader: {
+    backgroundColor: '#7B1A1A',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+  },
+  sectionHeaderText: {
+    color: '#FFF8F0',
+    fontSize: 28,
+    fontWeight: '900',
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+    fontStyle: 'italic',
+  },
+  sectionBody: {
+    flex: 1,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  macroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 54,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(61,26,10,0.12)',
+  },
+  macroLabel: {
+    flex: 1.2,
+    color: '#3D1A0A',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  macroCurrent: {
+    flex: 0.8,
+    color: '#1A1A1A',
+    fontSize: 24,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  macroPrevious: {
+    flex: 0.95,
+    color: 'rgba(61,26,10,0.58)',
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  macroDiff: {
+    flex: 0.7,
+    fontSize: 21,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  bodySummary: {
+    marginTop: 18,
+    padding: 16,
+    borderRadius: 10,
+    backgroundColor: 'rgba(143,58,31,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(143,58,31,0.20)',
+  },
+  bodySummaryText: {
+    color: '#3D1A0A',
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  bodySummarySub: {
+    color: 'rgba(61,26,10,0.66)',
+    fontSize: 17,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 42,
+    gap: 12,
+  },
+  scoreDate: {
+    width: 72,
+    color: '#3D1A0A',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  scoreTrack: {
+    flex: 1,
+    height: 18,
+    borderRadius: 9,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(61,26,10,0.16)',
+  },
+  scoreFill: {
+    height: '100%',
+    borderRadius: 9,
+    backgroundColor: ORANGE,
+  },
+  scoreValue: {
+    width: 48,
+    color: '#3D1A0A',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  emptyScore: {
+    color: '#3D1A0A',
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 30,
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 38,
+    paddingVertical: 16,
+  },
+  footerTag: {
+    color: '#FFF8F0',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  footerUrl: {
+    color: ORANGE,
+    fontSize: 24,
+    fontWeight: '900',
+    textDecorationLine: 'underline',
+  },
 });
