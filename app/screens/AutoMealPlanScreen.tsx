@@ -379,24 +379,6 @@ export default function AutoMealPlanScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Summary */}
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Your Week</Text>
-              <Text style={styles.summaryText}>
-                {selectedSlots.size} meals/day × 7 days = {selectedSlots.size * 7} meals
-              </Text>
-              <Text style={styles.summaryText}>
-                ~{calories} cal · ~{protein}g P · ~{carbs}g C · ~{fat}g F per day
-              </Text>
-              {samePlanEveryDay && <Text style={styles.summaryText}>Same meals every day</Text>}
-              {pantryOnly && <Text style={[styles.summaryText, { color: ORANGE }]}>🛒 Pantry recipes only</Text>}
-              {cuisineStyle !== 'Any' && <Text style={styles.summaryText}>{cuisineStyle} cuisine preferred</Text>}
-              {cookTimeOption !== 'any' && (
-                <Text style={styles.summaryText}>
-                  {COOK_TIME_OPTIONS.find((opt) => opt.key === cookTimeOption)?.label} preferred
-                </Text>
-              )}
-            </View>
           </ScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
@@ -713,19 +695,6 @@ const styles = StyleSheet.create({
   preferenceChipTextActive: {
     color: '#FFFFFF',
   },
-
-  summaryCard: {
-    backgroundColor: 'rgba(143,58,31,0.08)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(143,58,31,0.25)',
-    padding: 16,
-    marginTop: 10,
-    alignItems: 'center',
-    gap: 4,
-  },
-  summaryTitle: { fontSize: 14, fontWeight: '800', color: ORANGE },
-  summaryText: { fontSize: 13, color: 'rgba(255,255,255,0.50)' },
 
   // Footer
   footer: {
