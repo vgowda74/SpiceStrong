@@ -17,7 +17,7 @@ import { HomeButton } from '../../components/HomeButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
-import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
+import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe } from '../../services/recipeService';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -1243,8 +1243,7 @@ Return ONLY the JSON, no explanation.`,
       saved = await saveRecipeFromAI(result, placeholderId);
       saved.source = 'ai';
       saved.status = 'ready';
-      const syncResult = await saveAIRecipe(saved);
-      if (syncResult.duplicate) await saveAIRecipe(saved, true);
+      await saveAIRecipe(saved);
       updateRecipeStatus(saved.id, 'ready').catch(() => {});
 
       // Increment count
