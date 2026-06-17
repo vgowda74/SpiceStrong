@@ -132,7 +132,7 @@ export function ProfileMenu() {
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
   const handleFoodOrder = () => closeMenu(() => router.push('/screens/FoodOrderScreen'));
-  const handleDisplayTheme = () => setThemePickerVisible(true);
+  const handleDisplayTheme = () => closeMenu(() => setThemePickerVisible(true));
   const handleSelectTheme = async (themeId: AppDisplayThemeId) => {
     setSelectedThemeId(themeId);
     await setAppDisplayThemeId(themeId);
