@@ -6,7 +6,7 @@
  * - Hero image recipe cards per meal slot, styled like RecipeListScreen
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -53,6 +53,13 @@ import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { invokeAnthropicMessages } from '../../services/anthropicService';
+import {
+  getAppDisplayThemeId,
+  getDisplayTheme,
+  subscribeToDisplayTheme,
+  type AppDisplayTheme,
+  type AppDisplayThemeId,
+} from '../../src/theme/displayThemes';
 
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
@@ -323,6 +330,26 @@ const SLOT_META: Record<MealSlot, { icon: keyof typeof Ionicons.glyphMap; accent
   snack_dessert: { icon: 'sparkles-outline', accent: '#22C55E', hint: 'Smart finish' },
   others: { icon: 'grid-outline', accent: '#94A3B8', hint: 'Untagged meals' },
 };
+
+function createTrackerThemeStyles(theme: AppDisplayTheme) {
+  return StyleSheet.create({
+    container: { backgroundColor: theme.background },
+    header: { backgroundColor: theme.headerBg, borderBottomColor: theme.panelBorder },
+    panel: { backgroundColor: theme.panelBg, borderColor: theme.panelBorder },
+    card: { backgroundColor: theme.panelBg, borderColor: theme.panelBorder },
+    control: { backgroundColor: theme.controlBg, borderColor: theme.controlBorder },
+    primaryText: { color: theme.primaryText },
+    secondaryText: { color: theme.secondaryText },
+    mutedText: { color: theme.mutedText },
+    accentText: { color: theme.accent },
+    track: { backgroundColor: theme.controlBg },
+    shadow: Platform.select({
+      ios: { shadowColor: theme.shadow },
+      android: {},
+      default: {},
+    }),
+  });
+}
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
@@ -632,6 +659,9 @@ export default function MealPlanScreen() {
   const [trackingStartDate, setTrackingStartDate] = useState<string | null>(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [pickerDate, setPickerDate] = useState(today);
+  const [displayThemeId, setDisplayThemeId] = useState<AppDisplayThemeId>('warmTan');
+  const displayTheme = getDisplayTheme(displayThemeId);
+  const themed = useMemo(() => createTrackerThemeStyles(displayTheme), [displayTheme]);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -1410,6 +1440,18 @@ export default function MealPlanScreen() {
   useEffect(() => { logScreenView('MealPlanScreen'); }, []);
 
   useEffect(() => {
+    let mounted = true;
+    getAppDisplayThemeId().then((themeId) => {
+      if (mounted) setDisplayThemeId(themeId);
+    }).catch(() => {});
+    const unsubscribe = subscribeToDisplayTheme(setDisplayThemeId);
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadOverallAdherence = async () => {
@@ -1663,32 +1705,32 @@ ${cookTimeInstruction}
     setCronometerMode((m) => m === 'consumed' ? 'target' : m === 'target' ? 'diff' : 'consumed');
 
   return (
-    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
+    <PremiumScreen style={[styles.container, themed.container, { paddingTop: insets.top }]} overlayOpacity={0}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+      <View style={[styles.header, themed.header]}>
+        <TouchableOpacity style={[styles.backBtn, themed.control, themed.shadow]} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="chevron-back" size={24} color={displayTheme.primaryText} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Cal Tracker</Text>
+          <Text style={[styles.headerTitle, themed.primaryText]}>Cal Tracker</Text>
         </View>
         <HomeButton />
       </View>
 
       {/* Day navigator */}
-      <View style={styles.dayNav}>
-        <TouchableOpacity style={styles.dayArrowBtn} onPress={goToPrev} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
-          <Ionicons name="chevron-back" size={21} color="#F8F1E8" />
+      <View style={[styles.dayNav, themed.header]}>
+        <TouchableOpacity style={[styles.dayArrowBtn, themed.control]} onPress={goToPrev} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
+          <Ionicons name="chevron-back" size={21} color={displayTheme.primaryText} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.dayCenter} onPress={openCalendar} activeOpacity={0.7}>
           <View style={styles.dayLabelRow}>
-            <Text style={styles.dayLabel}>{formatDisplayDate(currentDate)}</Text>
-            <Ionicons name="calendar-outline" size={15} color="#E8A87C" />
+            <Text style={[styles.dayLabel, themed.primaryText]}>{formatDisplayDate(currentDate)}</Text>
+            <Ionicons name="calendar-outline" size={15} color={displayTheme.accent} />
           </View>
-          <Text style={styles.daySubLabel}>{isToday ? 'Live targets and logged meals' : 'Review or plan this day'}</Text>
+          <Text style={[styles.daySubLabel, themed.secondaryText]}>{isToday ? 'Live targets and logged meals' : 'Review or plan this day'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.dayArrowBtn} onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
-          <Ionicons name="chevron-forward" size={21} color="#F8F1E8" />
+        <TouchableOpacity style={[styles.dayArrowBtn, themed.control]} onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
+          <Ionicons name="chevron-forward" size={21} color={displayTheme.primaryText} />
         </TouchableOpacity>
       </View>
 
@@ -1796,13 +1838,13 @@ ${cookTimeInstruction}
               <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
               <Text style={styles.quickActionPrimaryText}>Scan Meal</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionSecondary} onPress={openBrowseRecipeHelp} activeOpacity={0.78}>
-              <Ionicons name="book-outline" size={18} color="#F8F1E8" />
-              <Text style={styles.quickActionSecondaryText}>Recipes</Text>
+            <TouchableOpacity style={[styles.quickActionSecondary, themed.control]} onPress={openBrowseRecipeHelp} activeOpacity={0.78}>
+              <Ionicons name="book-outline" size={18} color={displayTheme.primaryText} />
+              <Text style={[styles.quickActionSecondaryText, themed.primaryText]}>Recipes</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.quickActionSecondary} onPress={() => openManualQuickAdd('lunch_dinner')} activeOpacity={0.78}>
-              <Ionicons name="add-circle-outline" size={18} color="#F8F1E8" />
-              <Text style={styles.quickActionSecondaryText}>Add Food</Text>
+            <TouchableOpacity style={[styles.quickActionSecondary, themed.control]} onPress={() => openManualQuickAdd('lunch_dinner')} activeOpacity={0.78}>
+              <Ionicons name="add-circle-outline" size={18} color={displayTheme.primaryText} />
+              <Text style={[styles.quickActionSecondaryText, themed.primaryText]}>Add Food</Text>
             </TouchableOpacity>
           </View>
 
@@ -1814,7 +1856,7 @@ ${cookTimeInstruction}
           )}
 
           {/* Macro progress rings */}
-          <View style={styles.ringsPanel}>
+          <View style={[styles.ringsPanel, themed.panel]}>
             <View style={styles.ringsRow}>
             <MacroRing
               label="Calories"
@@ -1856,33 +1898,33 @@ ${cookTimeInstruction}
           {/* Diet adherence + days tracking */}
           {!macroTargets ? (
             <TouchableOpacity
-              style={styles.fitnessNudge}
+              style={[styles.fitnessNudge, themed.panel]}
               onPress={() => router.push('/screens/FitnessProfileScreen')}
               activeOpacity={0.82}
             >
-              <Ionicons name="fitness-outline" size={20} color="#E8A87C" />
-              <Text style={styles.fitnessNudgeText}>Set your fitness goals to track diet adherence</Text>
-              <Ionicons name="chevron-forward" size={16} color="rgba(248,241,232,0.50)" />
+              <Ionicons name="fitness-outline" size={20} color={displayTheme.accent} />
+              <Text style={[styles.fitnessNudgeText, themed.primaryText]}>Set your fitness goals to track diet adherence</Text>
+              <Ionicons name="chevron-forward" size={16} color={displayTheme.mutedText} />
             </TouchableOpacity>
           ) : (
-            <View style={styles.adherencePanel}>
+            <View style={[styles.adherencePanel, themed.panel]}>
               <View style={styles.adherenceTopRow}>
                 <View>
-                  <Text style={styles.adherenceLabel}>Overall Adherence</Text>
-                  <Text style={styles.adherencePct}>
+                  <Text style={[styles.adherenceLabel, themed.secondaryText]}>Overall Adherence</Text>
+                  <Text style={[styles.adherencePct, themed.primaryText]}>
                     {overallAdherenceLoading ? '...' : displayedAdherencePct !== null ? `${displayedAdherencePct}%` : '—'}
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={styles.daysBtn}
+                  style={[styles.daysBtn, themed.control]}
                   onPress={() => { setPickerDate(trackingStartDate ?? today); setShowStartDatePicker(true); }}
                   activeOpacity={0.82}
                 >
-                  <Ionicons name="calendar-outline" size={14} color="#E8A87C" />
-                  <Text style={styles.daysBtnText}>Day {daysTracked}</Text>
+                  <Ionicons name="calendar-outline" size={14} color={displayTheme.accent} />
+                  <Text style={[styles.daysBtnText, themed.accentText]}>Day {daysTracked}</Text>
                 </TouchableOpacity>
               </View>
-              <View style={styles.adherenceTrack}>
+              <View style={[styles.adherenceTrack, themed.track]}>
                 <View style={[
                   styles.adherenceFill,
                   {
@@ -1895,14 +1937,14 @@ ${cookTimeInstruction}
                 ]} />
               </View>
               {displayedAdherencePct === null && !overallAdherenceLoading && (
-                <Text style={styles.adherenceHint}>
+                <Text style={[styles.adherenceHint, themed.mutedText]}>
                   {trackingStartDate
                     ? 'Log meals from your start date to see overall adherence'
                     : 'Set a start date to track overall adherence'}
                 </Text>
               )}
               {displayedAdherencePct !== null && trackingStartDate && (
-                <Text style={styles.adherenceHint}>{overallLoggedDays}/{daysTracked} days logged since start</Text>
+                <Text style={[styles.adherenceHint, themed.mutedText]}>{overallLoggedDays}/{daysTracked} days logged since start</Text>
               )}
             </View>
           )}
@@ -1946,13 +1988,13 @@ ${cookTimeInstruction}
                       <Ionicons name={slotMeta.icon} size={17} color={slotMeta.accent} />
                     </View>
                     <View>
-                      <Text style={styles.slotTitle}>{SLOT_LABELS[slot]}</Text>
-                      <Text style={styles.slotHint}>{slotMeta.hint}</Text>
+                      <Text style={[styles.slotTitle, themed.primaryText]}>{SLOT_LABELS[slot]}</Text>
+                      <Text style={[styles.slotHint, themed.secondaryText]}>{slotMeta.hint}</Text>
                     </View>
                   </View>
                   {slot !== 'others' && (
-                    <View style={styles.slotCountPill}>
-                      <Text style={styles.slotCount}>{slotEntries.length}/{limit}</Text>
+                    <View style={[styles.slotCountPill, themed.control]}>
+                      <Text style={[styles.slotCount, themed.secondaryText]}>{slotEntries.length}/{limit}</Text>
                     </View>
                   )}
                 </View>
@@ -1988,7 +2030,7 @@ ${cookTimeInstruction}
                       }
                     };
                     return (
-                      <TouchableOpacity key={entry.id} style={styles.card} onPress={handleCardTap} activeOpacity={0.85}>
+                      <TouchableOpacity key={entry.id} style={[styles.card, themed.card, themed.shadow]} onPress={handleCardTap} activeOpacity={0.85}>
                         {/* Full hero with overlaid info */}
                         <View style={styles.cardHero}>
                           {entry.imageUri ? (
