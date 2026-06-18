@@ -361,6 +361,8 @@ function getFirstDayOfWeek(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
+const SUMMARY_RING_SIZE = 104;
+const MACRO_RING_SIZE = 58;
 const RING_SIZE = Math.floor((Dimensions.get('window').width - 72) / 4);
 const RING_STROKE = 8;
 const RING_R = RING_SIZE / 2 - RING_STROKE / 2 - 2;
@@ -460,6 +462,181 @@ function MacroRing({
           </View>
         </View>
       </Pressable>
+    </View>
+  );
+}
+
+function getCronometerTitle(displayMode: 'diff' | 'target' | 'consumed'): string {
+  if (displayMode === 'target') return 'Target Macros';
+  if (displayMode === 'consumed') return 'Consumed Macros';
+  return 'Diff Macros';
+}
+
+function getMacroDisplayValue(target: number, consumed: number, displayMode: 'diff' | 'target' | 'consumed'): number {
+  if (displayMode === 'target') return target;
+  if (displayMode === 'consumed') return consumed;
+  return consumed - target;
+}
+
+function ProgressDonut({
+  color,
+  trackColor,
+  ratio,
+  size,
+  children,
+}: {
+  color: string;
+  trackColor: string;
+  ratio: number;
+  size: number;
+  children?: React.ReactNode;
+}) {
+  const radius = size / 2 - RING_STROKE / 2 - 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - Math.max(0, Math.min(ratio, 1)));
+  const center = size / 2;
+
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Svg width={size} height={size} style={{ position: 'absolute' }}>
+        <Circle cx={center} cy={center} r={radius} fill="none" stroke={trackColor} strokeWidth={RING_STROKE} />
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={RING_STROKE}
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin={`${center},${center}`}
+        />
+      </Svg>
+      {children}
+    </View>
+  );
+}
+
+function MacroSummaryCard({
+  label, icon, color, target, consumed, displayMode, onPress, unit = 'g', theme,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  target: number;
+  consumed: number;
+  displayMode: 'diff' | 'target' | 'consumed';
+  onPress: () => void;
+  unit?: string;
+  theme: AppDisplayTheme;
+}) {
+  const ratio = target > 0 ? Math.min(consumed / target, 1) : 0;
+  const diff = consumed - target;
+  const displayValue = getMacroDisplayValue(target, consumed, displayMode);
+  const metricState = displayMode === 'diff' ? (diff <= 0 ? 'left' : 'over') : displayMode;
+
+  return (
+    <Pressable style={[styles.macroMetricCard, { backgroundColor: theme.panelBg, borderColor: theme.panelBorder }]} onPress={onPress}>
+      <View style={styles.macroMetricCopy}>
+        <Text style={[styles.macroMetricValue, { color: theme.primaryText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
+          {formatMacroRingValue(displayValue, unit, displayMode === 'diff')}
+        </Text>
+        <Text style={[styles.macroMetricLabel, { color: theme.secondaryText }]}>{label} {metricState}</Text>
+      </View>
+      <ProgressDonut color={color} trackColor={theme.controlBg} ratio={ratio} size={MACRO_RING_SIZE}>
+        <View style={[styles.macroMetricIcon, { backgroundColor: `${color}18` }]}>
+          <Ionicons name={icon} size={18} color={color} />
+        </View>
+      </ProgressDonut>
+    </Pressable>
+  );
+}
+
+function CalorieHeroCard({
+  target,
+  consumed,
+  displayMode,
+  onPress,
+  theme,
+}: {
+  target: number;
+  consumed: number;
+  displayMode: 'diff' | 'target' | 'consumed';
+  onPress: () => void;
+  theme: AppDisplayTheme;
+}) {
+  const ratio = target > 0 ? Math.min(consumed / target, 1) : 0;
+  const left = target - consumed;
+  const isOver = left < 0;
+  const displayValue = displayMode === 'diff' ? Math.abs(left) : getMacroDisplayValue(target, consumed, displayMode);
+  const subLabel = displayMode === 'diff'
+    ? isOver ? 'Calories over' : 'Calories left'
+    : displayMode === 'target' ? 'Daily calorie target' : 'Calories consumed';
+
+  return (
+    <Pressable style={[styles.calorieHeroCard, { backgroundColor: theme.panelBg, borderColor: theme.panelBorder }]} onPress={onPress}>
+      <View style={styles.calorieHeroCopy}>
+        <Text style={[styles.calorieHeroValue, { color: theme.primaryText }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+          {displayValue}
+        </Text>
+        <View style={styles.calorieHeroSubRow}>
+          <Text style={[styles.calorieHeroLabel, { color: theme.secondaryText }]}>{subLabel}</Text>
+          <View style={[styles.calorieHeroDelta, { backgroundColor: theme.controlBg, borderColor: theme.controlBorder }]}>
+            <Ionicons name={isOver ? 'trending-up' : 'trending-down'} size={13} color={isOver ? '#EF4444' : theme.accent} />
+            <Text style={[styles.calorieHeroDeltaText, { color: isOver ? '#EF4444' : theme.primaryText }]}>
+              {displayMode === 'diff' ? `${Math.abs(left)}` : `${consumed}/${target}`}
+            </Text>
+          </View>
+        </View>
+      </View>
+      <View style={styles.calorieHeroRingTouch}>
+        <ProgressDonut color={isOver ? '#EF4444' : theme.accent} trackColor={theme.controlBg} ratio={ratio} size={SUMMARY_RING_SIZE}>
+          <View style={[styles.calorieHeroIcon, { backgroundColor: theme.controlBg }]}>
+            <Ionicons name="flame" size={30} color={isOver ? '#EF4444' : theme.accent} />
+          </View>
+        </ProgressDonut>
+      </View>
+    </Pressable>
+  );
+}
+
+function CronometerDashboard({
+  totals,
+  targets,
+  displayMode,
+  onPress,
+  theme,
+}: {
+  totals: MacroTotals;
+  targets: MacroTargets | null;
+  displayMode: 'diff' | 'target' | 'consumed';
+  onPress: () => void;
+  theme: AppDisplayTheme;
+}) {
+  const safeTargets = {
+    calories: targets?.calories ?? 2000,
+    proteinG: targets?.proteinG ?? 120,
+    carbsG: targets?.carbsG ?? 150,
+    fatG: targets?.fatG ?? 80,
+  };
+
+  return (
+    <View style={styles.cronometerDashboard}>
+      <View style={styles.cronometerTitleRow}>
+        <Text style={[styles.cronometerTitle, { color: theme.primaryText }]}>{getCronometerTitle(displayMode)}</Text>
+        <View style={[styles.cronometerModePill, { backgroundColor: theme.controlBg, borderColor: theme.controlBorder }]}>
+          <Ionicons name="swap-vertical" size={13} color={theme.accent} />
+          <Text style={[styles.cronometerModeText, { color: theme.secondaryText }]}>tap to toggle</Text>
+        </View>
+      </View>
+      <CalorieHeroCard target={safeTargets.calories} consumed={totals.calories} displayMode={displayMode} onPress={onPress} theme={theme} />
+      <View style={styles.macroMetricGrid}>
+        <MacroSummaryCard label="Protein" icon="barbell-outline" color="#E85D5D" target={safeTargets.proteinG} consumed={totals.proteinG} displayMode={displayMode} onPress={onPress} theme={theme} />
+        <MacroSummaryCard label="Carbs" icon="leaf-outline" color="#D98A41" target={safeTargets.carbsG} consumed={totals.carbsG} displayMode={displayMode} onPress={onPress} theme={theme} />
+        <MacroSummaryCard label="Fat" icon="water-outline" color="#4D8FDB" target={safeTargets.fatG} consumed={totals.fatG} displayMode={displayMode} onPress={onPress} theme={theme} />
+      </View>
     </View>
   );
 }
@@ -1860,7 +2037,15 @@ ${cookTimeInstruction}
             </View>
           )}
 
-          {/* Macro progress rings */}
+          <CronometerDashboard
+            totals={totals}
+            targets={macroTargets}
+            displayMode={cronometerMode}
+            onPress={cycleCronometerMode}
+            theme={displayTheme}
+          />
+
+          {false && <>
           <View style={[styles.ringsPanel, themed.panel]}>
             <View style={styles.ringsRow}>
             <MacroRing
@@ -1897,8 +2082,9 @@ ${cookTimeInstruction}
               onPress={cycleCronometerMode}
             />
           </View>
-          {/* Calorie equation — Target − Consumed = Diff */}
           </View>
+          {/* Calorie equation — Target − Consumed = Diff */}
+          </>}
 
           {/* Diet adherence + days tracking */}
           {!macroTargets ? (
@@ -3615,6 +3801,136 @@ const styles = StyleSheet.create({
   },
   servingsBtnText: { fontSize: 18, fontWeight: '700', color: ORANGE },
   servingsValue: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', minWidth: 24, textAlign: 'center' },
+
+  cronometerDashboard: {
+    marginBottom: 14,
+  },
+  cronometerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  cronometerTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  cronometerModePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  cronometerModeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0,
+  },
+  calorieHeroCard: {
+    minHeight: 146,
+    borderRadius: 28,
+    borderWidth: 1,
+    padding: 18,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    ...Platform.select({
+      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
+      android: { elevation: 4 },
+    }),
+  },
+  calorieHeroCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  calorieHeroValue: {
+    fontSize: 56,
+    lineHeight: 61,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  calorieHeroSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  calorieHeroLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  calorieHeroDelta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  calorieHeroDeltaText: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  calorieHeroRingTouch: {
+    width: SUMMARY_RING_SIZE,
+    height: SUMMARY_RING_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calorieHeroIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  macroMetricGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  macroMetricCard: {
+    flex: 1,
+    minHeight: 136,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 12,
+    justifyContent: 'space-between',
+    ...Platform.select({
+      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.14, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+      android: { elevation: 3 },
+    }),
+  },
+  macroMetricCopy: {
+    minHeight: 46,
+  },
+  macroMetricValue: {
+    fontSize: 25,
+    lineHeight: 30,
+    fontWeight: '900',
+    letterSpacing: 0,
+  },
+  macroMetricLabel: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  macroMetricIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // Macro summary bar
   // Macro rings
