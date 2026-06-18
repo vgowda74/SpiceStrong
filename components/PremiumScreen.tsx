@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import { ImageBackground, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { getAppDisplayThemeId, getDisplayTheme, subscribeToDisplayTheme, type AppDisplayThemeId } from '../src/theme/displayThemes';
 
 type PremiumScreenProps = {
   children: ReactNode;
@@ -8,34 +9,40 @@ type PremiumScreenProps = {
 };
 
 export function PremiumScreen({ children, style, overlayOpacity = 0.76 }: PremiumScreenProps) {
-  if (Platform.OS === 'android') {
-    return (
-      <View style={styles.bg}>
-        <View
-          style={[
-            StyleSheet.absoluteFillObject,
-            { backgroundColor: `rgba(13,11,9,${overlayOpacity})` },
-          ]}
-        />
-        <View style={[styles.content, style]}>{children}</View>
-      </View>
-    );
-  }
+  const [themeId, setThemeId] = useState<AppDisplayThemeId>('warmTan');
+  const theme = getDisplayTheme(themeId);
+  const readabilityOverlay = themeId === 'warmTan'
+    ? Math.min(0.34, overlayOpacity * 0.28)
+    : Math.min(0.24, overlayOpacity * 0.20);
+
+  useEffect(() => {
+    let mounted = true;
+    getAppDisplayThemeId().then((nextThemeId) => {
+      if (mounted) setThemeId(nextThemeId);
+    }).catch(() => {});
+    const unsubscribe = subscribeToDisplayTheme(setThemeId);
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   return (
-    <ImageBackground
-      source={require('../assets/images/splash-bg.jpg')}
-      style={styles.bg}
-      resizeMode="cover"
-    >
+    <View style={[styles.bg, { backgroundColor: theme.background }]}>
       <View
         style={[
           StyleSheet.absoluteFillObject,
-          { backgroundColor: `rgba(13,11,9,${overlayOpacity})` },
+          { backgroundColor: theme.textureOverlay },
+        ]}
+      />
+      <View
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: `rgba(13,11,9,${readabilityOverlay})` },
         ]}
       />
       <View style={[styles.content, style]}>{children}</View>
-    </ImageBackground>
+    </View>
   );
 }
 

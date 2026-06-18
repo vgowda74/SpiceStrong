@@ -60,6 +60,7 @@ export function ProfileMenu() {
   const [open, setOpen] = useState(false);
   const [themePickerVisible, setThemePickerVisible] = useState(false);
   const [selectedThemeId, setSelectedThemeId] = useState<AppDisplayThemeId>('warmTan');
+  const selectedTheme = DISPLAY_THEMES.find((theme) => theme.id === selectedThemeId) ?? DISPLAY_THEMES[0];
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -190,12 +191,22 @@ export function ProfileMenu() {
         </Pressable>
 
         {/* Drawer */}
-        <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }], paddingTop: insets.top }]}>
+        <Animated.View
+          style={[
+            styles.drawer,
+            {
+              transform: [{ translateX: slideAnim }],
+              paddingTop: insets.top,
+              backgroundColor: selectedTheme.background,
+              borderRightColor: selectedTheme.panelBorder,
+            },
+          ]}
+        >
           {/* Header */}
-          <View style={styles.drawerHeader}>
-            <Text style={styles.drawerLogo}>SpiceStrong</Text>
+          <View style={[styles.drawerHeader, { borderBottomColor: selectedTheme.panelBorder }]}>
+            <Text style={[styles.drawerLogo, { color: selectedTheme.accent }]}>SpiceStrong</Text>
             <TouchableOpacity onPress={() => closeMenu()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={24} color="rgba(255,255,255,0.50)" />
+              <Ionicons name="close" size={24} color={selectedTheme.mutedText} />
             </TouchableOpacity>
           </View>
 
@@ -208,23 +219,26 @@ export function ProfileMenu() {
                 {section.items.map((item) => (
                   <TouchableOpacity
                     key={item.label}
-                    style={styles.menuItem}
+                    style={[
+                      styles.menuItem,
+                      { backgroundColor: selectedTheme.panelBg, borderColor: selectedTheme.panelBorder },
+                    ]}
                     onPress={item.onPress}
                     activeOpacity={0.65}
                   >
-                    <Ionicons name={item.icon} size={22} color="rgba(255,255,255,0.55)" />
-                    <Text style={styles.menuLabel}>{item.label}</Text>
+                    <Ionicons name={item.icon} size={22} color={selectedTheme.secondaryText} />
+                    <Text style={[styles.menuLabel, { color: selectedTheme.primaryText }]}>{item.label}</Text>
                     {item.badge && <View style={styles.badge} />}
                   </TouchableOpacity>
                 ))}
-                {sIdx < SECTIONS.length - 1 && <View style={styles.sectionDivider} />}
+                {sIdx < SECTIONS.length - 1 && <View style={[styles.sectionDivider, { backgroundColor: selectedTheme.panelBorder }]} />}
               </View>
             ))}
           </ScrollView>
 
           {/* Footer */}
-          <View style={[styles.drawerFooter, { paddingBottom: insets.bottom + 12 }]}>
-            <Text style={styles.footerText}>SpiceStrong v1.0</Text>
+          <View style={[styles.drawerFooter, { paddingBottom: insets.bottom + 12, borderTopColor: selectedTheme.panelBorder }]}>
+            <Text style={[styles.footerText, { color: selectedTheme.mutedText }]}>SpiceStrong v1.0</Text>
           </View>
         </Animated.View>
       </Modal>
