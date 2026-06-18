@@ -1,15 +1,15 @@
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ImageBackground, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Premium } from '../../src/theme/premium';
 
 export default function SplashScreen() {
   const router = useRouter();
 
   return (
-    <View style={styles.container}>
+    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.container} resizeMode="cover">
       <LinearGradient
-        colors={['#100604', '#100604', Premium.color.ink]}
+        colors={['rgba(13,11,9,0.25)', 'rgba(13,11,9,0.70)', Premium.color.ink]}
         style={StyleSheet.absoluteFill}
       />
       <TouchableOpacity
@@ -31,7 +31,7 @@ export default function SplashScreen() {
           <Text style={styles.ctaText}>Get Started</Text>
         </LinearGradient>
       </TouchableOpacity>
-    </View>
+    </ImageBackground>
   );
 }
 

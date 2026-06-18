@@ -847,7 +847,7 @@ export default function RecipeListScreen() {
     >
       <View style={{
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: '#100604',
+        backgroundColor: 'rgba(13,11,9,0.76)',
       }} />
       <View style={styles.container}>
       <View style={styles.screenContent}>

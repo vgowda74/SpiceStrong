@@ -1774,10 +1774,10 @@ Return ONLY the JSON, no explanation.`,
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: '#100604' },
+  bg: { flex: 1 },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#100604',
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   container: { flex: 1 },
 
@@ -2085,7 +2085,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   modalCard: {
-    backgroundColor: '#100604',
+    backgroundColor: '#1A0A00',
     borderRadius: 24,
     padding: 28,
     width: '100%',

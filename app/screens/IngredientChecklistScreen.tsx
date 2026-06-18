@@ -302,7 +302,7 @@ export default function IngredientChecklistScreen() {
   const overlay = (
     <View style={{
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: '#100604',
+      backgroundColor: 'rgba(13,11,9,0.76)',
     }} />
   );
 

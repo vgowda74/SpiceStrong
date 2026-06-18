@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  ImageBackground,
   Linking,
   Modal,
   ScrollView,
@@ -38,6 +39,14 @@ const DIETARY_RESTRICTIONS_KEY = 'spicestrong_dietary_restrictions';
 export default function Index() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const LandingBackground = Platform.OS === 'android' ? View : ImageBackground;
+  const landingBackgroundProps = Platform.OS === 'android'
+    ? { style: [styles.background, styles.androidBackground] }
+    : {
+        source: require('../assets/images/splash-bg.jpg'),
+        style: styles.background,
+        resizeMode: 'cover' as const,
+      };
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [termsChecked, setTermsChecked] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
@@ -89,7 +98,7 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.background}>
+      <LandingBackground {...(landingBackgroundProps as any)}>
         <View style={styles.overlay} />
 
         <ScrollView
@@ -198,7 +207,7 @@ export default function Index() {
             </Pressable>
           </View>
         )}
-      </View>
+      </LandingBackground>
 
       {/* Returning user modal */}
       <Modal visible={showReturnModal} transparent animationType="slide" onRequestClose={handleContinue}>
@@ -334,10 +343,13 @@ export default function Index() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  background: { flex: 1, backgroundColor: '#100604' },
+  background: { flex: 1 },
+  androidBackground: {
+    backgroundColor: '#0F0F0F',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#100604',
+    backgroundColor: 'rgba(0,0,0,0.72)',
   },
   scroll: {
     paddingHorizontal: 24,

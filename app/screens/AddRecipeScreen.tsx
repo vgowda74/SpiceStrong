@@ -763,7 +763,7 @@ Return ONLY the JSON, no explanation.`,
       resizeMode="cover"
     >
       <View style={StyleSheet.absoluteFillObject}>
-        <View style={{ flex: 1, backgroundColor: '#100604' }} />
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }} />
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

@@ -225,10 +225,10 @@ export default function RecipeOverviewScreen() {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#100604',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   container: { flex: 1 },
-  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#100604' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1A0A00' },
   loadingText: { color: '#fff', fontSize: 16 },
 
   backBtn: {

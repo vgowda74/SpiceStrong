@@ -961,7 +961,7 @@ const slideStyles = StyleSheet.create({
   bg: { flex: 1 },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#100604',
+    backgroundColor: 'rgba(22,10,5,0.70)',
   },
   headerRow: {
     flexDirection: 'row',

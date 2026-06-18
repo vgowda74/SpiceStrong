@@ -1,9 +1,9 @@
 export const Colors = {
   primary: '#8F3A1F',
   primaryLight: '#A94724',
-  background: '#100604',
-  surface: '#1D0F0A',
-  surfaceLight: '#2A1710',
+  background: '#0F0F0F',
+  surface: '#1A1A1A',
+  surfaceLight: '#252525',
   text: '#FFFFFF',
   textSecondary: '#999999',
   success: '#4CAF50',

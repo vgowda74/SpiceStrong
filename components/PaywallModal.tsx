@@ -22,8 +22,8 @@ import { getCuratedRecipeCount } from '../services/recipeService';
 
 const ORANGE = '#8F3A1F';
 const GREEN = '#22C55E';
-const BG = '#100604';
-const SURFACE = '#1D0F0A';
+const BG = '#1A1A1A';
+const SURFACE = '#252525';
 const BORDER = 'rgba(255,255,255,0.08)';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 

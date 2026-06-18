@@ -24,7 +24,7 @@ import { incrementCookCount } from '../../src/store/ratingsFavourites';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
 
 const ORANGE = '#8F3A1F';
-const DARK_BG = '#100604';
+const DARK_BG = '#1A0A00';
 
 export default function AIRecipeResultScreen() {
   const router = useRouter();
@@ -256,7 +256,7 @@ export default function AIRecipeResultScreen() {
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#100604',
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   container: { flex: 1 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: DARK_BG },
