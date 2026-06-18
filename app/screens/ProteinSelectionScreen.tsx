@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -49,7 +50,8 @@ type Filter = (typeof FILTERS)[number];
 /** Enabled proteins — set to empty array to enable all. */
 const ENABLED_PROTEINS: string[] = [];
 
-const PROTEIN_SELECTION_BACKGROUND = '#100604';
+const HEADER_BG = '#2A1005';
+const BODY_BG = '#FAF7F2';
 const SEARCH_BG = 'rgba(248,241,232,0.08)';
 const ORANGE = Premium.color.spice;
 
@@ -148,7 +150,18 @@ export default function ProteinSelectionScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <ImageBackground
+      source={require('../../assets/images/splash-bg.jpg')}
+      style={{ flex: 1 }}
+      resizeMode="cover"
+    >
+      <View
+        pointerEvents="none"
+        style={{
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: 'rgba(13,11,9,0.72)',
+        }}
+      />
       <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
@@ -248,15 +261,11 @@ export default function ProteinSelectionScreen() {
       </ScrollView>
 
       </View>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: PROTEIN_SELECTION_BACKGROUND,
-  },
   container: {
     flex: 1,
   },
