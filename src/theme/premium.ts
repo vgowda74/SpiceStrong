@@ -1,8 +1,8 @@
 export const Premium = {
   color: {
-    ink: '#0D0B09',
-    ink2: '#15120F',
-    surface: '#1D1814',
+    ink: '#100604',
+    ink2: '#170A06',
+    surface: '#1D0F0A',
     surface2: '#2A211B',
     cream: '#F8F1E8',
     creamMuted: '#D8C8B8',

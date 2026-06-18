@@ -25,7 +25,7 @@ import PaywallModal from './PaywallModal';
 import { type LimitCheck } from '../services/subscriptionService';
 
 const ORANGE = '#8F3A1F';
-const BG = '#0D0B09';
+const BG = '#100604';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.78;

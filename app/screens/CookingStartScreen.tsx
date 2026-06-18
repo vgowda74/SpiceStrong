@@ -167,8 +167,8 @@ export default function CookingStartScreen() {
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)' },
+  bg: { flex: 1, backgroundColor: '#100604' },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: '#100604' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#FFFFFF', fontSize: 16 },
   container: { flex: 1, paddingTop: 56, paddingHorizontal: 24, alignItems: 'center' },

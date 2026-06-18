@@ -186,7 +186,7 @@ function CompletionConfetti() {
   );
 }
 
-const DARK_BG = '#1A0A00';
+const DARK_BG = '#100604';
 const DARK_CARD_BORDER = '#2D1A0E';
 const ORANGE_ACCENT = '#8F3A1F';
 const STAR_GREY = '#888888';
@@ -196,8 +196,8 @@ const SERIF_FONT = Platform.OS === 'ios' ? 'Georgia' : 'serif';
 
 const TIMER_MAX_MINUTES = 30;
 const ORANGE = '#8F3A1F';
-const HEADER_BG = '#2A1005';
-const CARD_BG = '#1A0A00';
+const HEADER_BG = '#100604';
+const CARD_BG = '#100604';
 const IMAGE_BG = '#3D1A0A';
 const DARK_GREY = '#333333';
 const REVIEW_COUNT_KEY = 'spicestrong_cook_complete_count';
@@ -450,7 +450,7 @@ export default function CookingModeScreen() {
   const overlay = (
     <View style={{
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(13,11,9,0.76)',
+      backgroundColor: '#100604',
     }} />
   );
 
@@ -725,7 +725,7 @@ export default function CookingModeScreen() {
         style={{ flex: 1 }}
         resizeMode="cover"
       >
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(13,11,9,0.76)' }]} />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#100604' }]} />
         <CompletionConfetti />
         <View style={styles.completionRoot}>
         <ScrollView

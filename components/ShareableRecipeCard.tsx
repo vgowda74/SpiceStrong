@@ -6,7 +6,7 @@ import type { SavedRecipe } from '../src/store/recipes';
 
 const BANNER_RED = '#7B1A1A';
 const CREAM_BG = 'rgba(245,230,200,0.92)';
-const DARK_BROWN = '#3D1A0A';
+const DARK_BROWN = '#100604';
 const STEP_RED = '#9B2C2C';
 const PHOTO_BORDER = '#FFFFFF';
 const ACCENT = '#8F3A1F';
@@ -172,10 +172,11 @@ const styles = StyleSheet.create({
   },
   bg: {
     flex: 1,
+    backgroundColor: DARK_BROWN,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(60,30,10,0.55)',
+    backgroundColor: DARK_BROWN,
   },
 
   /* ===== TITLE BANNER ===== */
