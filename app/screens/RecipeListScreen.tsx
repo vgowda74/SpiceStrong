@@ -7,6 +7,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  ImageBackground,
   Modal,
   Platform,
   Pressable,
@@ -39,7 +40,6 @@ import { loadRecipeImages } from '../../services/imageGenerationService';
 import type { ImageSourcePropType } from 'react-native';
 import { getRatings, getFavourites, toggleFavourite, getCookCounts, type RatingsMap, type CookCountMap } from '../../src/store/ratingsFavourites';
 import { ProfileMenu } from '../../components/ProfileMenu';
-import { AppBackground } from '../../components/AppBackground';
 import { getRecipeRatings, type RecipeRatings } from '../../services/ratingsService';
 import { saveRecipe as saveLocalRecipe } from '../../src/store/recipes';
 import { Premium } from '../../src/theme/premium';
@@ -89,9 +89,11 @@ function prefetchImageSources(sources: (ImageSourcePropType | undefined)[]): voi
 const HEADER_ORANGE = Premium.color.spice;
 const DARK_PILL = Premium.color.ink;
 const LIGHT_BG = '#FAF7F2';
+const CARD_WHITE = Premium.color.cream;
 const CREAM_LABEL = Premium.color.creamMuted;
 const WARM_CREAM = '#FDF8F3';
 const TAB_INACTIVE = 'rgba(248,241,232,0.08)';
+const TAB_ACTIVE_BG = Premium.color.cream;
 
 type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favourites';
 
@@ -838,7 +840,15 @@ export default function RecipeListScreen() {
   }, [visibleCardImages]);
 
   return (
-    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035}>
+    <ImageBackground
+      source={require('../../assets/images/splash-bg.jpg')}
+      style={{ flex: 1 }}
+      resizeMode="cover"
+    >
+      <View style={{
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(13,11,9,0.76)',
+      }} />
       <View style={styles.container}>
       <View style={styles.screenContent}>
         <View style={[styles.header, styles.headerOrange]}>
@@ -1129,7 +1139,7 @@ export default function RecipeListScreen() {
           </Animated.View>
         </Pressable>
       </Modal>
-    </AppBackground>
+    </ImageBackground>
   );
 }
 
@@ -1156,16 +1166,16 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    backgroundColor: 'rgba(13,11,9,0.54)',
     borderWidth: 1,
-    borderColor: 'rgba(17,24,39,0.08)',
+    borderColor: 'rgba(255,255,255,0.32)',
     ...Platform.select({
-      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 6 },
     }),
   },
   backText: {
-    color: '#101014',
+    color: CARD_WHITE,
     fontSize: 28,
     lineHeight: 30,
     fontWeight: '900',
@@ -1227,7 +1237,7 @@ const styles = StyleSheet.create({
   headerEmoji: { fontSize: 40 },
   headerProteinName: {
     fontSize: 34,
-    color: '#101014',
+    color: CARD_WHITE,
     fontWeight: '800',
     letterSpacing: 0,
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
@@ -1235,7 +1245,7 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 14,
-    color: 'rgba(16,16,20,0.62)',
+    color: CREAM_LABEL,
     textAlign: 'center',
     marginBottom: 4,
     letterSpacing: 1.3,
@@ -1250,12 +1260,12 @@ const styles = StyleSheet.create({
   },
   statCol: { alignItems: 'center', minWidth: 80 },
   statNumber: {
-    color: '#101014',
+    color: CARD_WHITE,
     fontSize: 19,
     fontWeight: '800',
     ...Platform.select({ ios: { textShadowColor: 'rgba(0,0,0,0.12)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 } }),
   },
-  statLabel: { color: 'rgba(16,16,20,0.56)', fontSize: 10, marginTop: 3, letterSpacing: 1, fontWeight: '600' },
+  statLabel: { color: CREAM_LABEL, fontSize: 10, marginTop: 3, letterSpacing: 1, fontWeight: '600' },
 
   tabsWrap: { backgroundColor: 'transparent', paddingVertical: 12 },
   tabsContent: { flexDirection: 'row', gap: 10 },
@@ -1298,7 +1308,7 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(248,241,232,0.08)',
     borderRadius: Premium.radius.lg,
     height: 70,
     alignItems: 'center',
@@ -1306,26 +1316,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(17,24,39,0.08)',
+    borderColor: Premium.color.line,
   },
   actionCardEmoji: { fontSize: 28, marginBottom: 4 },
   actionCardIcon: { width: 36, height: 36, borderRadius: 18, marginBottom: 4 },
-  actionCardTitle: { color: '#101014', fontWeight: '800', fontSize: 15, textAlign: 'center' },
-  actionCardSub: { color: 'rgba(16,16,20,0.56)', fontWeight: '600', fontSize: 12, textAlign: 'center', marginTop: 2 },
+  actionCardTitle: { color: Premium.color.cream, fontWeight: '800', fontSize: 15, textAlign: 'center' },
+  actionCardSub: { color: Premium.color.muted, fontWeight: '600', fontSize: 12, textAlign: 'center', marginTop: 2 },
   tabPill: {
     paddingHorizontal: 16,
     paddingVertical: 11,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
+    borderRadius: Premium.radius.md,
+    backgroundColor: TAB_INACTIVE,
     borderWidth: 1,
-    borderColor: 'rgba(17,24,39,0.08)',
+    borderColor: Premium.color.line,
   },
   tabPillActive: {
-    backgroundColor: '#101014',
-    borderColor: '#101014',
+    backgroundColor: TAB_ACTIVE_BG,
+    borderColor: Premium.color.cream,
   },
-  tabPillText: { fontSize: 14, color: 'rgba(16,16,20,0.62)', fontWeight: '700' },
-  tabPillTextActive: { color: '#FFFFFF', fontWeight: '800' },
+  tabPillText: { fontSize: 14, color: Premium.color.creamMuted, fontWeight: '600' },
+  tabPillTextActive: { color: Premium.color.ink, fontWeight: '800' },
   pantryCheckRow: {
     marginHorizontal: 16,
     marginTop: 10,
@@ -1682,6 +1692,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyTitle: { color: '#101014', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  emptySub: { color: 'rgba(16,16,20,0.62)', fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  emptyTitle: { color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  emptySub: { color: 'rgba(255,255,255,0.7)', fontSize: 14, textAlign: 'center', lineHeight: 20 },
 });

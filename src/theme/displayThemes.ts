@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type AppDisplayThemeId = 'warmTan' | 'softBeige' | 'lightSand' | 'forestGreen';
@@ -121,22 +120,4 @@ export async function setAppDisplayThemeId(themeId: AppDisplayThemeId): Promise<
 export function subscribeToDisplayTheme(listener: (themeId: AppDisplayThemeId) => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
-}
-
-export function useAppDisplayTheme(): AppDisplayTheme {
-  const [themeId, setThemeId] = useState<AppDisplayThemeId>('warmTan');
-
-  useEffect(() => {
-    let mounted = true;
-    getAppDisplayThemeId().then((savedThemeId) => {
-      if (mounted) setThemeId(savedThemeId);
-    }).catch(() => {});
-    const unsubscribe = subscribeToDisplayTheme(setThemeId);
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, []);
-
-  return getDisplayTheme(themeId);
 }

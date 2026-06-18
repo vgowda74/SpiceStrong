@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
+  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,7 +18,6 @@ import { Image } from 'expo-image';
 import { PROTEINS } from '../../src/theme';
 import { filterProteinsForPreference, getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
 import { ProfileMenu } from '../../components/ProfileMenu';
-import { AppBackground } from '../../components/AppBackground';
 import { Premium } from '../../src/theme/premium';
 import { trackEvent } from '../../services/analyticsService';
 import { logScreenView } from '../../services/firebaseAnalytics';
@@ -50,6 +50,9 @@ type Filter = (typeof FILTERS)[number];
 /** Enabled proteins — set to empty array to enable all. */
 const ENABLED_PROTEINS: string[] = [];
 
+const HEADER_BG = '#2A1005';
+const BODY_BG = '#FAF7F2';
+const SEARCH_BG = 'rgba(248,241,232,0.08)';
 const ORANGE = Premium.color.spice;
 
 
@@ -147,7 +150,18 @@ export default function ProteinSelectionScreen() {
   };
 
   return (
-    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035}>
+    <ImageBackground
+      source={require('../../assets/images/splash-bg.jpg')}
+      style={{ flex: 1 }}
+      resizeMode="cover"
+    >
+      <View
+        pointerEvents="none"
+        style={{
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: 'rgba(13,11,9,0.72)',
+        }}
+      />
       <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
@@ -247,7 +261,7 @@ export default function ProteinSelectionScreen() {
       </ScrollView>
 
       </View>
-    </AppBackground>
+    </ImageBackground>
   );
 }
 
@@ -277,7 +291,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     lineHeight: 38,
     fontWeight: '800',
-    color: '#101014',
+    color: Premium.color.cream,
     fontFamily: Platform.select({ ios: 'Georgia', android: 'serif' }),
     flex: 1,
   },
@@ -285,18 +299,14 @@ const styles = StyleSheet.create({
     color: ORANGE,
   },
   search: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    backgroundColor: SEARCH_BG,
+    borderRadius: Premium.radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(17,24,39,0.08)',
+    borderColor: Premium.color.line,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    color: '#101014',
+    color: Premium.color.cream,
     fontSize: 16,
-    ...Platform.select({
-      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
-      android: { elevation: 3 },
-    }),
   },
   body: {
     backgroundColor: 'transparent',
@@ -318,25 +328,25 @@ const styles = StyleSheet.create({
   filterBtn: {
     paddingHorizontal: 20,
     paddingVertical: 11,
-    borderRadius: 999,
-    backgroundColor: '#FFFFFF',
+    borderRadius: Premium.radius.md,
+    backgroundColor: 'rgba(248,241,232,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(17,24,39,0.08)',
+    borderColor: Premium.color.line,
     flexShrink: 0,
     flex: 1,
     alignItems: 'center',
   },
   filterActive: {
-    backgroundColor: '#101014',
-    borderColor: '#101014',
+    backgroundColor: Premium.color.cream,
+    borderColor: Premium.color.cream,
   },
   filterText: {
-    color: 'rgba(16,16,20,0.62)',
+    color: Premium.color.creamMuted,
     fontSize: 15,
     fontWeight: '600',
   },
   filterTextActive: {
-    color: '#FFFFFF',
+    color: Premium.color.ink,
     fontWeight: '700',
   },
   scanFridgeCard: {
@@ -365,7 +375,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 11,
     letterSpacing: 2.4,
-    color: 'rgba(16,16,20,0.48)',
+    color: Premium.color.brass,
     marginBottom: 14,
     textTransform: 'uppercase',
   },
@@ -380,18 +390,18 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
+    backgroundColor: Premium.color.surface,
+    borderRadius: Premium.radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#A8A29E',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.16,
+    shadowOpacity: 0.22,
     shadowRadius: 16,
     elevation: 5,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(17,24,39,0.08)',
+    borderColor: Premium.color.lineStrong,
   },
   cardFullImage: {
     ...StyleSheet.absoluteFillObject,
