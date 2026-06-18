@@ -1431,6 +1431,9 @@ export default function MealPlanScreen() {
     AsyncStorage.getItem(TRACKING_START_KEY).then((v) => {
       if (!cancelled) setTrackingStartDate(v);
     }).catch(() => {});
+    getAppDisplayThemeId().then((themeId) => {
+      if (!cancelled) setDisplayThemeId(themeId);
+    }).catch(() => {});
 
     return () => {
       cancelled = true;
@@ -1706,6 +1709,8 @@ ${cookTimeInstruction}
 
   return (
     <PremiumScreen style={[styles.container, themed.container, { paddingTop: insets.top }]} overlayOpacity={0}>
+      <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, themed.container]} />
+
       {/* Header */}
       <View style={[styles.header, themed.header]}>
         <TouchableOpacity style={[styles.backBtn, themed.control, themed.shadow]} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
