@@ -1,7 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ImageBackground, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { saveRecipe, getRecipes, QUANTITY_TIERS, type QuantityTier, type IngredientsByTier } from '../../src/store/recipes';
+import { AppBackground } from '../../components/AppBackground';
 
 const defaultIngredientsByTier = (): IngredientsByTier => ({
   '2-3 servings': [{ name: '', quantity: '' }],
@@ -109,14 +110,10 @@ const handleSave = async () => {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035}>
       <View style={{
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.45)',
+        backgroundColor: 'transparent',
       }} />
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
@@ -221,7 +218,7 @@ const handleSave = async () => {
         <Text style={styles.saveBtnText}>Save Recipe</Text>
       </TouchableOpacity>
     </ScrollView>
-    </ImageBackground>
+    </AppBackground>
   );
 }
 
@@ -235,28 +232,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    backgroundColor: 'rgba(13,11,9,0.54)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
+    borderColor: 'rgba(17,24,39,0.08)',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
       android: { elevation: 6 },
     }),
   },
-  backText: { color: '#FFFFFF', fontSize: 28, lineHeight: 30, fontWeight: '900' },
-  header: { fontSize: 24, fontWeight: 'bold', color: '#FFFFFF', marginBottom: 24 },
+  backText: { color: '#101014', fontSize: 28, lineHeight: 30, fontWeight: '900' },
+  header: { fontSize: 24, fontWeight: 'bold', color: '#101014', marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#8F3A1F', marginTop: 24, marginBottom: 10 },
   tierTabs: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  tierTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#333', alignItems: 'center' },
-  tierTabActive: { borderColor: '#8F3A1F', backgroundColor: '#2A1A14' },
-  tierTabText: { color: '#999', fontSize: 13, fontWeight: '600' },
-  tierTabTextActive: { color: '#8F3A1F' },
-  input: { backgroundColor: '#1A1A1A', borderRadius: 10, padding: 12, color: '#FFFFFF', borderWidth: 1, borderColor: '#333', marginBottom: 8 },
+  tierTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 999, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(17,24,39,0.08)', alignItems: 'center' },
+  tierTabActive: { borderColor: '#101014', backgroundColor: '#101014' },
+  tierTabText: { color: 'rgba(16,16,20,0.62)', fontSize: 13, fontWeight: '700' },
+  tierTabTextActive: { color: '#FFFFFF' },
+  input: { backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, color: '#101014', borderWidth: 1, borderColor: 'rgba(17,24,39,0.08)', marginBottom: 8 },
   multiline: { height: 80, textAlignVertical: 'top' },
   row: { flexDirection: 'row', gap: 8 },
   flex1: { flex: 1 },
   flex2: { flex: 2 },
-  stepCard: { backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#333' },
+  stepCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(17,24,39,0.08)' },
   stepNumber: { color: '#8F3A1F', fontWeight: 'bold', marginBottom: 8 },
   addBtn: { borderWidth: 1, borderColor: '#8F3A1F', borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 8 },
   addBtnText: { color: '#8F3A1F', fontWeight: 'bold' },

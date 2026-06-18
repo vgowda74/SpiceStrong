@@ -8,7 +8,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -22,6 +21,7 @@ import { getRecipeById, type SavedRecipe, type QuantityTier, SERVINGS_PER_TIER }
 import { type BuiltInRecipe } from '../../src/data/builtInRecipes';
 import { incrementCookCount } from '../../src/store/ratingsFavourites';
 import { loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { AppBackground } from '../../components/AppBackground';
 
 const ORANGE = '#8F3A1F';
 const DARK_BG = '#1A0A00';
@@ -82,11 +82,7 @@ export default function AIRecipeResultScreen() {
   const steps = recipe.steps ?? [];
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035}>
       <View style={styles.overlay} />
       <View style={styles.container}>
         {/* Back button */}
@@ -249,14 +245,14 @@ export default function AIRecipeResultScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </ImageBackground>
+    </AppBackground>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'transparent',
   },
   container: { flex: 1 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: DARK_BG },
@@ -532,22 +528,22 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 34 : 16,
     paddingTop: 12,
     gap: 12,
-    backgroundColor: 'rgba(26,10,0,0.9)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+    borderTopColor: 'rgba(17,24,39,0.08)',
   },
   backButton: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F3F4F6',
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(17,24,39,0.08)',
   },
   backButtonText: {
-    color: '#FFFFFF',
+    color: '#101014',
     fontSize: 16,
     fontWeight: '700',
   },

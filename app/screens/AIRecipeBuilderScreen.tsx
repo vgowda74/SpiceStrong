@@ -10,7 +10,6 @@ import {
   Alert,
   Modal,
   Platform,
-  ImageBackground,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { HomeButton } from '../../components/HomeButton';
@@ -35,6 +34,7 @@ import { trackEvent } from '../../services/analyticsService';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { invokeAnthropicMessages } from '../../services/anthropicService';
+import { AppBackground } from '../../components/AppBackground';
 
 /** Max AI recipes allowed PER PROTEIN TYPE for free users. Set to 0 for unlimited.
  * Change this single constant to adjust the limit for all proteins at launch. */
@@ -1305,11 +1305,7 @@ Return ONLY the JSON, no explanation.`,
   const stepCount = Array.isArray(generatedRecipe?.steps) ? (generatedRecipe!.steps as unknown[]).length : 0;
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={styles.bg}
-      resizeMode="cover"
-    >
+    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035} style={styles.bg}>
       <View style={styles.overlay} />
 
       <View style={styles.container}>
@@ -1338,10 +1334,10 @@ Return ONLY the JSON, no explanation.`,
         {/* ── Entry screen: Choose mode ── */}
         {screenMode === 'choose' && !generating && (
           <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { justifyContent: 'center', paddingTop: 40 }]} showsVerticalScrollIndicator={false}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#101014', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               How would you like to create?
             </Text>
-            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28 }}>
+            <Text style={{ fontSize: 13, color: 'rgba(16,16,20,0.56)', textAlign: 'center', marginBottom: 28 }}>
               Import a recipe from a photo or build one with AI
             </Text>
 
@@ -1375,9 +1371,9 @@ Return ONLY the JSON, no explanation.`,
 
             {/* Divider */}
             <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 20 }}>
-              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.12)' }} />
-              <Text style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12, fontWeight: '600', marginHorizontal: 14 }}>OR</Text>
-              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.12)' }} />
+              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(16,16,20,0.10)' }} />
+              <Text style={{ color: 'rgba(16,16,20,0.42)', fontSize: 12, fontWeight: '700', marginHorizontal: 14 }}>OR</Text>
+              <View style={{ flex: 1, height: 1, backgroundColor: 'rgba(16,16,20,0.10)' }} />
             </View>
 
             {/* SpiceBuilder AI card */}
@@ -1402,10 +1398,10 @@ Return ONLY the JSON, no explanation.`,
             {importImageUri && (
               <Image source={{ uri: importImageUri }} style={{ width: 280, height: 380, borderRadius: 20, marginBottom: 20 }} contentFit="contain" />
             )}
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#101014', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               Ready to import
             </Text>
-            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28, paddingHorizontal: 20 }}>
+            <Text style={{ fontSize: 13, color: 'rgba(16,16,20,0.56)', textAlign: 'center', marginBottom: 28, paddingHorizontal: 20 }}>
               AI will extract the recipe, calculate nutrition, and create cooking steps
             </Text>
             <TouchableOpacity
@@ -1420,7 +1416,7 @@ Return ONLY the JSON, no explanation.`,
               onPress={() => { setScreenMode('choose'); setImportImageUri(null); setImportImageBase64(null); }}
               activeOpacity={0.75}
             >
-              <Text style={{ color: 'rgba(255,255,255,0.50)', fontSize: 14, fontWeight: '600' }}>Choose a different photo</Text>
+              <Text style={{ color: 'rgba(16,16,20,0.56)', fontSize: 14, fontWeight: '700' }}>Choose a different photo</Text>
             </TouchableOpacity>
           </ScrollView>
         )}
@@ -1442,10 +1438,10 @@ Return ONLY the JSON, no explanation.`,
             {importImageUri && (
               <Image source={{ uri: importImageUri }} style={{ width: 220, height: 220, borderRadius: 20, marginBottom: 16 }} contentFit="cover" />
             )}
-            <Text style={{ fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
+            <Text style={{ fontSize: 20, fontWeight: '800', color: '#101014', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               {importedRecipe.name}
             </Text>
-            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 6 }}>
+            <Text style={{ fontSize: 13, color: 'rgba(16,16,20,0.56)', textAlign: 'center', marginBottom: 6 }}>
               {importedRecipe.proteinEmoji} {importedRecipe.proteinName}
             </Text>
             {importedRecipe.aiNutrition && (
@@ -1769,7 +1765,7 @@ Return ONLY the JSON, no explanation.`,
         </View>
       </Modal>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
-    </ImageBackground>
+    </AppBackground>
   );
 }
 
@@ -1777,7 +1773,7 @@ const styles = StyleSheet.create({
   bg: { flex: 1 },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'transparent',
   },
   container: { flex: 1 },
 
@@ -1870,16 +1866,16 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(13,11,9,0.54)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
+    borderColor: 'rgba(17,24,39,0.08)',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
       android: { elevation: 6 },
     }),
   },
-  backText: { color: '#fff', fontSize: 28, lineHeight: 30, fontWeight: '900' },
-  title: { color: '#fff', fontSize: 18, fontWeight: '700', flex: 1, textAlign: 'center' },
+  backText: { color: '#101014', fontSize: 28, lineHeight: 30, fontWeight: '900' },
+  title: { color: '#101014', fontSize: 18, fontWeight: '800', flex: 1, textAlign: 'center' },
   headerSpacer: { width: 44 },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
@@ -1888,7 +1884,7 @@ const styles = StyleSheet.create({
   proteinPickerLabel: {
     fontSize: 11,
     fontWeight: '800',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(16,16,20,0.52)',
     letterSpacing: 1,
     marginBottom: 10,
   },
@@ -1896,20 +1892,20 @@ const styles = StyleSheet.create({
   proteinPickerChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 14,
     gap: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(17,24,39,0.08)',
   },
   proteinPickerChipActive: {
     borderColor: '#8F3A1F',
     backgroundColor: 'rgba(143,58,31,0.15)',
   },
   proteinPickerEmoji: { fontSize: 18 },
-  proteinPickerText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
+  proteinPickerText: { fontSize: 13, fontWeight: '700', color: 'rgba(16,16,20,0.62)' },
   proteinPickerTextActive: { color: '#8F3A1F', fontWeight: '700' },
 
   // Macro input boxes
@@ -1920,16 +1916,16 @@ const styles = StyleSheet.create({
   },
   macroInputBox: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: 'rgba(17,24,39,0.08)',
     alignItems: 'center',
     paddingVertical: 8,
     gap: 2,
   },
   macroInputField: {
-    color: '#FFFFFF',
+    color: '#101014',
     fontSize: 20,
     fontWeight: '800',
     textAlign: 'center',
@@ -1939,7 +1935,7 @@ const styles = StyleSheet.create({
   macroInputUnit: {
     fontSize: 10,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.40)',
+    color: 'rgba(16,16,20,0.48)',
   },
 
   // More options toggle
@@ -1951,23 +1947,23 @@ const styles = StyleSheet.create({
   moreOptionsText: {
     fontSize: 14,
     fontWeight: '700',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'rgba(16,16,20,0.56)',
   },
 
   proteinBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: GLASS,
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 14,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: BORDER_LIGHT,
+    borderColor: 'rgba(17,24,39,0.08)',
   },
   proteinBannerEmoji: { fontSize: 28, marginRight: 10 },
-  proteinBannerText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  proteinBannerText: { color: '#101014', fontSize: 18, fontWeight: '800' },
   sectionLabel: {
-    color: '#fff',
+    color: '#101014',
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 8,
@@ -1979,18 +1975,18 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   chip: {
-    backgroundColor: GLASS,
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER_LIGHT,
+    borderColor: 'rgba(17,24,39,0.08)',
   },
   chipActive: {
     backgroundColor: ACCENT,
     borderColor: ACCENT,
   },
-  chipText: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '500' },
+  chipText: { color: 'rgba(16,16,20,0.66)', fontSize: 13, fontWeight: '700' },
   chipTextActive: { color: '#fff', fontWeight: '700' },
   primaryBtn: {
     backgroundColor: ACCENT,
@@ -2194,17 +2190,21 @@ const styles = StyleSheet.create({
   modeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     padding: 18,
-    marginBottom: 12,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.12)',
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.08)',
     gap: 14,
+    ...Platform.select({
+      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.14, shadowRadius: 14, shadowOffset: { width: 0, height: 8 } },
+      android: { elevation: 3 },
+    }),
   },
   modeCardEmoji: { fontSize: 32 },
   modeCardTextBlock: { flex: 1 },
-  modeCardTitle: { fontSize: 16, fontWeight: '800', color: '#FFFFFF', marginBottom: 3 },
-  modeCardDesc: { fontSize: 12, color: 'rgba(255,255,255,0.50)', lineHeight: 17 },
-  modeCardArrow: { fontSize: 28, color: 'rgba(255,255,255,0.30)', fontWeight: '300' },
+  modeCardTitle: { fontSize: 16, fontWeight: '800', color: '#101014', marginBottom: 3 },
+  modeCardDesc: { fontSize: 12, color: 'rgba(16,16,20,0.56)', lineHeight: 17 },
+  modeCardArrow: { fontSize: 28, color: 'rgba(16,16,20,0.28)', fontWeight: '300' },
 });

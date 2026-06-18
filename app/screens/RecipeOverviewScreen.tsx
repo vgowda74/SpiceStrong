@@ -7,7 +7,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useState } from 'react';
 import {
-  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -27,6 +26,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
 import { logScreenView } from '../../services/firebaseAnalytics';
+import { AppBackground } from '../../components/AppBackground';
 
 const ORANGE = '#8F3A1F';
 const CARD_WHITE = '#FFFFFF';
@@ -93,11 +93,7 @@ export default function RecipeOverviewScreen() {
   const hasNutrition = stats.calories > 0;
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035}>
       <View style={styles.overlay} />
       <View style={styles.container}>
         {/* Back button */}
@@ -218,14 +214,14 @@ export default function RecipeOverviewScreen() {
         </View>
       </View>
 
-    </ImageBackground>
+    </AppBackground>
   );
 }
 
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'transparent',
   },
   container: { flex: 1 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#1A0A00' },
@@ -398,22 +394,22 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 34 : 16,
     paddingTop: 12,
     gap: 12,
-    backgroundColor: 'rgba(26,10,0,0.9)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.1)',
+    borderTopColor: 'rgba(17,24,39,0.08)',
   },
   backButton: {
     flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F3F4F6',
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderColor: 'rgba(17,24,39,0.08)',
   },
   backButtonText: {
-    color: '#FFFFFF',
+    color: '#101014',
     fontSize: 16,
     fontWeight: '700',
   },

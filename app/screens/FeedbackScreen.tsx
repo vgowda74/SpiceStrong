@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
-  ImageBackground,
   Linking,
   Platform,
   ScrollView,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { trackEvent } from '../../services/analyticsService';
 import { HomeButton } from '../../components/HomeButton';
+import { AppBackground } from '../../components/AppBackground';
 
 const FEEDBACK_KEY = 'spicestrong_feedback';
 const ORANGE = '#8F3A1F';
@@ -156,8 +156,8 @@ export default function FeedbackScreen() {
   );
 
   return (
-    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
-      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.75)' }]} />
+    <AppBackground imageSource={require('../../assets/images/splash-bg.jpg')} imageOpacity={0.035} style={styles.bg}>
+      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'transparent' }]} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>←</Text>
@@ -243,7 +243,7 @@ export default function FeedbackScreen() {
           <Text style={styles.submitBtnText}>📱 Send Feedback via SMS</Text>
         </TouchableOpacity>
       </ScrollView>
-    </ImageBackground>
+    </AppBackground>
   );
 }
 
@@ -263,16 +263,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
-    backgroundColor: 'rgba(13,11,9,0.54)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
+    borderColor: 'rgba(17,24,39,0.08)',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: '#A8A29E', shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
       android: { elevation: 6 },
     }),
   },
-  backText: { color: '#FFFFFF', fontSize: 28, lineHeight: 30, fontWeight: '900' },
-  title: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
+  backText: { color: '#101014', fontSize: 28, lineHeight: 30, fontWeight: '900' },
+  title: { color: '#101014', fontSize: 20, fontWeight: '800' },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingBottom: 48 },
   recipePill: {
@@ -285,32 +285,37 @@ const styles = StyleSheet.create({
   },
   recipePillText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   card: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.08)',
     borderRadius: 16,
     padding: 20,
     marginBottom: 12,
   },
-  question: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginBottom: 12 },
+  question: { color: '#101014', fontSize: 15, fontWeight: '700', marginBottom: 12 },
   pillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pillsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pill: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#F3F4F6',
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
   pillSelected: { backgroundColor: ORANGE },
-  pillText: { color: 'rgba(255,255,255,0.9)', fontSize: 14 },
+  pillText: { color: 'rgba(16,16,20,0.66)', fontSize: 14, fontWeight: '700' },
   pillTextSelected: { color: '#FFFFFF', fontWeight: '600' },
   input: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    color: '#FFFFFF',
+    backgroundColor: '#FFFFFF',
+    color: '#101014',
+    borderWidth: 1,
+    borderColor: 'rgba(17,24,39,0.08)',
     borderRadius: 12,
     padding: 12,
     marginTop: 12,
     fontSize: 15,
   },
   inputMultiline: { minHeight: 100, textAlignVertical: 'top' },
-  optionalLabel: { color: 'rgba(255,255,255,0.9)', fontSize: 14, marginTop: 16, marginBottom: 8 },
+  optionalLabel: { color: 'rgba(16,16,20,0.66)', fontSize: 14, marginTop: 16, marginBottom: 8, fontWeight: '700' },
   submitBtn: {
     backgroundColor: ORANGE,
     borderRadius: 16,
