@@ -48,7 +48,6 @@ import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { getFitnessProfile, calculateMacroTargets, type MacroTargets } from '../../services/fitnessProfileService';
 import Svg, { Circle } from 'react-native-svg';
-import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { logScreenView } from '../../services/firebaseAnalytics';
@@ -307,6 +306,7 @@ CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish;
 }
 
 const ORANGE = '#8F3A1F';
+const CAL_TRACKER_BACKGROUND = '#100604';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
@@ -1663,7 +1663,7 @@ ${cookTimeInstruction}
     setCronometerMode((m) => m === 'consumed' ? 'target' : m === 'target' ? 'diff' : 'consumed');
 
   return (
-    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: CAL_TRACKER_BACKGROUND }]}>
 
       {/* Header */}
       <View style={styles.header}>
@@ -3026,7 +3026,7 @@ ${cookTimeInstruction}
           </View>
         </View>
       </Modal>
-    </PremiumScreen>
+    </View>
   );
 }
 
