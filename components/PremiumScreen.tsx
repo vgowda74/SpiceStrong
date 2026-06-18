@@ -12,8 +12,8 @@ export function PremiumScreen({ children, style, overlayOpacity = 0.76 }: Premiu
   const [themeId, setThemeId] = useState<AppDisplayThemeId>('warmTan');
   const theme = getDisplayTheme(themeId);
   const readabilityOverlay = themeId === 'warmTan'
-    ? Math.min(0.34, overlayOpacity * 0.28)
-    : Math.min(0.24, overlayOpacity * 0.20);
+    ? Math.min(0.08, overlayOpacity * 0.08)
+    : Math.min(0.05, overlayOpacity * 0.06);
 
   useEffect(() => {
     let mounted = true;
