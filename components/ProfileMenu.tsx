@@ -4,7 +4,7 @@
  * Profile icon in top-right opens the drawer from the left.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -23,13 +23,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import PaywallModal from './PaywallModal';
 import { type LimitCheck } from '../services/subscriptionService';
-import {
-  DISPLAY_THEMES,
-  getAppDisplayThemeId,
-  setAppDisplayThemeId,
-  subscribeToDisplayTheme,
-  type AppDisplayThemeId,
-} from '../src/theme/displayThemes';
 
 const ORANGE = '#8F3A1F';
 const BG = '#0D0B09';
@@ -58,23 +51,8 @@ export function ProfileMenu() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [open, setOpen] = useState(false);
-  const [themePickerVisible, setThemePickerVisible] = useState(false);
-  const [selectedThemeId, setSelectedThemeId] = useState<AppDisplayThemeId>('warmTan');
-  const selectedTheme = DISPLAY_THEMES.find((theme) => theme.id === selectedThemeId) ?? DISPLAY_THEMES[0];
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    let mounted = true;
-    getAppDisplayThemeId().then((themeId) => {
-      if (mounted) setSelectedThemeId(themeId);
-    }).catch(() => {});
-    const unsubscribe = subscribeToDisplayTheme(setSelectedThemeId);
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, []);
 
   const openMenu = () => {
     setOpen(true);
@@ -133,12 +111,6 @@ export function ProfileMenu() {
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
   const handleFoodOrder = () => closeMenu(() => router.push('/screens/FoodOrderScreen'));
-  const handleDisplayTheme = () => closeMenu(() => setThemePickerVisible(true));
-  const handleSelectTheme = async (themeId: AppDisplayThemeId) => {
-    setSelectedThemeId(themeId);
-    await setAppDisplayThemeId(themeId);
-    setThemePickerVisible(false);
-  };
 
   // ── Menu items (flat list, no section headers) ──
   const SECTIONS: MenuSection[] = [
@@ -147,7 +119,6 @@ export function ProfileMenu() {
         { icon: 'body-outline',          label: 'Fitness Goals',         onPress: handleFitnessProfile },
         { icon: 'scan-outline',          label: 'AI Body Scan',          onPress: handleBodyScan },
         { icon: 'stats-chart-outline',   label: 'Progress Report',       onPress: handleProgressReport },
-        { icon: 'color-palette-outline',  label: 'Display Theme',         onPress: handleDisplayTheme },
         { icon: 'leaf-outline',          label: 'Dietary Preferences',   onPress: handleDietary },
         { icon: 'flash-outline',         label: 'SpiceBuilder',          onPress: handleSpiceBuilder },
         { icon: 'calendar-outline',      label: 'Cal Tracker',           onPress: handleMealPlan },
@@ -192,21 +163,13 @@ export function ProfileMenu() {
 
         {/* Drawer */}
         <Animated.View
-          style={[
-            styles.drawer,
-            {
-              transform: [{ translateX: slideAnim }],
-              paddingTop: insets.top,
-              backgroundColor: selectedTheme.background,
-              borderRightColor: selectedTheme.panelBorder,
-            },
-          ]}
+          style={[styles.drawer, { transform: [{ translateX: slideAnim }], paddingTop: insets.top }]}
         >
           {/* Header */}
-          <View style={[styles.drawerHeader, { borderBottomColor: selectedTheme.panelBorder }]}>
-            <Text style={[styles.drawerLogo, { color: selectedTheme.accent }]}>SpiceStrong</Text>
+          <View style={styles.drawerHeader}>
+            <Text style={styles.drawerLogo}>SpiceStrong</Text>
             <TouchableOpacity onPress={() => closeMenu()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={24} color={selectedTheme.mutedText} />
+              <Ionicons name="close" size={24} color="rgba(255,255,255,0.50)" />
             </TouchableOpacity>
           </View>
 
@@ -219,26 +182,23 @@ export function ProfileMenu() {
                 {section.items.map((item) => (
                   <TouchableOpacity
                     key={item.label}
-                    style={[
-                      styles.menuItem,
-                      { backgroundColor: selectedTheme.panelBg, borderColor: selectedTheme.panelBorder },
-                    ]}
+                    style={styles.menuItem}
                     onPress={item.onPress}
                     activeOpacity={0.65}
                   >
-                    <Ionicons name={item.icon} size={22} color={selectedTheme.secondaryText} />
-                    <Text style={[styles.menuLabel, { color: selectedTheme.primaryText }]}>{item.label}</Text>
+                    <Ionicons name={item.icon} size={22} color="rgba(255,255,255,0.55)" />
+                    <Text style={styles.menuLabel}>{item.label}</Text>
                     {item.badge && <View style={styles.badge} />}
                   </TouchableOpacity>
                 ))}
-                {sIdx < SECTIONS.length - 1 && <View style={[styles.sectionDivider, { backgroundColor: selectedTheme.panelBorder }]} />}
+                {sIdx < SECTIONS.length - 1 && <View style={styles.sectionDivider} />}
               </View>
             ))}
           </ScrollView>
 
           {/* Footer */}
-          <View style={[styles.drawerFooter, { paddingBottom: insets.bottom + 12, borderTopColor: selectedTheme.panelBorder }]}>
-            <Text style={[styles.footerText, { color: selectedTheme.mutedText }]}>SpiceStrong v1.0</Text>
+          <View style={[styles.drawerFooter, { paddingBottom: insets.bottom + 12 }]}>
+            <Text style={styles.footerText}>SpiceStrong v1.0</Text>
           </View>
         </Animated.View>
       </Modal>
@@ -248,55 +208,6 @@ export function ProfileMenu() {
         limitCheck={{ allowed: false, used: 0, limit: 0, remaining: 0, premium: false, featureLabel: 'Premium Features', freeLabel: 'free plan' } as LimitCheck}
         onUpgrade={() => setPaywallVisible(false)}
       />
-      <Modal
-        visible={themePickerVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setThemePickerVisible(false)}
-        statusBarTranslucent
-      >
-        <Pressable style={styles.themeBackdrop} onPress={() => setThemePickerVisible(false)}>
-          <Pressable style={styles.themeSheet} onPress={() => {}}>
-            <View style={styles.themeHeader}>
-              <View>
-                <Text style={styles.themeTitle}>Display Theme</Text>
-                <Text style={styles.themeSubtitle}>Choose your Cal Tracker look</Text>
-              </View>
-              <TouchableOpacity onPress={() => setThemePickerVisible(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="close" size={22} color="rgba(255,255,255,0.58)" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.themeOptions}>
-              {DISPLAY_THEMES.map((theme) => {
-                const selected = theme.id === selectedThemeId;
-                return (
-                  <TouchableOpacity
-                    key={theme.id}
-                    style={[styles.themeOption, selected && styles.themeOptionSelected]}
-                    onPress={() => handleSelectTheme(theme.id)}
-                    activeOpacity={0.82}
-                  >
-                    <View style={[styles.themeSwatch, { backgroundColor: theme.background, borderColor: theme.panelBorder }]}>
-                      <View style={[styles.themeSwatchPanel, { backgroundColor: theme.panelBg }]} />
-                      <View style={[styles.themeSwatchLine, { backgroundColor: theme.accent }]} />
-                    </View>
-                    <View style={styles.themeOptionTextWrap}>
-                      <Text style={styles.themeOptionName}>{theme.name}</Text>
-                      <Text style={styles.themeOptionDescription}>{theme.description}</Text>
-                    </View>
-                    <Ionicons
-                      name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={22}
-                      color={selected ? '#E8A87C' : 'rgba(255,255,255,0.28)'}
-                    />
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </>
   );
 }
@@ -399,87 +310,5 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.20)',
-  },
-  themeBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.64)',
-    justifyContent: 'flex-end',
-  },
-  themeSheet: {
-    backgroundColor: '#14100C',
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    borderTopWidth: 1,
-    borderColor: BORDER,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 28,
-  },
-  themeHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  themeTitle: {
-    fontSize: 21,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    fontFamily: PLAYFAIR,
-  },
-  themeSubtitle: {
-    marginTop: 3,
-    fontSize: 12,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.42)',
-  },
-  themeOptions: {
-    gap: 10,
-  },
-  themeOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(248,241,232,0.10)',
-    backgroundColor: 'rgba(248,241,232,0.06)',
-    padding: 12,
-  },
-  themeOptionSelected: {
-    borderColor: 'rgba(232,168,124,0.60)',
-    backgroundColor: 'rgba(143,58,31,0.18)',
-  },
-  themeSwatch: {
-    width: 52,
-    height: 52,
-    borderRadius: 15,
-    borderWidth: 1,
-    padding: 7,
-    justifyContent: 'space-between',
-  },
-  themeSwatchPanel: {
-    height: 23,
-    borderRadius: 8,
-  },
-  themeSwatchLine: {
-    height: 5,
-    width: '70%',
-    borderRadius: 999,
-  },
-  themeOptionTextWrap: {
-    flex: 1,
-  },
-  themeOptionName: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  themeOptionDescription: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.42)',
-    lineHeight: 15,
   },
 });

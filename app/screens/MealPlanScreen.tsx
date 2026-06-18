@@ -53,13 +53,6 @@ import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { invokeAnthropicMessages } from '../../services/anthropicService';
-import {
-  getAppDisplayThemeId,
-  getDisplayTheme,
-  subscribeToDisplayTheme,
-  type AppDisplayTheme,
-  type AppDisplayThemeId,
-} from '../../src/theme/displayThemes';
 
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
 const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
@@ -331,7 +324,35 @@ const SLOT_META: Record<MealSlot, { icon: keyof typeof Ionicons.glyphMap; accent
   others: { icon: 'grid-outline', accent: '#94A3B8', hint: 'Untagged meals' },
 };
 
-function createTrackerThemeStyles(theme: AppDisplayTheme) {
+interface TrackerDisplayTheme {
+  background: string;
+  headerBg: string;
+  panelBg: string;
+  panelBorder: string;
+  controlBg: string;
+  controlBorder: string;
+  primaryText: string;
+  secondaryText: string;
+  mutedText: string;
+  accent: string;
+  shadow: string;
+}
+
+const SPICE_TRACKER_THEME: TrackerDisplayTheme = {
+  background: 'transparent',
+  headerBg: 'transparent',
+  panelBg: 'rgba(248,241,232,0.07)',
+  panelBorder: 'rgba(248,241,232,0.13)',
+  controlBg: 'rgba(248,241,232,0.08)',
+  controlBorder: 'rgba(248,241,232,0.14)',
+  primaryText: '#FFFFFF',
+  secondaryText: 'rgba(248,241,232,0.70)',
+  mutedText: 'rgba(248,241,232,0.44)',
+  accent: '#E8A87C',
+  shadow: '#000000',
+};
+
+function createTrackerThemeStyles(theme: TrackerDisplayTheme) {
   return StyleSheet.create({
     container: { backgroundColor: theme.background },
     header: { backgroundColor: theme.headerBg, borderBottomColor: theme.panelBorder },
@@ -530,7 +551,7 @@ function MacroSummaryCard({
   displayMode: 'diff' | 'target' | 'consumed';
   onPress: () => void;
   unit?: string;
-  theme: AppDisplayTheme;
+  theme: TrackerDisplayTheme;
 }) {
   const ratio = target > 0 ? Math.min(consumed / target, 1) : 0;
   const diff = consumed - target;
@@ -565,7 +586,7 @@ function CalorieHeroCard({
   consumed: number;
   displayMode: 'diff' | 'target' | 'consumed';
   onPress: () => void;
-  theme: AppDisplayTheme;
+  theme: TrackerDisplayTheme;
 }) {
   const ratio = target > 0 ? Math.min(consumed / target, 1) : 0;
   const left = target - consumed;
@@ -613,7 +634,7 @@ function CronometerDashboard({
   targets: MacroTargets | null;
   displayMode: 'diff' | 'target' | 'consumed';
   onPress: () => void;
-  theme: AppDisplayTheme;
+  theme: TrackerDisplayTheme;
 }) {
   const safeTargets = {
     calories: targets?.calories ?? 2000,
@@ -836,9 +857,8 @@ export default function MealPlanScreen() {
   const [trackingStartDate, setTrackingStartDate] = useState<string | null>(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [pickerDate, setPickerDate] = useState(today);
-  const [displayThemeId, setDisplayThemeId] = useState<AppDisplayThemeId>('warmTan');
-  const displayTheme = getDisplayTheme(displayThemeId);
-  const themed = useMemo(() => createTrackerThemeStyles(displayTheme), [displayTheme]);
+  const trackerTheme = SPICE_TRACKER_THEME;
+  const themed = useMemo(() => createTrackerThemeStyles(trackerTheme), [trackerTheme]);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -1608,28 +1628,12 @@ export default function MealPlanScreen() {
     AsyncStorage.getItem(TRACKING_START_KEY).then((v) => {
       if (!cancelled) setTrackingStartDate(v);
     }).catch(() => {});
-    getAppDisplayThemeId().then((themeId) => {
-      if (!cancelled) setDisplayThemeId(themeId);
-    }).catch(() => {});
-
     return () => {
       cancelled = true;
     };
   }, [currentDate, loadEntries]));
 
   useEffect(() => { logScreenView('MealPlanScreen'); }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    getAppDisplayThemeId().then((themeId) => {
-      if (mounted) setDisplayThemeId(themeId);
-    }).catch(() => {});
-    const unsubscribe = subscribeToDisplayTheme(setDisplayThemeId);
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1885,13 +1889,12 @@ ${cookTimeInstruction}
     setCronometerMode((m) => m === 'consumed' ? 'target' : m === 'target' ? 'diff' : 'consumed');
 
   return (
-    <PremiumScreen style={[styles.container, themed.container, { paddingTop: insets.top }]} overlayOpacity={0}>
-      <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, themed.container]} />
+    <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
 
       {/* Header */}
       <View style={[styles.header, themed.header]}>
         <TouchableOpacity style={[styles.backBtn, themed.control, themed.shadow]} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="chevron-back" size={24} color={displayTheme.primaryText} />
+          <Ionicons name="chevron-back" size={24} color={trackerTheme.primaryText} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={[styles.headerTitle, themed.primaryText]}>Cal Tracker</Text>
@@ -1902,17 +1905,17 @@ ${cookTimeInstruction}
       {/* Day navigator */}
       <View style={[styles.dayNav, themed.header]}>
         <TouchableOpacity style={[styles.dayArrowBtn, themed.control]} onPress={goToPrev} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
-          <Ionicons name="chevron-back" size={21} color={displayTheme.primaryText} />
+          <Ionicons name="chevron-back" size={21} color={trackerTheme.primaryText} />
         </TouchableOpacity>
         <TouchableOpacity style={styles.dayCenter} onPress={openCalendar} activeOpacity={0.7}>
           <View style={styles.dayLabelRow}>
             <Text style={[styles.dayLabel, themed.primaryText]}>{formatDisplayDate(currentDate)}</Text>
-            <Ionicons name="calendar-outline" size={15} color={displayTheme.accent} />
+            <Ionicons name="calendar-outline" size={15} color={trackerTheme.accent} />
           </View>
           <Text style={[styles.daySubLabel, themed.secondaryText]}>{isToday ? 'Live targets and logged meals' : 'Review or plan this day'}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.dayArrowBtn, themed.control]} onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
-          <Ionicons name="chevron-forward" size={21} color={displayTheme.primaryText} />
+          <Ionicons name="chevron-forward" size={21} color={trackerTheme.primaryText} />
         </TouchableOpacity>
       </View>
 
@@ -2021,11 +2024,11 @@ ${cookTimeInstruction}
               <Text style={styles.quickActionPrimaryText}>Scan Meal</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.quickActionSecondary, themed.control]} onPress={openBrowseRecipeHelp} activeOpacity={0.78}>
-              <Ionicons name="book-outline" size={18} color={displayTheme.primaryText} />
+              <Ionicons name="book-outline" size={18} color={trackerTheme.primaryText} />
               <Text style={[styles.quickActionSecondaryText, themed.primaryText]}>Recipes</Text>
             </TouchableOpacity>
             <TouchableOpacity style={[styles.quickActionSecondary, themed.control]} onPress={() => openManualQuickAdd('lunch_dinner')} activeOpacity={0.78}>
-              <Ionicons name="add-circle-outline" size={18} color={displayTheme.primaryText} />
+              <Ionicons name="add-circle-outline" size={18} color={trackerTheme.primaryText} />
               <Text style={[styles.quickActionSecondaryText, themed.primaryText]}>Add Food</Text>
             </TouchableOpacity>
           </View>
@@ -2042,7 +2045,7 @@ ${cookTimeInstruction}
             targets={macroTargets}
             displayMode={cronometerMode}
             onPress={cycleCronometerMode}
-            theme={displayTheme}
+            theme={trackerTheme}
           />
 
           {false && <>
@@ -2093,9 +2096,9 @@ ${cookTimeInstruction}
               onPress={() => router.push('/screens/FitnessProfileScreen')}
               activeOpacity={0.82}
             >
-              <Ionicons name="fitness-outline" size={20} color={displayTheme.accent} />
+              <Ionicons name="fitness-outline" size={20} color={trackerTheme.accent} />
               <Text style={[styles.fitnessNudgeText, themed.primaryText]}>Set your fitness goals to track diet adherence</Text>
-              <Ionicons name="chevron-forward" size={16} color={displayTheme.mutedText} />
+              <Ionicons name="chevron-forward" size={16} color={trackerTheme.mutedText} />
             </TouchableOpacity>
           ) : (
             <View style={[styles.adherencePanel, themed.panel]}>
@@ -2111,7 +2114,7 @@ ${cookTimeInstruction}
                   onPress={() => { setPickerDate(trackingStartDate ?? today); setShowStartDatePicker(true); }}
                   activeOpacity={0.82}
                 >
-                  <Ionicons name="calendar-outline" size={14} color={displayTheme.accent} />
+                  <Ionicons name="calendar-outline" size={14} color={trackerTheme.accent} />
                   <Text style={[styles.daysBtnText, themed.accentText]}>Day {daysTracked}</Text>
                 </TouchableOpacity>
               </View>
