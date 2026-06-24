@@ -24,10 +24,10 @@ export const SLOT_LIMITS: Record<MealSlot, number> = {
 };
 
 export const SLOT_LABELS: Record<MealSlot, string> = {
-  breakfast: '🌅 Breakfast',
-  lunch_dinner: '🍽️ Lunch / Dinner',
-  snack_dessert: '🥜 Snack / Dessert',
-  others: '📦 Others',
+  breakfast: 'Breakfast',
+  lunch_dinner: 'Lunch / Dinner',
+  snack_dessert: 'Snack / Dessert',
+  others: 'Others',
 };
 
 export interface MealPlanEntry {

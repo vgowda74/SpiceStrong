@@ -10,7 +10,6 @@ import {
   Alert,
   Modal,
   Platform,
-  ImageBackground,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { HomeButton } from '../../components/HomeButton';
@@ -122,9 +121,9 @@ const PROTEIN_GOAL_OPTIONS = [
 ];
 
 const ALL_MEAL_TYPE_OPTIONS = [
-  { id: 'breakfast', label: '🌅 Breakfast' },
-  { id: 'lunch-dinner', label: '🥗 Lunch/Dinner' },
-  { id: 'snack', label: '🥜 Snack/Dessert/Drink' },
+  { id: 'breakfast', label: 'Breakfast' },
+  { id: 'lunch-dinner', label: 'Lunch/Dinner' },
+  { id: 'snack', label: 'Snack/Dessert/Drink' },
 ];
 
 /** Meal types suitable for each protein. Proteins not listed get all options. */
@@ -220,8 +219,8 @@ const PROTEIN_CUISINES: Record<string, string[]> = {
 const DRINK_MEAL_OPTIONS = [
   { id: 'pre-workout', label: '💪 Pre-Workout' },
   { id: 'post-workout', label: '🏋️ Post-Workout' },
-  { id: 'breakfast', label: '🌅 Breakfast' },
-  { id: 'snack', label: '🥜 Snack' },
+  { id: 'breakfast', label: 'Breakfast' },
+  { id: 'snack', label: 'Snack' },
 ];
 
 const DRINK_TYPE_OPTIONS = [
@@ -1305,11 +1304,7 @@ Return ONLY the JSON, no explanation.`,
   const stepCount = Array.isArray(generatedRecipe?.steps) ? (generatedRecipe!.steps as unknown[]).length : 0;
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={styles.bg}
-      resizeMode="cover"
-    >
+    <View style={styles.bg}>
       <View style={styles.overlay} />
 
       <View style={styles.container}>
@@ -1769,12 +1764,12 @@ Return ONLY the JSON, no explanation.`,
         </View>
       </Modal>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
+  bg: { flex: 1, backgroundColor: '#0D0B09' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.6)',

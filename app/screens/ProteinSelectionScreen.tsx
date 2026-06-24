@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
-  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -150,11 +149,7 @@ export default function ProteinSelectionScreen() {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       <View
         pointerEvents="none"
         style={{
@@ -261,11 +256,15 @@ export default function ProteinSelectionScreen() {
       </ScrollView>
 
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#0D0B09',
+  },
   container: {
     flex: 1,
   },

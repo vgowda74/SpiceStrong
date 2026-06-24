@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   Animated,
-  ImageBackground,
   Linking,
   Modal,
   Platform,
@@ -308,26 +307,18 @@ export default function IngredientChecklistScreen() {
 
   if (loading) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         {overlay}
         <View style={[styles.container, styles.loadingContainer]}>
           <Text style={styles.loadingText}>Loading recipe...</Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
   if (!recipeId || !recipe) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         {overlay}
         <View style={[styles.container, { paddingTop: 60 }]}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -338,7 +329,7 @@ export default function IngredientChecklistScreen() {
             This recipe may have been deleted or the link is invalid.
           </Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
@@ -539,11 +530,7 @@ export default function IngredientChecklistScreen() {
   );
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       {overlay}
       <View style={styles.wrapper}>
         {/* Fixed back button */}
@@ -809,11 +796,15 @@ export default function IngredientChecklistScreen() {
           </View>
         </View>
       </Modal>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#0D0B09',
+  },
   wrapper: {
     flex: 1,
   },

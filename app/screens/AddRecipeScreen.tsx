@@ -8,7 +8,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, TextInput,
-  Alert, Platform, ImageBackground, ActivityIndicator, KeyboardAvoidingView,
+  Alert, Platform, ActivityIndicator, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
@@ -16,21 +16,17 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { QUANTITY_TIERS, type QuantityTier, type IngredientsByTier, type CookingStep, saveRecipe, getRecipeById } from '../../src/store/recipes';
 import { saveAIRecipe, uploadRecipeHeroImage, uploadStepImage, updateRecipeStatus } from '../../services/recipeService';
-import { generateAllRecipeImages, saveRecipeImages, loadRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
+import { generateAllRecipeImages, saveRecipeImages, loadRecipeImages } from '../../services/imageGenerationService';
 import { submitRecipeForReview, reviewRecipe } from '../../services/recipeReviewService';
-import { invokeAnthropicMessages } from '../../services/anthropicService';
 import { INGREDIENT_MAP, CATEGORY_EMOJI } from '../../src/data/ingredientMapping';
 import { PROTEINS } from '../../src/theme';
-import { filterProteinsForPreference, getDietPreference, hasNonVegText, isNonVegProteinId, type DietPreference } from '../../src/utils/dietPreference';
-import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { analyzeNutrition } from '../../services/nutritionService';
+import { filterProteinsForPreference, getDietPreference, isNonVegProteinId, type DietPreference } from '../../src/utils/dietPreference';
 import VoiceInput from '../../components/VoiceInput';
 import { HomeButton } from '../../components/HomeButton';
-import { ProcessingRing } from '../../components/ProcessingRing';
 
-type WizardStep = 'image_import' | 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
-const WIZARD_STEPS: WizardStep[] = ['image_import', 'basics', 'ingredients', 'steps', 'hero', 'review'];
-const STEP_LABELS = ['Import', 'Basics', 'Ingredients', 'Steps', 'Photo', 'Review'];
+type WizardStep = 'basics' | 'ingredients' | 'steps' | 'hero' | 'review';
+const WIZARD_STEPS: WizardStep[] = ['basics', 'ingredients', 'steps', 'hero', 'review'];
+const STEP_LABELS = ['Basics', 'Ingredients', 'Steps', 'Photo', 'Review'];
 
 const MEAL_TYPES = [
   { key: 'breakfast', label: 'Breakfast' },
@@ -58,7 +54,6 @@ export default function AddRecipeScreen() {
     copyId?: string;
   }>();
   const { proteinEmoji } = params;
-  const fromMenu = params.fromMenu === 'true';
   const isCopyAsNew = params.copyAsNew === 'true';
   const isEditing = !!params.editRecipeId;
 
@@ -68,16 +63,8 @@ export default function AddRecipeScreen() {
   const [selectedProteinEmoji, setSelectedProteinEmoji] = useState(params.proteinEmoji || '🍽');
   const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>('veg');
 
-  // Image import state
-  const [importImageUri, setImportImageUri] = useState<string | null>(null);
-  const [importImageBase64, setImportImageBase64] = useState<string | null>(null);
-  const [extracting, setExtracting] = useState(false);
-  const [extractionError, setExtractionError] = useState<string | null>(null);
-  const [extractionProgress, setExtractionProgress] = useState<string | null>(null);
-  const [fromImageExtraction, setFromImageExtraction] = useState(false);
-
-  // Wizard state — start at image_import for new recipes, basics for editing
-  const [currentStep, setCurrentStep] = useState<WizardStep>(isEditing ? 'basics' : 'image_import');
+  // Wizard state
+  const [currentStep, setCurrentStep] = useState<WizardStep>('basics');
   const [submitting, setSubmitting] = useState(false);
 
   // Step 1: Basics
@@ -268,21 +255,11 @@ export default function AddRecipeScreen() {
   };
 
   const goBack = () => {
-    // When editing, 'basics' is the first step — go back to previous screen
-    if (isEditing && currentStep === 'basics') {
-      router.back();
-      return;
-    }
-    if (currentStepIndex === 0) {
+    if (currentStep === 'basics') {
       router.back();
       return;
     }
     let prevIdx = currentStepIndex - 1;
-    // Skip image_import when editing
-    if (isEditing && WIZARD_STEPS[prevIdx] === 'image_import') {
-      router.back();
-      return;
-    }
     const prev = WIZARD_STEPS[prevIdx];
     if (prev) setCurrentStep(prev);
   };
@@ -320,14 +297,10 @@ export default function AddRecipeScreen() {
       };
 
       if (publish) {
-        // ── PUBLISH FLOW ──
-        // Image-extracted recipes were already validated + auto-fixed during extraction
-        // Only run full review for manually-created recipes
-        if (!fromImageExtraction) {
-          const reviewResult = await reviewRecipe(recipe as any);
+        const reviewResult = await reviewRecipe(recipe as any);
 
-          if (!reviewResult.approved) {
-            const issueList = reviewResult.issues.slice(0, 3).join('\n• ');
+        if (!reviewResult.approved) {
+          const issueList = reviewResult.issues.slice(0, 3).join('\n• ');
           const suggestions = reviewResult.suggestions.slice(0, 2);
           // Build friendly, actionable feedback — deduplicated
           const seen = new Set<string>();
@@ -361,42 +334,13 @@ export default function AddRecipeScreen() {
           return;
         }
 
-          // Passed validation — save and publish
-          await saveRecipe(recipe);
-          Alert.alert(
-            'Published! 🎉',
-            `"${recipeName}" passed quality review and is now being shared with the community!`,
-            [{ text: 'OK', onPress: () => router.back() }],
-          );
-        } else {
-          // Image-extracted recipe — only check protein density
-          const nutrition = extractedNutrition;
-          if (nutrition && nutrition.calories > 0) {
-            const density = (nutrition.proteinG / nutrition.calories) * 100;
-            if (density < 6.4) {
-              Alert.alert(
-                'Protein Too Low 💪',
-                `"${recipeName}" has ${Math.round(nutrition.proteinG)}g protein and ${Math.round(nutrition.calories)} calories per serving (density: ${density.toFixed(1)}). SpiceStrong requires at least 6.4g protein per 100 calories.\n\nTry increasing the protein source or reducing oils and carbs.`,
-                [
-                  { text: 'Save & Fix Later', onPress: async () => {
-                    await saveRecipe(recipe);
-                    Alert.alert('Saved! 💾', `"${recipeName}" is saved. Adjust protein and publish when ready.`, [{ text: 'OK', onPress: () => router.back() }]);
-                  }},
-                  { text: 'Fix Now', style: 'cancel' },
-                ],
-              );
-              setSubmitting(false);
-              return;
-            }
-          }
-          // Passed protein check — publish
-          await saveRecipe(recipe);
-          Alert.alert(
-            'Published! 🎉',
-            `"${recipeName}" is now being shared with the community!`,
-            [{ text: 'OK', onPress: () => router.back() }],
-          );
-        }
+        // Passed validation — save and publish
+        await saveRecipe(recipe);
+        Alert.alert(
+          'Published! 🎉',
+          `"${recipeName}" passed quality review and is now being shared with the community!`,
+          [{ text: 'OK', onPress: () => router.back() }],
+        );
       } else {
         // ── SAVE FLOW: save locally without validation ──
         await saveRecipe(recipe);
@@ -474,294 +418,9 @@ export default function AddRecipeScreen() {
     return '📦';
   };
 
-  // ── Image import handlers ──
-  const handlePickImportImage = async (useCamera: boolean) => {
-    const opts: ImagePicker.ImagePickerOptions = {
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      quality: 0.8,
-      base64: false, // Don't get base64 from picker — we'll resize first
-    };
-    let result: ImagePicker.ImagePickerResult;
-    if (useCamera) {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access required.'); return; }
-      result = await ImagePicker.launchCameraAsync(opts);
-    } else {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) { Alert.alert('Permission needed', 'Photo library access required.'); return; }
-      result = await ImagePicker.launchImageLibraryAsync(opts);
-    }
-    if (!result.canceled && result.assets?.[0]) {
-      const uri = result.assets[0].uri;
-
-      // Save URI for preview only — hero image will be AI-generated
-      setImportImageUri(uri);
-
-      // Resize to 1024px wide + 50% JPEG compression (guaranteed under 5MB)
-      try {
-        const manipulated = await manipulateAsync(
-          uri,
-          [{ resize: { width: 1024 } }],
-          { compress: 0.5, format: SaveFormat.JPEG, base64: true },
-        );
-        const b64 = manipulated.base64 || '';
-        console.log(`[SpiceStrong] Import: hero saved, compressed base64=${Math.round(b64.length / 1024)}KB`);
-        setImportImageBase64(b64 || null);
-        setExtractionError(null);
-      } catch (e) {
-        console.error('[SpiceStrong] Image compression failed:', e);
-        setExtractionError('Could not process image. Try a different photo.');
-      }
-    }
-  };
-
-  const handleExtractRecipe = async () => {
-    if (!importImageBase64) return;
-    setExtracting(true);
-    setExtractionError(null);
-    setExtractionProgress('Analyzing your photo...');
-    try {
-      const b64 = importImageBase64;
-      let mediaType = 'image/jpeg';
-      if (b64.startsWith('iVBOR')) mediaType = 'image/png';
-      else if (b64.startsWith('UklGR')) mediaType = 'image/webp';
-
-      const data = await invokeAnthropicMessages({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2048,
-        system: `You are a recipe extraction engine for a high-protein cooking app.
-
-STEP 1: Determine if the image contains food.
-- If the image is NOT food (person, landscape, object, text without recipe, etc.), return: {"error": "not_food"}
-- If the image IS food or a recipe (screenshot, book, handwritten, or a dish), proceed to Step 2.
-
-STEP 2: Extract the recipe and identify the PRIMARY protein.
-Return ONLY this JSON:
-{
-  "name": "Recipe name",
-  "description": "1-2 sentence description",
-  "primaryProtein": "chicken|fish|lamb|goat|pork|beef|prawns|eggs|paneer|tofu|soy|beans|milk|whey",
-  "mealType": "breakfast|lunch_dinner|snack_dessert",
-  "difficulty": "Easy|Medium|Hard",
-  "cookTime": "30 min",
-  "cuisine": "Indian|Thai|Mediterranean|Chinese|Mexican|American|Other",
-  "ingredients": {
-    "2-3 servings": [{"name": "Ingredient", "quantity": "500g"}],
-    "4-6 servings": [{"name": "Ingredient", "quantity": "1kg"}]
-  },
-  "steps": [{"title": "Step", "description": "Details with quantities for each ingredient used", "emoji": "🔥", "timerMinutes": 5, "ingredientsUsed": "comma-separated ingredient names ONLY from this step", "imagePrompt": "Short literal description of ONLY what is physically visible at this moment — max 15 words, no recipe name"}],
-  "chefTip": "One line tip"
-}
-
-CRITICAL RULES:
-- primaryProtein MUST be one of: chicken, fish, lamb, goat, pork, beef, prawns, eggs, paneer, tofu, soy, beans, milk, whey
-- If the dish has multiple proteins, pick the DOMINANT one
-- If no clear protein is visible, use "eggs" as default
-- Max 15 ingredients, 4-8 steps, precise quantities, 4-6 tier = 2x of 2-3 tier
-- ingredientsUsed for each step must ONLY list ingredients actually used in THAT step — never include ingredients from other steps
-- Every ingredient from the ingredient list must appear in exactly one step's ingredientsUsed
-- Step description must mention each ingredient in ingredientsUsed with its quantity`,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-            { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
-          ],
-        }],
-      });
-      let text = (data.content?.[0]?.text || '').trim();
-      text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-      const firstBrace = text.indexOf('{');
-      const lastBrace = text.lastIndexOf('}');
-      if (firstBrace === -1 || lastBrace <= firstBrace) throw new Error('Could not parse response');
-      const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
-
-      // Check if image was rejected as not food
-      if (parsed.error === 'not_food') {
-        setExtractionError('This doesn\'t look like food or a recipe. Please upload a photo of a dish or a recipe screenshot.');
-        setExtracting(false);
-        return;
-      }
-
-      // Must have a recipe name
-      if (!parsed.name) {
-        setExtractionError('Could not identify a recipe from this image. Try a clearer photo.');
-        setExtracting(false);
-        return;
-      }
-
-      if (dietPreference === 'veg' && hasNonVegText(JSON.stringify(parsed))) {
-        setExtractionError('This recipe appears to include non-vegetarian ingredients. Vegetarian mode only supports vegetarian recipes.');
-        setExtracting(false);
-        return;
-      }
-
-      // Auto-detect protein from image
-      const detectedProtein = parsed.primaryProtein;
-      const match = allowedProteins.find((p) => p.id === detectedProtein);
-      if (match && !(dietPreference === 'veg' && isNonVegProteinId(match.id))) {
-        setProteinId(match.id);
-        setProteinName(match.name);
-        setSelectedProteinEmoji(match.emoji);
-      } else {
-        const fallback = allowedProteins.find((p) => p.id === 'paneer') ?? allowedProteins[0];
-        if (fallback) {
-          setProteinId(fallback.id);
-          setProteinName(fallback.name);
-          setSelectedProteinEmoji(fallback.emoji);
-        }
-      }
-
-      // Pre-fill all form fields
-      setRecipeName(parsed.name || '');
-      setDescription(parsed.description || '');
-      setMealType(parsed.mealType || null);
-      setDifficulty(parsed.difficulty || null);
-      setCookTime(parsed.cookTime || '');
-      setCuisine(parsed.cuisine || null);
-      if (parsed.ingredients) setIngredientsByTier(parsed.ingredients);
-      if (parsed.steps?.length > 0) {
-        setSteps(parsed.steps.map((s: any) => ({
-          title: s.title || '', description: s.description || '',
-          emoji: s.emoji || '🔥', timerMinutes: s.timerMinutes || undefined,
-        })));
-      }
-
-      setExtractionProgress('Getting nutrition details...');
-      // Get nutrition from Edamam using extracted ingredients
-      try {
-        const tier23 = parsed.ingredients?.['2-3 servings'] || [];
-        if (tier23.length > 0) {
-          const nutrition = await analyzeNutrition(tier23, 2.5);
-          if (nutrition) {
-            setExtractedNutrition(nutrition);
-            console.log(`[SpiceStrong] Nutrition: ${nutrition.calories} cal, ${nutrition.proteinG}g P`);
-          }
-        }
-      } catch (nutritionErr) {
-        console.warn('[SpiceStrong] Nutrition analysis failed (non-blocking):', nutritionErr);
-      }
-
-      // Validate + auto-fix recipe to meet SpiceStrong standards
-      setExtractionProgress('Optimizing for high-protein standards...');
-      try {
-        const fixData = await invokeAnthropicMessages({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2048,
-          system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
-
-1. PROTEIN DENSITY: proteinG / calories × 100 >= 6.4 (CRITICAL)
-   - If too low: increase protein source quantity, reduce oils/carbs, add protein-rich ingredients
-2. MAX 15 ingredients, MIN 4 steps, MAX 8 steps
-3. ALL quantities must be precise (no "to taste", "some", "a pinch")
-4. "2-3 servings" and "4-6 servings" tiers (4-6 = exactly 2× of 2-3)
-5. Description must mention the protein name and be 1-2 sentences
-6. Each step must have a clear title and detailed description with quantities
-7. chefTip must mention protein per serving and calories
-8. Each step MUST have "ingredientsUsed" listing ONLY ingredients used in THAT step (not other steps)
-9. Every ingredient must appear in exactly one step's ingredientsUsed
-10. Each step MUST have "imagePrompt": a short (max 15 words) literal description of what is physically visible at that cooking moment — no recipe name, no ingredients from other steps
-
-Return the FIXED recipe as the same JSON format. If already compliant, return as-is.
-Return ONLY the JSON, no explanation.`,
-          messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
-        });
-        if (fixData) {
-          const fixText = (fixData.content?.[0]?.text || '').trim();
-          const fixFirst = fixText.indexOf('{');
-          const fixLast = fixText.lastIndexOf('}');
-          if (fixFirst !== -1 && fixLast > fixFirst) {
-            const fixed = JSON.parse(fixText.substring(fixFirst, fixLast + 1));
-            // Apply fixes
-            if (fixed.name) setRecipeName(fixed.name);
-            if (fixed.description) setDescription(fixed.description);
-            if (fixed.ingredients) {
-              setIngredientsByTier(fixed.ingredients);
-              parsed.ingredients = fixed.ingredients; // Update for image generation
-            }
-            if (fixed.steps?.length > 0) {
-              const fixedSteps = fixed.steps.map((s: any) => ({
-                title: s.title || '', description: s.description || '',
-                emoji: s.emoji || '🔥', timerMinutes: s.timerMinutes || undefined,
-              }));
-              setSteps(fixedSteps);
-              parsed.steps = fixed.steps; // Update for image generation
-            }
-            if (fixed.chefTip) parsed.chefTip = fixed.chefTip;
-            console.log('[SpiceStrong] Recipe optimized for SpiceStrong standards');
-          }
-        }
-      } catch (fixErr) {
-        console.warn('[SpiceStrong] Auto-fix failed (non-blocking):', fixErr);
-      }
-
-      // Re-run nutrition after auto-fix (ingredients may have changed)
-      try {
-        const fixedTier23 = parsed.ingredients?.['2-3 servings'] || [];
-        if (fixedTier23.length > 0) {
-          const fixedNutrition = await analyzeNutrition(fixedTier23, 2.5);
-          if (fixedNutrition) {
-            setExtractedNutrition(fixedNutrition);
-          }
-        }
-      } catch {}
-
-      // Generate AI hero + step images
-      setExtractionProgress('Creating recipe images...');
-      try {
-        const recipeId = `user-${Date.now()}`;
-        const stepsForImages = (parsed.steps || []).map((s: any) => ({
-          title: s.title || '', description: s.description || '',
-        }));
-        const ingredientsForImages = parsed.ingredients || { '2-3 servings': [] };
-
-        console.log(`[SpiceStrong] Generating AI images for extracted recipe: ${parsed.name}`);
-
-        // Generate hero image first (user sees it on review)
-        const aiImages = await generateAllRecipeImages({
-          id: recipeId,
-          name: parsed.name || 'Recipe',
-          ingredients: ingredientsForImages,
-          steps: stepsForImages,
-        });
-        await saveRecipeImages(recipeId, aiImages);
-
-        // Set hero image so it shows in the hero step
-        if (aiImages.dishImage) {
-          setHeroImageUri(aiImages.dishImage);
-          console.log(`[SpiceStrong] Hero image generated: ${aiImages.dishImage}`);
-        }
-
-        // Set step images on the step objects
-        if (Object.keys(aiImages.stepImages).length > 0) {
-          setSteps((prev) => prev.map((s, i) => ({
-            ...s,
-            photoUri: aiImages.stepImages[String(i)] || s.photoUri,
-          })));
-          console.log(`[SpiceStrong] Step images generated: ${Object.keys(aiImages.stepImages).length}`);
-        }
-      } catch (imgErr) {
-        console.warn('[SpiceStrong] Image generation failed (non-blocking):', imgErr);
-      }
-
-      setFromImageExtraction(true);
-      setCurrentStep('basics');
-    } catch (err: any) {
-      console.error('[SpiceStrong] Recipe extraction failed:', err);
-      setExtractionError(err?.message || 'Could not extract recipe. Try a clearer photo.');
-    } finally {
-      setExtracting(false);
-    }
-  };
-
   // --- Render ---
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       <View style={StyleSheet.absoluteFillObject}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }} />
       </View>
@@ -803,62 +462,6 @@ Return ONLY the JSON, no explanation.`,
         </View>
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-
-          {/* ========== STEP 0: IMAGE IMPORT ========== */}
-          {currentStep === 'image_import' && (
-            <View style={styles.importStep}>
-              {/* Protein picker when coming from menu */}
-
-              {!importImageUri && !extracting && (
-                <View style={styles.importCenter}>
-                  <Ionicons name="image-outline" size={64} color="#8F3A1F" />
-                  <Text style={styles.importTitle}>Import from a photo</Text>
-                  <Text style={styles.importSubtitle}>Take a photo or upload a screenshot of any recipe</Text>
-                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
-                    <TouchableOpacity style={[styles.importBtn, { flex: 1 }]} onPress={() => handlePickImportImage(true)} activeOpacity={0.8}>
-                      <Text style={styles.importBtnText}>📷 Camera</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.importBtn, { flex: 1, backgroundColor: 'rgba(143,58,31,0.20)' }]} onPress={() => handlePickImportImage(false)} activeOpacity={0.8}>
-                      <Text style={[styles.importBtnText, { color: '#8F3A1F' }]}>🖼 Gallery</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity onPress={() => setCurrentStep('basics')} activeOpacity={0.7}>
-                    <Text style={styles.importSkipText}>Skip — enter recipe manually</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {importImageUri && !extracting && (
-                <View style={styles.importPreview}>
-                  <Image source={{ uri: importImageUri }} style={styles.importPreviewImg} contentFit="cover" />
-                  {extractionError && <Text style={styles.importError}>{extractionError}</Text>}
-                  <TouchableOpacity style={styles.importBtn} onPress={handleExtractRecipe} activeOpacity={0.8}>
-                    <Text style={styles.importBtnText}>Extract Recipe from Photo</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setImportImageUri(null); setImportImageBase64(null); }} activeOpacity={0.7}>
-                    <Text style={styles.importSkipText}>Choose a different photo</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {extracting && (
-                <View style={styles.importCenter}>
-                  <ProcessingRing
-                    label={extractionProgress || 'Extracting recipe...'}
-                    sublabel="This may take a moment"
-                    expectedMs={18000}
-                  />
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Extraction banner */}
-          {fromImageExtraction && currentStep !== 'image_import' && currentStep !== 'review' && (
-            <View style={styles.extractionBanner}>
-              <Text style={styles.extractionBannerText}>✅ Extracted from photo — review and edit below</Text>
-            </View>
-          )}
 
           {/* ========== STEP 1: BASICS ========== */}
           {currentStep === 'basics' && (
@@ -1233,40 +836,12 @@ Return ONLY the JSON, no explanation.`,
           )}
         </View>
       </KeyboardAvoidingView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // Image import step
-  importStep: { paddingVertical: 20 },
-  importSection: { marginBottom: 20 },
-  importCenter: { alignItems: 'center', paddingTop: 40, gap: 12 },
-  importTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginTop: 12 },
-  importSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
-  importBtn: {
-    marginTop: 16,
-    backgroundColor: '#8F3A1F',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    ...Platform.select({
-      ios: { shadowColor: '#8F3A1F', shadowOpacity: 0.4, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
-      android: { elevation: 6 },
-    }),
-  },
-  importBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
-  importSkipText: {
-    color: 'rgba(255,255,255,0.70)',
-    fontSize: 15,
-    fontWeight: '800',
-    marginTop: 20,
-    textDecorationLine: 'underline',
-  },
-  importPreview: { alignItems: 'center', gap: 12 },
-  importPreviewImg: { width: '90%', height: 200, borderRadius: 16 },
-  importError: { color: '#FF4444', fontSize: 13, textAlign: 'center', paddingHorizontal: 20 },
-
+  screen: { flex: 1, backgroundColor: '#0D0B09' },
   // Protein picker chips
   proteinChip: {
     flexDirection: 'row',
@@ -1283,18 +858,6 @@ const styles = StyleSheet.create({
   proteinChipEmoji: { fontSize: 18 },
   proteinChipText: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.60)' },
   proteinChipTextActive: { color: '#8F3A1F' },
-
-  // Extraction banner
-  extractionBanner: {
-    backgroundColor: 'rgba(34,197,94,0.12)',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.30)',
-  },
-  extractionBannerText: { fontSize: 13, fontWeight: '600', color: '#22C55E', textAlign: 'center' },
 
   header: {
     flexDirection: 'row',

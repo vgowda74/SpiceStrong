@@ -124,7 +124,7 @@ export function ProfileMenu() {
         { icon: 'calendar-outline',      label: 'Cal Tracker',           onPress: handleMealPlan },
         { icon: 'sparkles-outline',      label: 'Meal Planner',          onPress: handleAutoMealPlan },
         { icon: 'barcode-outline',       label: 'Scan Label',            onPress: handleScanLabel },
-        { icon: 'restaurant-outline',    label: 'Smart Food Order',      onPress: handleFoodOrder },
+        { icon: 'restaurant-outline',    label: 'Eat out Smart',    onPress: handleFoodOrder },
         { icon: 'add-circle-outline',    label: 'Add Recipe',            onPress: handleAddRecipe },
         { icon: 'basket-outline',        label: 'My Pantry',             onPress: handleMyPantry },
         { icon: 'cart-outline',          label: 'Shopping List',         onPress: handleGroceryList },

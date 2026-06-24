@@ -25,6 +25,7 @@ import { HomeButton } from '../../components/HomeButton';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import { addToMealPlan, type MealSlot } from '../../services/mealPlanService';
 import { trackEvent } from '../../services/analyticsService';
+import { maybeShowRatingPrompt } from '../../services/appRatingPromptService';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { INGREDIENT_EDIT_IN, INGREDIENT_EDIT_OUT } from './EditIngredientScreen';
 import { invokeAnthropicMessages } from '../../services/anthropicService';
@@ -411,6 +412,10 @@ export default function ScanFoodScreen() {
         }));
       }
       trackEvent('meal_saved', { screen: 'ScanFoodScreen', metadata: { slot: slot ?? 'others' } });
+      maybeShowRatingPrompt(router, {
+        eventName: 'meal_saved',
+        eventOptions: { screen: 'ScanFoodScreen', metadata: { slot: slot ?? 'others' } },
+      }).catch(() => {});
       router.back();
     } catch (err: any) {
       Alert.alert('Save failed', err?.message ?? 'Could not save this meal.');

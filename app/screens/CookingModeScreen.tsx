@@ -4,14 +4,12 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import * as Sharing from 'expo-sharing';
-import * as StoreReview from 'expo-store-review';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
   AppState,
-  ImageBackground,
   KeyboardAvoidingView,
   LayoutAnimation,
   Linking,
@@ -40,6 +38,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 import { isAdmin } from '../../services/adminService';
 import { fixRecipeStepAsAdmin, type AdminRecipeFixMode } from '../../services/adminRecipeFixService';
 import { trackEvent } from '../../services/analyticsService';
+import { maybeShowRatingPrompt } from '../../services/appRatingPromptService';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { HomeButton } from '../../components/HomeButton';
 // imageCacheService no longer needed — expo-image handles caching
@@ -456,16 +455,12 @@ export default function CookingModeScreen() {
 
   if (!recipe) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         {overlay}
         <View style={styles.container}>
           <Text style={styles.loadingText}>Loading recipe...</Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
@@ -558,6 +553,10 @@ export default function CookingModeScreen() {
         recipeId,
         metadata: { recipeName: recipe?.name, totalSteps },
       });
+      maybeShowRatingPrompt(router, {
+        eventName: 'cooking_completed',
+        eventOptions: { screen: 'CookingModeScreen', recipeId },
+      }).catch(() => {});
       (async () => {
         try {
           const countRaw = await AsyncStorage.getItem(REVIEW_COUNT_KEY);
@@ -694,16 +693,19 @@ export default function CookingModeScreen() {
       setAppRating(stars);
       if (appReviewRequested) return;
       setAppReviewRequested(true);
-      try {
-        const available = await StoreReview.isAvailableAsync();
-        if (available) {
-          await StoreReview.requestReview();
-        } else {
-          Alert.alert('Thank you!', 'Your rating helps us keep improving SpiceStrong.');
-        }
-      } catch {
-        Alert.alert('Thank you!', 'Your rating helps us keep improving SpiceStrong.');
+      if (stars >= 4) {
+        await maybeShowRatingPrompt(router, { force: true });
+        return;
       }
+
+      router.push({
+        pathname: '/screens/FeedbackScreen',
+        params: {
+          recipeId,
+          recipeName: recipe?.name ?? 'SpiceStrong App',
+          starRating: String(stars),
+        },
+      });
     };
     const APP_RATING_LABELS: Record<number, string> = {
       1: 'Thanks for the honesty',
@@ -720,11 +722,7 @@ export default function CookingModeScreen() {
       5: 'Perfect dish! 🏆',
     };
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(13,11,9,0.76)' }]} />
         <CompletionConfetti />
         <View style={styles.completionRoot}>
@@ -950,22 +948,18 @@ export default function CookingModeScreen() {
             />
           </ViewShot>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
   if (!step) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         {overlay}
         <View style={styles.container}>
           <Text style={styles.loadingText}>No steps found.</Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
@@ -973,11 +967,7 @@ export default function CookingModeScreen() {
   const suggestedMin = getSuggestedTimerMinutes(step);
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       {overlay}
       {showTimerCompleteAlert ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1304,11 +1294,12 @@ export default function CookingModeScreen() {
           </TouchableOpacity>
         </View>
     </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#0D0B09' },
   container: { flex: 1 },
   loadingText: { color: '#FFFFFF', fontSize: 16, textAlign: 'center', marginTop: 100 },
   header: {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ImageBackground, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import type { ImageSourcePropType } from 'react-native';
 import type { SavedRecipe } from '../src/store/recipes';
@@ -37,11 +37,7 @@ export default function ShareableRecipeCard({
 
   return (
     <View style={styles.cardOuter}>
-      <ImageBackground
-        source={require('../assets/images/splash-bg.jpg')}
-        style={styles.bg}
-        resizeMode="cover"
-      >
+      <View style={styles.bg}>
         <View style={styles.overlay} />
 
         {/* ===== TITLE BANNER ===== */}
@@ -159,7 +155,7 @@ export default function ShareableRecipeCard({
           </Text>
           <Text style={styles.urlText}>www.spicestrong.app</Text>
         </View>
-      </ImageBackground>
+      </View>
     </View>
   );
 }
@@ -172,6 +168,7 @@ const styles = StyleSheet.create({
   },
   bg: {
     flex: 1,
+    backgroundColor: '#0D0B09',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,

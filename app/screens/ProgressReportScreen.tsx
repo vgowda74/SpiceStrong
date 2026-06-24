@@ -11,7 +11,6 @@ import React, { useCallback, useRef, useState } from 'react';
 import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   Alert,
-  ImageBackground,
   Platform,
   ScrollView,
   Share,
@@ -201,7 +200,7 @@ function ProgressReportShareSlide({
 
   return (
     <View style={slideStyles.cardOuter}>
-      <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={slideStyles.bg} resizeMode="cover">
+      <View style={slideStyles.bg}>
         <View style={slideStyles.overlay} />
         <View style={slideStyles.headerRow}>
           <View style={slideStyles.titleBanner}>
@@ -306,7 +305,7 @@ function ProgressReportShareSlide({
           <Text style={slideStyles.footerTag}>Built by SpiceStrong - one strong meal at a time.</Text>
           <Text style={slideStyles.footerUrl}>www.spicestrong.app</Text>
         </View>
-      </ImageBackground>
+      </View>
     </View>
   );
 }
@@ -958,7 +957,7 @@ const slideStyles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#120B08',
   },
-  bg: { flex: 1 },
+  bg: { flex: 1, backgroundColor: '#0D0B09' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(22,10,5,0.70)',

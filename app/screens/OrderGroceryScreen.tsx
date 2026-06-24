@@ -12,12 +12,13 @@ import { HomeButton } from '../../components/HomeButton';
 
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
+const ACCENT = '#E8A87C';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 const SERVICES = [
-  { name: 'Amazon Fresh', emoji: '📦', color: '#FF9900' },
-  { name: 'Instacart', emoji: '🥕', color: '#43B02A' },
-  { name: 'Walmart', emoji: '🏪', color: '#0071DC' },
+  { name: 'Amazon Fresh', emoji: '📦', color: ACCENT },
+  { name: 'Instacart', emoji: '🥕', color: ACCENT },
+  { name: 'Walmart', emoji: '🏪', color: ACCENT },
 ];
 
 export default function OrderGroceryScreen() {

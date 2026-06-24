@@ -1,9 +1,6 @@
 import { Stack } from 'expo-router';
-import Constants from 'expo-constants';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
-
-const isExpoGo = Constants.appOwnership === 'expo';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -13,6 +10,10 @@ export default function RootLayout() {
       // crash the splash-to-landing transition.
       import('../services/analyticsService')
         .then(({ trackAppOpen }) => trackAppOpen())
+        .catch(() => {});
+
+      import('../services/inAppEventNotificationService')
+        .then(({ initializeInAppEventNotifications }) => initializeInAppEventNotifications())
         .catch(() => {});
 
       import('../services/recipeService')
@@ -46,27 +47,6 @@ export default function RootLayout() {
         import('../services/purchaseService')
           .then(({ initPurchases }) => initPurchases())
           .catch(() => {});
-
-        if (!isExpoGo) {
-          import('expo-notifications')
-            .then(async (Notifications) => {
-              Notifications.setNotificationHandler({
-                handleNotification: async () => ({
-                  shouldShowAlert: true,
-                  shouldShowBanner: true,
-                  shouldShowList: true,
-                  shouldPlaySound: true,
-                  shouldSetBadge: false,
-                }),
-              });
-
-              const { status } = await Notifications.getPermissionsAsync();
-              if (status !== 'granted') {
-                await Notifications.requestPermissionsAsync();
-              }
-            })
-            .catch(() => {});
-        }
 
         import('../services/imageGenerationService')
           .then(({ generateScanInstrImages }) => generateScanInstrImages())

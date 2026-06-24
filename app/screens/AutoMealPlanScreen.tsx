@@ -29,6 +29,7 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { type MealSlot } from '../../services/mealPlanService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import { trackEvent } from '../../services/analyticsService';
+import { maybeShowRatingPrompt } from '../../services/appRatingPromptService';
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { HomeButton } from '../../components/HomeButton';
@@ -53,10 +54,10 @@ interface SlotOption {
 }
 
 const SLOT_OPTIONS: SlotOption[] = [
-  { slot: 'breakfast', label: 'Breakfast', emoji: '🌅', description: '~25% of daily calories' },
-  { slot: 'lunch_dinner', label: 'Lunch', emoji: '🍽', description: '~30% of daily calories' },
-  { slot: 'lunch_dinner', label: 'Dinner', emoji: '🥘', description: '~30% of daily calories' },
-  { slot: 'snack_dessert', label: 'Snack / Dessert', emoji: '🥜', description: '~15% of daily calories' },
+  { slot: 'breakfast', label: 'Breakfast', emoji: '', description: '~25% of daily calories' },
+  { slot: 'lunch_dinner', label: 'Lunch', emoji: '', description: '~30% of daily calories' },
+  { slot: 'lunch_dinner', label: 'Dinner', emoji: '', description: '~30% of daily calories' },
+  { slot: 'snack_dessert', label: 'Snack / Dessert', emoji: '', description: '~15% of daily calories' },
 ];
 
 const CUISINE_OPTIONS = [
@@ -147,6 +148,10 @@ export default function AutoMealPlanScreen() {
       screen: 'AutoMealPlanScreen',
       metadata: { slots: slots.length, servingCount, pantryOnly, cuisineStyle, cookTimeOption },
     });
+    maybeShowRatingPrompt(router, {
+      eventName: 'auto_meal_plan_generated',
+      eventOptions: { screen: 'AutoMealPlanScreen', metadata: { slots: slots.length } },
+    }).catch(() => {});
 
     const today = new Date();
     const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;

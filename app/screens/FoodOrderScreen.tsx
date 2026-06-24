@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,6 +28,7 @@ import { getFitnessProfile, calculateMacroTargets } from '../../services/fitness
 import { getDietaryRestrictions } from '../../services/dietaryService';
 import { generateFoodItemImage } from '../../services/imageGenerationService';
 import { trackEvent } from '../../services/analyticsService';
+import { maybeShowRatingPrompt } from '../../services/appRatingPromptService';
 import { logScreenView } from '../../services/firebaseAnalytics';
 import { getDietPreference, hasNonVegText } from '../../src/utils/dietPreference';
 import { invokeAnthropicMessages } from '../../services/anthropicService';
@@ -100,10 +103,58 @@ function looksVegetarianOnlyRestaurant(name: string): boolean {
   return /\b(mtr|saravana|udupi|sagar|annapurna|pure\s+veg|vegetarian|veg\b)/i.test(name);
 }
 
+function extractUrls(text: string): string[] {
+  return Array.from(text.matchAll(/https?:\/\/[^\s)]+/gi))
+    .map((match) => match[0].replace(/[.,;!?]+$/g, ''))
+    .slice(0, 2);
+}
+
+function htmlToReadableText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&rsquo;/gi, "'")
+    .replace(/&ldquo;|&rdquo;/gi, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchMenuDetailsFromUrls(info: string): Promise<string> {
+  const urls = extractUrls(info);
+  if (urls.length === 0) return '';
+
+  const snippets = await Promise.all(urls.map(async (url) => {
+    try {
+      const response = await Promise.race([
+        fetch(url, {
+          headers: {
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8',
+          },
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('Timed out fetching menu URL')), 8000)),
+      ]);
+      const html = await response.text();
+      const text = htmlToReadableText(html).slice(0, 7000);
+      return text ? `Fetched content from ${url}:\n${text}` : '';
+    } catch {
+      return `Could not fetch live page content from ${url}. Use the URL/domain and any visible details supplied by the user, but ask for a menu photo if the menu items are still unclear.`;
+    }
+  }));
+
+  return snippets.filter(Boolean).join('\n\n').slice(0, 12000);
+}
+
 export default function FoodOrderScreen() {
   const router = useRouter();
   useEffect(() => { logScreenView('FoodOrderScreen'); }, []);
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [restaurantName, setRestaurantName] = useState('');
   const [manualLocation, setManualLocation] = useState('');
@@ -120,30 +171,16 @@ export default function FoodOrderScreen() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const locationDisplay = currentLocation || manualLocation.trim();
-  const locationSearchContext = currentLocationSearchContext || manualLocation.trim();
-  const canSearch = restaurantName.trim().length > 1 && locationSearchContext.length > 1;
+  const locationDisplay = manualLocation.trim() || currentLocation;
+  const locationSearchContext = manualLocation.trim() || currentLocationSearchContext;
+  const canSearch = restaurantName.trim().length > 1
+    && (locationSearchContext.length > 1 || restaurantInfo.trim().length > 4 || menuPhotos.length > 0);
 
-  const addMenuPhoto = () => {
-    Alert.alert('Add Menu Photo', 'Choose source', [
-      {
-        text: 'Camera', onPress: async () => {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) { Alert.alert('Permission needed', 'Camera access is required.'); return; }
-          const r = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.6, base64: true });
-          if (!r.canceled && r.assets?.[0]) appendPhoto(r.assets[0].uri);
-        },
-      },
-      {
-        text: 'Gallery', onPress: async () => {
-          const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          if (!perm.granted) { Alert.alert('Permission needed', 'Gallery access is required.'); return; }
-          const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6, base64: true });
-          if (!r.canceled && r.assets?.[0]) appendPhoto(r.assets[0].uri);
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+  const addMenuPhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert('Permission needed', 'Photo library access is required.'); return; }
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.6, base64: true });
+    if (!r.canceled && r.assets?.[0]) appendPhoto(r.assets[0].uri);
   };
 
   const appendPhoto = async (uri: string) => {
@@ -233,8 +270,9 @@ export default function FoodOrderScreen() {
         ? `${restaurantName.trim()} appears to be a vegetarian-only restaurant. Recommend vegetarian dishes only. Do not recommend chicken, meat, fish, eggs, prawns, shrimp, or seafood.`
         : 'First verify the restaurant/menu context. If the restaurant is vegetarian-only or the attached menu only shows vegetarian dishes, recommend vegetarian dishes only.';
       const resolvedLocationContext = locationSearchContext;
+      const fetchedMenuDetails = await fetchMenuDetailsFromUrls(restaurantInfo);
       const extraRestaurantInfo = restaurantInfo.trim()
-        ? `Additional restaurant info from user: ${restaurantInfo.trim()}`
+        ? `Additional restaurant info from user: ${restaurantInfo.trim()}${fetchedMenuDetails ? `\n\nFetched website/menu page text:\n${fetchedMenuDetails}` : ''}`
         : 'No website, menu link, or extra restaurant info was provided.';
 
       const imageBlocks = menuPhotos.slice(0, 3).map((p) => ({
@@ -262,10 +300,13 @@ SpiceStrong minimum criteria:
 - If no dishes pass, return [].
 
 Restaurant match rules:
-- If you cannot confidently identify the exact restaurant from name + location + any provided info, set "status" to "uncertain_match" and return no items.
+- If a direct restaurant website/menu URL, fetched page text, or menu photo is provided, use that as the primary menu source. Do not block only because you cannot independently verify the exact map location.
+- Location context is only for disambiguation. A direct menu URL is enough to recommend dishes if menu items are visible or reasonably inferable from the page.
+- If you can identify menu items from the supplied URL text/photos/details but the exact location is not certain, still set "status" to "matched", lower "restaurantConfidence" if needed, and explain that macros are estimates from the supplied menu.
+- If you cannot identify any real menu items from the restaurant name, supplied URL/details, fetched text, or photos, set "status" to "uncertain_match" and return no items.
 - Treat GPS-derived locations as a nearby search area with an approximate 10 mile radius.
 - Location may be GPS-derived, a neighborhood/city/country, or an international address. Do not assume this is in the United States.
-- You do not have live Google Maps search. If the restaurant is not known from your data or the provided website/menu/details/photos, set "status" to "uncertain_match" and ask for a website, menu link, Google Maps/Yelp link, or menu photo.
+- You do not have live Google Maps search. If the restaurant is not known from your data or the provided website/menu/details/photos/fetched page text, set "status" to "uncertain_match" and ask for a website, menu link, Google Maps/Yelp link, or menu photo.
 - If the restaurant is identified but no dishes pass the SpiceStrong minimum, set "status" to "no_good_options" and return no items.
 - If the restaurant is identified and qualifying dishes exist, set "status" to "matched".
 
@@ -299,8 +340,9 @@ Rank by best protein-to-calorie ratio for their goal. Use real menu nutrition da
               text: `Restaurant: ${restaurantName.trim()}
 Location context: ${resolvedLocationContext}
 ${restaurantInfo.trim() ? `Website/menu/details: ${restaurantInfo.trim()}` : 'Website/menu/details: not provided'}
+${fetchedMenuDetails ? `Fetched website/menu page text:\n${fetchedMenuDetails}` : 'Fetched website/menu page text: not available'}
 ${goalDesc}
-Find qualifying SpiceStrong menu options within about 10 miles of the location context when GPS coordinates are provided. If you cannot confidently match the restaurant, ask for a website, menu link, Google Maps/Yelp link, or menu photos through the JSON status/message.`,
+Find qualifying SpiceStrong menu options. If a direct menu URL or fetched menu text is provided, prioritize it over map certainty. If you cannot identify real menu items, ask for a clearer menu link or menu photos through the JSON status/message.`,
             },
           ],
         }],
@@ -314,10 +356,9 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
           ? parsedResponse.items
           : [];
       const status = Array.isArray(parsedResponse) ? 'matched' : String(parsedResponse?.status || 'matched');
-      const confidence = Number(parsedResponse?.restaurantConfidence ?? 1);
       const responseMessage = String(parsedResponse?.message || '');
 
-      if (status === 'uncertain_match' || confidence < 0.65) {
+      if (status === 'uncertain_match') {
         setIssue({
           type: 'uncertain_match',
           title: 'Help us find the right restaurant',
@@ -405,6 +446,10 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
       setSavedIds((prev) => new Set([...prev, item.id]));
       setExpandedId(null);
       trackEvent('meal_saved', { screen: 'FoodOrderScreen', metadata: { slot, restaurant: restaurantName.trim() } });
+      maybeShowRatingPrompt(router, {
+        eventName: 'meal_saved',
+        eventOptions: { screen: 'FoodOrderScreen', metadata: { slot, restaurant: restaurantName.trim() } },
+      }).catch(() => {});
     } catch (err: any) {
       Alert.alert('Save failed', err?.message ?? 'Could not save this item.');
     } finally {
@@ -420,16 +465,23 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
         </TouchableOpacity>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerEyebrow}>Daily Cal Tracker</Text>
-          <Text style={styles.headerTitle}>Food Order</Text>
+          <Text style={styles.headerTitle}>Eat out Smart</Text>
         </View>
         <HomeButton />
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 34 }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={insets.top + 72}
       >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 34 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
         <View style={styles.hero}>
           <Text style={styles.heroTitle}>Order smart 🍽️</Text>
           <Text style={styles.heroText}>Enter a restaurant and we'll find the top 5 dishes for your fitness goals — with real macros.</Text>
@@ -437,19 +489,17 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
 
         <View style={styles.formCard}>
           <Text style={styles.fieldLabel}>Restaurant name</Text>
-          <TextInput
-            style={styles.textInput}
-            value={restaurantName}
-            onChangeText={setRestaurantName}
-            placeholder="e.g. Chipotle, Olive Garden, In-N-Out"
-            placeholderTextColor="rgba(248,241,232,0.30)"
-            returnKeyType="next"
-          />
-
-          <View>
-            <Text style={styles.fieldLabel}>Location</Text>
+          <View style={styles.restaurantRow}>
+            <TextInput
+              style={[styles.textInput, styles.restaurantInput]}
+              value={restaurantName}
+              onChangeText={setRestaurantName}
+              placeholder="e.g. Chipotle, Olive Garden"
+              placeholderTextColor="rgba(248,241,232,0.30)"
+              returnKeyType="next"
+            />
             <TouchableOpacity
-              style={[styles.locationBtn, currentLocation && styles.locationBtnActive]}
+              style={[styles.compactLocationBtn, currentLocation && styles.compactLocationBtnActive]}
               onPress={useCurrentLocation}
               disabled={locationLoading}
               activeOpacity={0.84}
@@ -457,23 +507,19 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
               {locationLoading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Ionicons name="navigate-outline" size={16} color={currentLocation ? '#22C55E' : '#FFFFFF'} />
+                <Ionicons name="navigate-outline" size={17} color={currentLocation ? '#22C55E' : '#FFFFFF'} />
               )}
-              <Text style={styles.locationBtnText}>
-                {currentLocation || (locationLoading ? 'Finding your location...' : 'Use current location')}
-              </Text>
+              <Text style={styles.compactLocationText}>{currentLocation ? 'Near me' : 'Use location'}</Text>
             </TouchableOpacity>
+          </View>
+
+          <View>
+            <Text style={styles.fieldLabel}>City / state</Text>
             <TextInput
               style={[styles.textInput, styles.manualLocationInput]}
               value={manualLocation}
-              onChangeText={(value) => {
-                setManualLocation(value);
-                if (value.trim()) {
-                  setCurrentLocation('');
-                  setCurrentLocationSearchContext('');
-                }
-              }}
-              placeholder="Or enter area, city, country, address, or Maps link"
+              onChangeText={setManualLocation}
+              placeholder={currentLocation ? `Optional, overrides ${currentLocation}` : 'Bellevue, WA or city/state'}
               placeholderTextColor="rgba(248,241,232,0.30)"
               returnKeyType="next"
             />
@@ -494,8 +540,8 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
               ))}
               {menuPhotos.length < 3 && (
                 <TouchableOpacity style={styles.addPhotoBtn} onPress={addMenuPhoto} activeOpacity={0.8}>
-                  <Ionicons name="camera-outline" size={22} color="rgba(248,241,232,0.5)" />
-                  <Text style={styles.addPhotoLabel}>Add</Text>
+                  <Ionicons name="images-outline" size={22} color="rgba(248,241,232,0.5)" />
+                  <Text style={styles.addPhotoLabel}>Upload</Text>
                 </TouchableOpacity>
               )}
             </ScrollView>
@@ -507,6 +553,9 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
               style={[styles.textInput, styles.detailsInput]}
               value={restaurantInfo}
               onChangeText={setRestaurantInfo}
+              onFocus={() => {
+                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 180);
+              }}
               placeholder="Paste a website, menu link, Google Maps/Yelp link, or notes"
               placeholderTextColor="rgba(248,241,232,0.30)"
               multiline
@@ -550,8 +599,8 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
               {issue.type === 'uncertain_match' && (
                 <View style={styles.issueActions}>
                   <TouchableOpacity style={styles.issueActionBtn} onPress={addMenuPhoto} activeOpacity={0.82}>
-                    <Ionicons name="camera-outline" size={14} color="#FFFFFF" />
-                    <Text style={styles.issueActionText}>Add menu photo</Text>
+                    <Ionicons name="images-outline" size={14} color="#FFFFFF" />
+                    <Text style={styles.issueActionText}>Upload menu photo</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -663,7 +712,8 @@ Find qualifying SpiceStrong menu options within about 10 miles of the location c
             })}
           </View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </PremiumScreen>
   );
 }
@@ -687,6 +737,7 @@ function MacroPill({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardAvoider: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -745,28 +796,41 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  detailsInput: {
-    minHeight: 82,
-    paddingTop: 12,
-    lineHeight: 20,
+  restaurantRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
   },
-  locationBtn: {
+  restaurantInput: {
+    flex: 1,
+  },
+  compactLocationBtn: {
+    width: 118,
     minHeight: 48,
     borderRadius: 14,
     backgroundColor: 'rgba(143,58,31,0.34)',
     borderWidth: 1,
     borderColor: 'rgba(232,168,124,0.24)',
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
   },
-  locationBtnActive: {
+  compactLocationBtnActive: {
     backgroundColor: 'rgba(34,197,94,0.10)',
     borderColor: 'rgba(34,197,94,0.26)',
   },
-  locationBtnText: { flex: 1, color: '#FFFFFF', fontSize: 13, fontWeight: '800', lineHeight: 18 },
+  compactLocationText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  detailsInput: {
+    minHeight: 82,
+    paddingTop: 12,
+    lineHeight: 20,
+  },
   manualLocationInput: { minHeight: 46 },
   photoSection: { gap: 0 },
   optionalLabel: { color: 'rgba(248,241,232,0.35)', fontWeight: '700', textTransform: 'none', letterSpacing: 0 },

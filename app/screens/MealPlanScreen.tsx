@@ -307,6 +307,9 @@ CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish;
 }
 
 const ORANGE = '#8F3A1F';
+const TRACKER_ACCENT = '#B6532B';
+const TRACKER_ACCENT_SOFT = '#E8A87C';
+const TRACKER_CREAM = '#F8F1E8';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
@@ -318,10 +321,10 @@ const PLAYFAIR = Platform.select({
 const CARD_W = Dimensions.get('window').width - 36;
 const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch_dinner', 'snack_dessert', 'others'];
 const SLOT_META: Record<MealSlot, { icon: keyof typeof Ionicons.glyphMap; accent: string; hint: string }> = {
-  breakfast: { icon: 'sunny-outline', accent: '#F5A524', hint: 'Start strong' },
-  lunch_dinner: { icon: 'restaurant-outline', accent: '#E8671A', hint: 'Fuel the day' },
-  snack_dessert: { icon: 'sparkles-outline', accent: '#22C55E', hint: 'Smart finish' },
-  others: { icon: 'grid-outline', accent: '#94A3B8', hint: 'Untagged meals' },
+  breakfast: { icon: 'sunny-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Start strong' },
+  lunch_dinner: { icon: 'restaurant-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Fuel the day' },
+  snack_dessert: { icon: 'sparkles-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Smart finish' },
+  others: { icon: 'grid-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Untagged meals' },
 };
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -335,7 +338,7 @@ function getFirstDayOfWeek(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-const RING_SIZE = Math.floor((Dimensions.get('window').width - 72) / 4);
+const RING_SIZE = Math.floor((Dimensions.get('window').width - 56) / 4);
 const RING_STROKE = 8;
 const RING_R = RING_SIZE / 2 - RING_STROKE / 2 - 2;
 const RING_CIRC = 2 * Math.PI * RING_R;
@@ -351,26 +354,26 @@ function getMacroRingModeMeta(displayMode: 'diff' | 'target' | 'consumed', diff:
     return {
       icon: diff >= 0 ? '▲' : '▼',
       label: 'Diff',
-      color: '#FFFFFF',
-      bg: diff >= 0 ? 'rgba(34,197,94,0.20)' : 'rgba(245,158,11,0.20)',
-      border: diff >= 0 ? 'rgba(134,239,172,0.44)' : 'rgba(253,230,138,0.44)',
+      color: TRACKER_CREAM,
+      bg: diff >= 0 ? 'rgba(232,168,124,0.16)' : 'rgba(248,241,232,0.10)',
+      border: diff >= 0 ? 'rgba(232,168,124,0.36)' : 'rgba(248,241,232,0.20)',
     };
   }
   if (displayMode === 'target') {
     return {
       icon: '◎',
       label: 'Target',
-      color: '#FFFFFF',
-      bg: 'rgba(232,168,124,0.18)',
-      border: 'rgba(232,168,124,0.42)',
+      color: TRACKER_CREAM,
+      bg: 'rgba(232,168,124,0.14)',
+      border: 'rgba(232,168,124,0.32)',
     };
   }
   return {
     icon: '✓',
     label: 'Eaten',
-    color: '#FFFFFF',
-    bg: 'rgba(59,130,246,0.18)',
-    border: 'rgba(147,197,253,0.36)',
+    color: TRACKER_CREAM,
+    bg: 'rgba(248,241,232,0.10)',
+    border: 'rgba(248,241,232,0.20)',
   };
 }
 
@@ -395,7 +398,7 @@ function MacroRing({
 
   return (
     <View style={{ alignItems: 'center', width: RING_SIZE }}>
-      <Text style={{ color, fontSize: 9, fontWeight: '800', letterSpacing: 1, marginBottom: 5, textTransform: 'uppercase' }}>
+      <Text style={{ color, fontSize: 8, fontWeight: '800', letterSpacing: 0.7, marginBottom: 4, textTransform: 'uppercase' }}>
         {label}
       </Text>
       <Pressable
@@ -422,13 +425,13 @@ function MacroRing({
           />
         </Svg>
         <View style={{ alignItems: 'center', maxWidth: RING_SIZE - 10 }}>
-          <View style={{ borderRadius: 999, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border, marginBottom: 3 }}>
-            <Text style={{ fontSize: 8.5, fontWeight: '900', color: modeMeta.color, letterSpacing: 0.3 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.76}>
+          <View style={{ borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border, marginBottom: 3 }}>
+            <Text style={{ fontSize: 7.5, fontWeight: '900', color: modeMeta.color, letterSpacing: 0.2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
               {modeMeta.icon} {modeMeta.label}
             </Text>
           </View>
-          <View style={{ borderRadius: 11, paddingHorizontal: 7, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border }}>
-            <Text style={{ fontSize: 14.5, fontWeight: '900', color: modeMeta.color, lineHeight: 18, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>
+          <View style={{ borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '900', color: modeMeta.color, lineHeight: 16, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.62}>
               {formatMacroRingValue(displayValue, unit, displayMode === 'diff')}
             </Text>
           </View>
@@ -1818,7 +1821,7 @@ ${cookTimeInstruction}
             <View style={styles.ringsRow}>
             <MacroRing
               label="Calories"
-              color="#F5A524"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.calories ?? 2000}
               consumed={totals.calories}
               displayMode={cronometerMode}
@@ -1827,7 +1830,7 @@ ${cookTimeInstruction}
             />
             <MacroRing
               label="Protein"
-              color="#E8671A"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.proteinG ?? 120}
               consumed={totals.proteinG}
               displayMode={cronometerMode}
@@ -1835,7 +1838,7 @@ ${cookTimeInstruction}
             />
             <MacroRing
               label="Carbs"
-              color="#3B82F6"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.carbsG ?? 150}
               consumed={totals.carbsG}
               displayMode={cronometerMode}
@@ -1843,7 +1846,7 @@ ${cookTimeInstruction}
             />
             <MacroRing
               label="Fat"
-              color="#22C55E"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.fatG ?? 80}
               consumed={totals.fatG}
               displayMode={cronometerMode}
@@ -1888,9 +1891,7 @@ ${cookTimeInstruction}
                   {
                     width: `${Math.min(100, displayedAdherencePct ?? 0)}%`,
                     backgroundColor:
-                      displayedAdherencePct === null ? 'rgba(248,241,232,0.15)' :
-                      displayedAdherencePct >= 80 ? '#22C55E' :
-                      displayedAdherencePct >= 60 ? '#F5A524' : '#EF4444',
+                      displayedAdherencePct === null ? 'rgba(248,241,232,0.15)' : TRACKER_ACCENT_SOFT,
                   },
                 ]} />
               </View>
@@ -1942,7 +1943,7 @@ ${cookTimeInstruction}
               <View key={slot} style={styles.slotSection}>
                 <View style={styles.slotHeader}>
                   <View style={styles.slotTitleWrap}>
-                    <View style={[styles.slotIconBadge, { backgroundColor: `${slotMeta.accent}22`, borderColor: `${slotMeta.accent}66` }]}>
+                    <View style={[styles.slotIconBadge, { backgroundColor: 'rgba(232,168,124,0.10)', borderColor: 'rgba(232,168,124,0.30)' }]}>
                       <Ionicons name={slotMeta.icon} size={17} color={slotMeta.accent} />
                     </View>
                     <View>
@@ -2160,7 +2161,7 @@ ${cookTimeInstruction}
                   >
                     <Ionicons name={slotMeta.icon} size={16} color={active ? '#FFFFFF' : slotMeta.accent} />
                     <Text style={[styles.qaSlotOptionText, active && styles.qaSlotOptionTextActive]}>
-                      {SLOT_LABELS[slot].replace(/^[^\s]+\s/, '')}
+                      {SLOT_LABELS[slot]}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -2294,17 +2295,17 @@ ${cookTimeInstruction}
 
                 <View style={styles.nutritionMacroRow}>
                   <View style={styles.nutritionMacroTile}>
-                    <Ionicons name="barbell-outline" size={18} color="#E85D5D" />
+                    <Ionicons name="barbell-outline" size={18} color={TRACKER_ACCENT_SOFT} />
                     <Text style={styles.nutritionMacroLabel}>Protein</Text>
                     <Text style={styles.nutritionMacroValue}>{quickAddMacros.proteinG || '0'}g</Text>
                   </View>
                   <View style={styles.nutritionMacroTile}>
-                    <Ionicons name="leaf-outline" size={18} color="#E8A87C" />
+                    <Ionicons name="leaf-outline" size={18} color={TRACKER_ACCENT_SOFT} />
                     <Text style={styles.nutritionMacroLabel}>Carbs</Text>
                     <Text style={styles.nutritionMacroValue}>{quickAddMacros.carbsG || '0'}g</Text>
                   </View>
                   <View style={styles.nutritionMacroTile}>
-                    <Ionicons name="water-outline" size={18} color="#6EA8FE" />
+                    <Ionicons name="water-outline" size={18} color={TRACKER_ACCENT_SOFT} />
                     <Text style={styles.nutritionMacroLabel}>Fats</Text>
                     <Text style={styles.nutritionMacroValue}>{quickAddMacros.fatG || '0'}g</Text>
                   </View>
@@ -2613,9 +2614,9 @@ ${cookTimeInstruction}
 
               <View style={styles.updateMacroGrid}>
                 {[
-                  { key: 'proteinG' as const, label: 'Protein', color: '#EF6A6A', icon: 'barbell-outline' as const },
-                  { key: 'carbsG' as const, label: 'Carbs', color: '#E8A87C', icon: 'leaf-outline' as const },
-                  { key: 'fatG' as const, label: 'Fats', color: '#60A5FA', icon: 'water-outline' as const },
+                  { key: 'proteinG' as const, label: 'Protein', color: TRACKER_ACCENT_SOFT, icon: 'barbell-outline' as const },
+                  { key: 'carbsG' as const, label: 'Carbs', color: TRACKER_ACCENT_SOFT, icon: 'leaf-outline' as const },
+                  { key: 'fatG' as const, label: 'Fats', color: TRACKER_ACCENT_SOFT, icon: 'water-outline' as const },
                 ].map((macro) => (
                   <View key={macro.key} style={styles.updateMacroField}>
                     <Ionicons name={macro.icon} size={18} color={macro.color} />
@@ -3298,7 +3299,7 @@ const styles = StyleSheet.create({
   calorieRailFill: {
     height: '100%',
     borderRadius: 999,
-    backgroundColor: '#E8671A',
+    backgroundColor: TRACKER_ACCENT_SOFT,
   },
   heroStatsRow: {
     flexDirection: 'row',
@@ -3728,7 +3729,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cardMacroPillProtein: {
-    backgroundColor: 'rgba(143,58,31,0.55)',
+    backgroundColor: 'rgba(13,11,9,0.56)',
   },
   removeBtn: {
     width: 28,
@@ -3853,7 +3854,7 @@ const styles = StyleSheet.create({
   },
   cmMacroRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   cmMacroVal: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.80)' },
-  cmMacroNew: { color: '#22C55E' },
+  cmMacroNew: { color: TRACKER_ACCENT_SOFT },
   cmMacroDot: { fontSize: 14, color: 'rgba(255,255,255,0.20)' },
   cmPhotoActions: { alignItems: 'center', gap: 14, marginBottom: 8 },
   cmPhotoHint: { fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 20 },

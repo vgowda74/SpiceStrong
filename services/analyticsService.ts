@@ -107,6 +107,10 @@ export async function trackEvent(
     if (supabaseResult.error) {
       console.warn(`[SpiceStrong] Analytics insert failed: ${eventName}`, supabaseResult.error.message);
     }
+
+    import('./inAppEventNotificationService')
+      .then(({ handleInAppEventNotification }) => handleInAppEventNotification(eventName, options))
+      .catch(() => {});
   } catch (error) {
     console.warn('[SpiceStrong] Analytics unavailable', error);
   }

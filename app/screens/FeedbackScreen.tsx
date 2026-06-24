@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   Alert,
-  ImageBackground,
   Linking,
   Platform,
   ScrollView,
@@ -156,7 +155,7 @@ export default function FeedbackScreen() {
   );
 
   return (
-    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
+    <View style={styles.bg}>
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(0,0,0,0.75)' }]} />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -243,12 +242,12 @@ export default function FeedbackScreen() {
           <Text style={styles.submitBtnText}>📱 Send Feedback via SMS</Text>
         </TouchableOpacity>
       </ScrollView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
+  bg: { flex: 1, backgroundColor: '#0D0B09' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

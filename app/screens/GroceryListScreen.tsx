@@ -44,9 +44,11 @@ import { getDietPreference, isNonVegIngredientName, type DietPreference } from '
 import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ORANGE = '#8F3A1F';
+const ACCENT = '#E8A87C';
+const ACCENT_BG = 'rgba(232,168,124,0.12)';
+const ACCENT_BORDER = 'rgba(232,168,124,0.28)';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
-const GREEN = '#22C55E';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 export default function GroceryListScreen() {
@@ -266,7 +268,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>Grocery List</Text>
-          <Text style={styles.headerSub}>{uncheckedItems.length} to buy · {checkedItems.length} done</Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity style={styles.shareBtn} onPress={() => router.push({ pathname: '/screens/ScanFridgeScreen', params: { mode: 'list' } })} activeOpacity={0.8}>
@@ -340,9 +341,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                 key={item.name}
                 style={styles.itemCard}
               >
-                <TouchableOpacity style={styles.checkbox} onPress={() => handleToggle(item.name)} activeOpacity={0.7}>
-                  <View style={styles.checkboxInner} />
-                </TouchableOpacity>
                 <TouchableOpacity style={styles.itemIcon} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
                   <Text style={styles.itemIconText}>{getIngredientEmoji(item.name)}</Text>
                 </TouchableOpacity>
@@ -353,6 +351,9 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => openEditItem(item)} activeOpacity={0.7}>
                   <Text style={styles.itemQty}>{item.quantity}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.checkbox} onPress={() => handleToggle(item.name)} activeOpacity={0.7}>
+                  <View style={styles.checkboxInner} />
                 </TouchableOpacity>
               </View>
             ))}
@@ -373,9 +374,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                 key={item.name}
                 style={[styles.itemCard, styles.itemCardDone]}
               >
-                <TouchableOpacity style={[styles.checkbox, styles.checkboxDone]} onPress={() => handleToggle(item.name)} activeOpacity={0.7}>
-                  <Text style={styles.checkboxCheck}>✓</Text>
-                </TouchableOpacity>
                 <TouchableOpacity style={[styles.itemIcon, { opacity: 0.4 }]} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
                   <Text style={styles.itemIconText}>{getIngredientEmoji(item.name)}</Text>
                 </TouchableOpacity>
@@ -385,6 +383,9 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                 </TouchableOpacity>
                 <TouchableOpacity onPress={() => openEditItem(item)} activeOpacity={0.7}>
                   <Text style={[styles.itemQty, styles.itemQtyDone]}>{item.quantity}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.checkbox, styles.checkboxDone]} onPress={() => handleToggle(item.name)} activeOpacity={0.7}>
+                  <Text style={styles.checkboxCheck}>✓</Text>
                 </TouchableOpacity>
               </View>
             ))}
@@ -564,16 +565,15 @@ const styles = StyleSheet.create({
   },
   back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
-  headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 2 },
   shareBtn: {
-    backgroundColor: 'rgba(34,197,94,0.15)',
+    backgroundColor: ACCENT_BG,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.35)',
+    borderColor: ACCENT_BORDER,
   },
-  shareBtnText: { fontSize: 13, fontWeight: '700', color: GREEN },
+  shareBtnText: { fontSize: 13, fontWeight: '700', color: ACCENT },
 
   addTopBar: {
     paddingHorizontal: 16,
@@ -607,7 +607,7 @@ const styles = StyleSheet.create({
   sectionLabelDone: {
     fontSize: 11,
     fontWeight: '800',
-    color: 'rgba(34,197,94,0.60)',
+    color: 'rgba(248,241,232,0.44)',
     letterSpacing: 1.5,
   },
   clearBtn: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.35)' },
@@ -618,44 +618,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: SURFACE,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: BORDER,
   },
   itemCardDone: {
-    backgroundColor: 'rgba(34,197,94,0.04)',
-    borderColor: 'rgba(34,197,94,0.10)',
+    backgroundColor: 'rgba(248,241,232,0.04)',
+    borderColor: 'rgba(248,241,232,0.08)',
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginLeft: 10,
   },
   checkboxInner: {},
   checkboxDone: {
-    backgroundColor: GREEN,
-    borderColor: GREEN,
+    backgroundColor: ACCENT,
+    borderColor: ACCENT,
   },
   checkboxCheck: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   itemIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
-  itemIconText: { fontSize: 28 },
+  itemIconText: { fontSize: 18 },
   itemContent: { flex: 1 },
   itemName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
   itemNameDone: { color: 'rgba(255,255,255,0.35)', textDecorationLine: 'line-through' },
@@ -680,23 +680,23 @@ const styles = StyleSheet.create({
   },
   moveToPantryBtn: {
     flex: 2,
-    backgroundColor: 'rgba(34,197,94,0.15)',
+    backgroundColor: ACCENT_BG,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.35)',
+    borderColor: ACCENT_BORDER,
   },
-  moveToPantryText: { fontSize: 13, fontWeight: '700', color: GREEN },
+  moveToPantryText: { fontSize: 13, fontWeight: '700', color: ACCENT },
   deleteCheckedBtn: {
     width: 46,
-    backgroundColor: 'rgba(239,68,68,0.15)',
+    backgroundColor: 'rgba(248,241,232,0.08)',
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(239,68,68,0.30)',
+    borderColor: 'rgba(248,241,232,0.14)',
   },
   deleteCheckedText: { fontSize: 18 },
   orderBtn: {
@@ -734,7 +734,7 @@ const styles = StyleSheet.create({
   },
   addBtn: {
     width: 46,
-    backgroundColor: GREEN,
+    backgroundColor: ORANGE,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
@@ -748,17 +748,17 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 4,
-    backgroundColor: 'rgba(34,197,94,0.10)',
+    backgroundColor: ACCENT_BG,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1.5,
-    borderColor: 'rgba(34,197,94,0.25)',
+    borderColor: ACCENT_BORDER,
     gap: 12,
   },
   smartSummaryEmoji: { fontSize: 28 },
-  smartSummaryTitle: { fontSize: 15, fontWeight: '800', color: GREEN },
+  smartSummaryTitle: { fontSize: 15, fontWeight: '800', color: ACCENT },
   smartSummarySub: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 1 },
-  smartSummaryArrow: { fontSize: 24, color: 'rgba(34,197,94,0.50)', fontWeight: '300' },
+  smartSummaryArrow: { fontSize: 24, color: 'rgba(232,168,124,0.50)', fontWeight: '300' },
 
   // Modals
   modalOverlay: {
@@ -826,7 +826,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 13,
     alignItems: 'center',
-    backgroundColor: GREEN,
+    backgroundColor: ORANGE,
   },
   editCancelText: { color: 'rgba(255,255,255,0.72)', fontSize: 14, fontWeight: '700' },
   editSaveText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },

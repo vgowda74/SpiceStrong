@@ -42,22 +42,24 @@ import { getDietPreference, isNonVegIngredientName, type DietPreference } from '
 import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ORANGE = '#8F3A1F';
+const ACCENT = '#E8A87C';
+const ACCENT_BG = 'rgba(232,168,124,0.12)';
+const ACCENT_BORDER = 'rgba(232,168,124,0.28)';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
-const GREEN = '#22C55E';
 const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 type Category = PantryItem['category'];
 const CATEGORY_ORDER: Category[] = ['PROTEIN', 'VEGETABLE', 'FRUIT', 'DAIRY', 'GRAIN', 'CONDIMENT', 'SPICE', 'PANTRY'];
-const CATEGORY_CONFIG: Record<Category, { label: string; emoji: string; color: string }> = {
-  PROTEIN: { label: 'Proteins', emoji: '💪', color: '#8F3A1F' },
-  VEGETABLE: { label: 'Vegetables', emoji: '🥬', color: '#22C55E' },
-  FRUIT: { label: 'Fruits', emoji: '🍎', color: '#F59E0B' },
-  DAIRY: { label: 'Dairy', emoji: '🥛', color: '#60A5FA' },
-  GRAIN: { label: 'Grains', emoji: '🌾', color: '#D4A017' },
-  CONDIMENT: { label: 'Condiments', emoji: '🫙', color: '#A78BFA' },
-  SPICE: { label: 'Spices', emoji: '🧂', color: '#F97316' },
-  PANTRY: { label: 'Pantry', emoji: '🥫', color: '#94A3B8' },
+const CATEGORY_CONFIG: Record<Category, { label: string; color: string }> = {
+  PROTEIN: { label: 'Proteins', color: ACCENT },
+  VEGETABLE: { label: 'Vegetables', color: ACCENT },
+  FRUIT: { label: 'Fruits', color: ACCENT },
+  DAIRY: { label: 'Dairy', color: ACCENT },
+  GRAIN: { label: 'Grains', color: ACCENT },
+  CONDIMENT: { label: 'Condiments', color: ACCENT },
+  SPICE: { label: 'Spices', color: ACCENT },
+  PANTRY: { label: 'Pantry', color: ACCENT },
 };
 
 export default function MyPantryScreen() {
@@ -297,8 +299,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
     return acc;
   }, {});
 
-  const totalCount = items.length;
-
   return (
     <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -308,7 +308,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>My Pantry</Text>
-          <Text style={styles.headerSub}>{totalCount} item{totalCount !== 1 ? 's' : ''}</Text>
         </View>
         <TouchableOpacity
           style={styles.scanBtn}
@@ -411,15 +410,7 @@ Keep it under 250 words. Be specific to THEIR items.` }],
           return (
             <View key={cat} style={styles.catSection}>
               <TouchableOpacity style={styles.catHeader} onPress={toggleAll} activeOpacity={0.7}>
-                <View style={[styles.selectBox, { width: 18, height: 18, borderRadius: 4, marginRight: 6 }, allSelected && styles.selectBoxOn]}>
-                  {allSelected && <Text style={[styles.selectCheck, { fontSize: 10 }]}>✓</Text>}
-                </View>
-                <View style={[styles.catDot, { backgroundColor: config.color }]} />
-                <Text style={styles.catEmoji}>{config.emoji}</Text>
                 <Text style={styles.catLabel}>{config.label}</Text>
-                <View style={[styles.catBadge, { backgroundColor: config.color + '20' }]}>
-                  <Text style={[styles.catBadgeText, { color: config.color }]}>{catItems.length}</Text>
-                </View>
               </TouchableOpacity>
               {catItems.map((item) => {
                 const isSelected = selectedItems.has(item.name);
@@ -428,9 +419,6 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                   key={item.name}
                   style={[styles.itemCard, isSelected && styles.itemCardSelected]}
                 >
-                  <TouchableOpacity style={[styles.selectBox, isSelected && styles.selectBoxOn]} onPress={() => toggleSelect(item.name)} activeOpacity={0.7}>
-                    {isSelected && <Text style={styles.selectCheck}>✓</Text>}
-                  </TouchableOpacity>
                   <TouchableOpacity style={styles.itemIcon} onPress={() => handleIngredientInfo(item.name)} activeOpacity={0.7}>
                     <Text style={styles.itemIconText}>{getIngredientEmoji(item.name, cat)}</Text>
                   </TouchableOpacity>
@@ -445,6 +433,9 @@ Keep it under 250 words. Be specific to THEIR items.` }],
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => openEditItem(item)} activeOpacity={0.7}>
                     <Text style={styles.itemQty}>{item.quantity}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.selectBox, styles.itemSelectBox, isSelected && styles.selectBoxOn]} onPress={() => toggleSelect(item.name)} activeOpacity={0.7}>
+                    {isSelected && <Text style={styles.selectCheck}>✓</Text>}
                   </TouchableOpacity>
                 </View>
                 );
@@ -571,7 +562,6 @@ const styles = StyleSheet.create({
   },
   back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
-  headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.40)', marginTop: 2 },
   scanBtn: {
     backgroundColor: 'rgba(143,58,31,0.15)',
     borderRadius: 10,
@@ -607,11 +597,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  catDot: { width: 4, height: 16, borderRadius: 2 },
-  catEmoji: { fontSize: 16 },
   catLabel: { fontSize: 14, fontWeight: '800', color: '#FFFFFF', flex: 1 },
-  catBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  catBadgeText: { fontSize: 11, fontWeight: '800' },
 
   // Selection bar
   selectionBar: {
@@ -626,19 +612,19 @@ const styles = StyleSheet.create({
   },
   selectionCount: { fontSize: 13, fontWeight: '700', color: ORANGE, flex: 1 },
   selectionAction: {
-    backgroundColor: 'rgba(34,197,94,0.15)',
+    backgroundColor: ACCENT_BG,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.30)',
+    borderColor: ACCENT_BORDER,
   },
-  selectionActionText: { fontSize: 12, fontWeight: '700', color: GREEN },
+  selectionActionText: { fontSize: 12, fontWeight: '700', color: ACCENT },
   selectionActionDanger: {
-    backgroundColor: 'rgba(239,68,68,0.15)',
-    borderColor: 'rgba(239,68,68,0.30)',
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderColor: 'rgba(248,241,232,0.14)',
   },
-  selectionActionDangerText: { fontSize: 12, fontWeight: '700', color: '#EF4444' },
+  selectionActionDangerText: { fontSize: 12, fontWeight: '700', color: 'rgba(248,241,232,0.72)' },
   selectionCancel: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.40)' },
 
   // Select checkbox
@@ -653,6 +639,7 @@ const styles = StyleSheet.create({
   },
   selectBoxOn: { backgroundColor: ORANGE, borderColor: ORANGE },
   selectCheck: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
+  itemSelectBox: { marginLeft: 10 },
 
   // Item cards — ingredient checklist style
   itemCardSelected: {
@@ -664,24 +651,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: SURFACE,
     borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: BORDER,
   },
   itemIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
-  itemIconText: { fontSize: 28 },
+  itemIconText: { fontSize: 18 },
   itemLeft: { flex: 1 },
   itemName: { fontSize: 15, fontWeight: '700', color: '#FFFFFF', marginBottom: 2 },
   itemHint: { fontSize: 10, color: 'rgba(255,255,255,0.28)', marginTop: 2 },
@@ -782,17 +769,17 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 4,
-    backgroundColor: 'rgba(143,58,31,0.10)',
+    backgroundColor: ACCENT_BG,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1.5,
-    borderColor: 'rgba(143,58,31,0.25)',
+    borderColor: ACCENT_BORDER,
     gap: 12,
   },
   nutritionIQEmoji: { fontSize: 28 },
-  nutritionIQTitle: { fontSize: 15, fontWeight: '800', color: ORANGE },
+  nutritionIQTitle: { fontSize: 15, fontWeight: '800', color: ACCENT },
   nutritionIQSub: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 1 },
-  nutritionIQArrow: { fontSize: 24, color: 'rgba(143,58,31,0.50)', fontWeight: '300' },
+  nutritionIQArrow: { fontSize: 24, color: 'rgba(232,168,124,0.50)', fontWeight: '300' },
 
   // Modals
   modalOverlay: {
