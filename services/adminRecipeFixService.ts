@@ -6,6 +6,7 @@ import {
 } from './recipeService';
 import { isAdmin } from './adminService';
 import { saveRecipe as saveLocalRecipe, type CookingStep, type SavedRecipe } from '../src/store/recipes';
+import { invokeAnthropicMessages } from './anthropicService';
 
 export type AdminRecipeFixMode = 'instructions' | 'image' | 'both';
 
@@ -24,8 +25,6 @@ interface ClaudeStepFix {
   cookingMethod?: string;
   imagePrompt?: string;
 }
-
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 
 function extractJsonObject(text: string): string {
   const stripped = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
@@ -63,8 +62,6 @@ async function fixStepWithClaude(
   stepIndex: number,
   issue: string,
 ): Promise<CookingStep> {
-  if (!ANTHROPIC_KEY) throw new Error('Missing EXPO_PUBLIC_ANTHROPIC_KEY');
-
   const current = recipe.steps[stepIndex];
   if (!current) throw new Error('Step not found');
 
@@ -97,27 +94,11 @@ Return ONLY JSON with this shape:
   "imagePrompt": "short visual description for a photorealistic replacement step image"
 }`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 900,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+  const data = await invokeAnthropicMessages({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 900,
+    messages: [{ role: 'user', content: prompt }],
   });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(body || `Claude API failed (${response.status})`);
-  }
-
-  const data = await response.json();
   const rawText = String(data.content?.[0]?.text ?? '');
   const parsed = JSON.parse(extractJsonObject(rawText)) as ClaudeStepFix;
   return sanitizeStepFix(parsed, current);

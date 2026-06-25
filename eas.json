@@ -10,7 +10,9 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
-        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dqghnktxrhsvdkgcjsmc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s"
       }
     },
     "preview": {
@@ -19,16 +21,21 @@
       "channel": "preview",
       "env": {
         "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
-        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dqghnktxrhsvdkgcjsmc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s"
       }
     },
     "testflight-admin": {
       "autoIncrement": true,
       "credentialsSource": "remote",
       "channel": "preview",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "true",
-        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dqghnktxrhsvdkgcjsmc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s"
       }
     },
     "production": {
@@ -38,7 +45,9 @@
       "channel": "production",
       "env": {
         "EXPO_PUBLIC_ENABLE_ADMIN_TOOLS": "false",
-        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1"
+        "RNFB_SUPPRESS_NEW_ARCHITECTURE_WARNING": "1",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dqghnktxrhsvdkgcjsmc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s"
       }
     }
   },

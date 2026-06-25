@@ -5,6 +5,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
   ActivityIndicator,
   Platform,
@@ -24,13 +25,14 @@ import {
 } from '../../services/dietaryService';
 import { PremiumScreen } from '../../components/PremiumScreen';
 import { getDietPreference, type DietPreference } from '../../src/utils/dietPreference';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 
@@ -158,13 +160,13 @@ export default function DietaryRestrictionsScreen() {
             <Text style={styles.clearBtn}>Clear all</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 60 }} />
+          <HomeButton />
         )}
       </View>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} />
+          <ProcessingRing label="Loading preferences…" expectedMs={2000} />
         </View>
       ) : (
         <ScrollView

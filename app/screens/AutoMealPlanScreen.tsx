@@ -10,7 +10,6 @@
 
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
@@ -30,15 +29,18 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { type MealSlot } from '../../services/mealPlanService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import { trackEvent } from '../../services/analyticsService';
+import { maybeShowRatingPrompt } from '../../services/appRatingPromptService';
 import PaywallModal from '../../components/PaywallModal';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 
@@ -52,10 +54,23 @@ interface SlotOption {
 }
 
 const SLOT_OPTIONS: SlotOption[] = [
-  { slot: 'breakfast', label: 'Breakfast', emoji: '🌅', description: '~25% of daily calories' },
-  { slot: 'lunch_dinner', label: 'Lunch', emoji: '🍽', description: '~30% of daily calories' },
-  { slot: 'lunch_dinner', label: 'Dinner', emoji: '🥘', description: '~30% of daily calories' },
-  { slot: 'snack_dessert', label: 'Snack / Dessert', emoji: '🥜', description: '~15% of daily calories' },
+  { slot: 'breakfast', label: 'Breakfast', emoji: '', description: '~25% of daily calories' },
+  { slot: 'lunch_dinner', label: 'Lunch', emoji: '', description: '~30% of daily calories' },
+  { slot: 'lunch_dinner', label: 'Dinner', emoji: '', description: '~30% of daily calories' },
+  { slot: 'snack_dessert', label: 'Snack / Dessert', emoji: '', description: '~15% of daily calories' },
+];
+
+const CUISINE_OPTIONS = [
+  'Any', 'Indian', 'South Indian', 'Thai', 'Chinese', 'Korean',
+  'Japanese', 'Mediterranean', 'Italian', 'Greek', 'American', 'Mexican',
+];
+
+const COOK_TIME_OPTIONS: { key: AutoPlanPreferences['cookTimeOption'] | 'any'; label: string }[] = [
+  { key: 'any', label: 'Any time' },
+  { key: 'under15', label: 'Under 15 min' },
+  { key: '15to30', label: '15-30 min' },
+  { key: '30to60', label: '30-60 min' },
+  { key: '60plus', label: '1 hour+' },
 ];
 
 export default function AutoMealPlanScreen() {
@@ -70,7 +85,6 @@ export default function AutoMealPlanScreen() {
   const [carbs, setCarbs] = useState('200');
   const [fat, setFat] = useState('65');
   const [servingCount, setServingCount] = useState(2);
-  const [profileLoaded, setProfileLoaded] = useState(false);
 
   // Load fitness profile targets on mount
   useEffect(() => {
@@ -81,7 +95,6 @@ export default function AutoMealPlanScreen() {
         setProtein(String(targets.proteinG));
         setCarbs(String(targets.carbsG));
         setFat(String(targets.fatG));
-        setProfileLoaded(true);
       }
     })();
   }, []);
@@ -90,6 +103,8 @@ export default function AutoMealPlanScreen() {
   const [selectedSlots, setSelectedSlots] = useState<Set<number>>(new Set([0, 1, 2])); // breakfast, lunch, dinner default
   const [samePlanEveryDay, setSamePlanEveryDay] = useState(true);
   const [pantryOnly, setPantryOnly] = useState(false);
+  const [cuisineStyle, setCuisineStyle] = useState('Any');
+  const [cookTimeOption, setCookTimeOption] = useState<AutoPlanPreferences['cookTimeOption'] | 'any'>('any');
 
   // Step 3: Generating
   const [genProgress, setGenProgress] = useState('');
@@ -131,8 +146,12 @@ export default function AutoMealPlanScreen() {
     setGenProgress('Getting ready...');
     trackEvent('auto_meal_plan_generated', {
       screen: 'AutoMealPlanScreen',
-      metadata: { slots: slots.length, servingCount, pantryOnly },
+      metadata: { slots: slots.length, servingCount, pantryOnly, cuisineStyle, cookTimeOption },
     });
+    maybeShowRatingPrompt(router, {
+      eventName: 'auto_meal_plan_generated',
+      eventOptions: { screen: 'AutoMealPlanScreen', metadata: { slots: slots.length } },
+    }).catch(() => {});
 
     const today = new Date();
     const startDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -147,6 +166,8 @@ export default function AutoMealPlanScreen() {
       samePlanEveryDay,
       pantryOnly,
       servingCount,
+      cuisineStyle: cuisineStyle === 'Any' ? null : cuisineStyle,
+      cookTimeOption: cookTimeOption === 'any' ? null : cookTimeOption,
     };
 
     const result = await generateAutoMealPlan(prefs, setGenProgress);
@@ -168,7 +189,7 @@ export default function AutoMealPlanScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Auto Meal Plan</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       {/* Step 1: Targets */}
@@ -181,11 +202,6 @@ export default function AutoMealPlanScreen() {
           >
             <Text style={styles.stepTitle}>Set your daily targets</Text>
             <Text style={styles.stepHint}>Per person — we'll adjust ingredients accordingly</Text>
-            {profileLoaded && (
-              <View style={styles.profileBanner}>
-                <Text style={styles.profileBannerText}>✅ Pre-filled from your Fitness Profile — adjust if needed</Text>
-              </View>
-            )}
 
             {/* Servings */}
             <View style={styles.servingsCard}>
@@ -201,6 +217,44 @@ export default function AutoMealPlanScreen() {
                     <Text style={[styles.servingsPillText, servingCount === n && styles.servingsPillTextActive]}>{n}</Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+            </View>
+
+            <View style={styles.preferenceCard}>
+              <Text style={styles.preferenceTitle}>Cuisine Style</Text>
+              <View style={styles.preferenceChipRow}>
+                {CUISINE_OPTIONS.map((c) => {
+                  const selected = cuisineStyle === c;
+                  return (
+                    <TouchableOpacity
+                      key={c}
+                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
+                      onPress={() => setCuisineStyle(c)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>{c}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.preferenceCard}>
+              <Text style={styles.preferenceTitle}>Cook Time</Text>
+              <View style={styles.preferenceChipRow}>
+                {COOK_TIME_OPTIONS.map((opt) => {
+                  const selected = cookTimeOption === opt.key;
+                  return (
+                    <TouchableOpacity
+                      key={opt.key}
+                      style={[styles.preferenceChip, selected && styles.preferenceChipActive]}
+                      onPress={() => setCookTimeOption(opt.key)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.preferenceChipText, selected && styles.preferenceChipTextActive]}>{opt.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
@@ -276,7 +330,7 @@ export default function AutoMealPlanScreen() {
             showsVerticalScrollIndicator={false}
           >
             <Text style={styles.stepTitle}>What meals do you want?</Text>
-            <Text style={styles.stepHint}>Select your daily meal slots</Text>
+            <Text style={styles.stepHint}>Select your daily meal slots and planning preferences</Text>
 
             {SLOT_OPTIONS.map((opt, idx) => {
               const selected = selectedSlots.has(idx);
@@ -330,18 +384,6 @@ export default function AutoMealPlanScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Summary */}
-            <View style={styles.summaryCard}>
-              <Text style={styles.summaryTitle}>Your Week</Text>
-              <Text style={styles.summaryText}>
-                {selectedSlots.size} meals/day × 7 days = {selectedSlots.size * 7} meals
-              </Text>
-              <Text style={styles.summaryText}>
-                ~{calories} cal · ~{protein}g P · ~{carbs}g C · ~{fat}g F per day
-              </Text>
-              {samePlanEveryDay && <Text style={styles.summaryText}>Same meals every day</Text>}
-              {pantryOnly && <Text style={[styles.summaryText, { color: ORANGE }]}>🛒 Pantry recipes only</Text>}
-            </View>
           </ScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
@@ -362,10 +404,9 @@ export default function AutoMealPlanScreen() {
       {/* Step 3: Generating */}
       {step === 'generating' && (
         <View style={styles.genWrap}>
-          <ActivityIndicator color={ORANGE} size="large" />
+          <ProcessingRing label={genProgress || 'Building your week...'} sublabel="Creating your personalised meal plan" expectedMs={15000} size={108} />
           <Text style={styles.genEmoji}>📅</Text>
           <Text style={styles.genTitle}>Building Your Week</Text>
-          <Text style={styles.genProgress}>{genProgress}</Text>
         </View>
       )}
 
@@ -618,18 +659,47 @@ const styles = StyleSheet.create({
   slotCheckSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
   slotCheckMark: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 
-  summaryCard: {
-    backgroundColor: 'rgba(143,58,31,0.08)',
+  preferenceCard: {
+    backgroundColor: SURFACE,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(143,58,31,0.25)',
+    borderColor: BORDER,
     padding: 16,
-    marginTop: 10,
-    alignItems: 'center',
-    gap: 4,
+    marginTop: 8,
+    marginBottom: 10,
   },
-  summaryTitle: { fontSize: 14, fontWeight: '800', color: ORANGE },
-  summaryText: { fontSize: 13, color: 'rgba(255,255,255,0.50)' },
+  preferenceTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.5,
+    marginBottom: 12,
+  },
+  preferenceChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  preferenceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  preferenceChipActive: {
+    backgroundColor: 'rgba(143,58,31,0.18)',
+    borderColor: ORANGE,
+  },
+  preferenceChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.54)',
+  },
+  preferenceChipTextActive: {
+    color: '#FFFFFF',
+  },
 
   // Footer
   footer: {

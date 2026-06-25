@@ -6,7 +6,7 @@
  * - Hero image recipe cards per meal slot, styled like RecipeListScreen
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,6 +25,8 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -44,19 +46,26 @@ import { getRecipeById, getCompletionStats, type SavedRecipe } from '../../src/s
 import { getRecipeImageUrls, saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
-import { analyzeMultipleImagesWithEdamam, isEdamamVisionAvailable } from '../../services/edamamVisionService';
 import { getFitnessProfile, calculateMacroTargets, type MacroTargets } from '../../services/fitnessProfileService';
 import Svg, { Circle } from 'react-native-svg';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
+import { logScreenView } from '../../services/firebaseAnalytics';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
 const MACRO_OVERRIDE_PREFIX = 'spicestrong_macro_override_';
+const TRACKING_START_KEY = 'spicestrong_tracking_start_date';
+const TRACKER_CACHE_PREFIX = 'spicestrong_tracker_snapshot_';
+const TRACKER_CACHE_VERSION = 2;
 
 interface MacroOverride {
   calories: number;
   proteinG: number;
   carbsG: number;
   fatG: number;
+  description?: string;
+  components?: string[];
   photoUri: string;       // first photo (hero)
   photoUris?: string[];   // all photos (for collage display)
 }
@@ -115,27 +124,15 @@ async function recalculateFromComponentsList(components: string[]): Promise<{
   proteinG: number; carbsG: number; fatG: number;
   confidence: 'high' | 'medium' | 'low';
 }> {
-  if (!ANTHROPIC_KEY) throw new Error('No API key');
   const list = components.map((c, i) => `${i + 1}. ${c}`).join('\n');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 250,
-      messages: [{
-        role: 'user',
-        content: `You are a nutrition expert. Calculate total macros for these food items:\n${list}\n\nReturn ONLY this JSON:\n{"calories":0,"caloriesMin":0,"caloriesMax":0,"proteinG":0,"carbsG":0,"fatG":0,"confidence":"medium"}`,
-      }],
-    }),
+  const data = await invokeAnthropicMessages({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 400,
+    messages: [{
+      role: 'user',
+      content: `You are a nutrition expert. Calculate total macros for these food items:\n${list}\n\nReturn ONLY this JSON:\n{"calories":0,"caloriesMin":0,"caloriesMax":0,"proteinG":0,"carbsG":0,"fatG":0,"confidence":"medium"}`,
+    }],
   });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const data = await res.json();
   const parsed = extractFirstJson(data.content?.[0]?.text || '');
   const calories = Math.round(Number(parsed.calories) || 0);
   return {
@@ -162,6 +159,8 @@ function extractFirstJson(text: string): any {
 }
 
 interface FoodPhotoAnalysis {
+  name: string;
+  description: string;
   calories: number;
   caloriesMin: number;
   caloriesMax: number;
@@ -171,6 +170,15 @@ interface FoodPhotoAnalysis {
   confidence: 'high' | 'medium' | 'low';
   components: string[];
   isRestaurantPortion: boolean;
+}
+
+function parseIngredientComponent(component: string): { name: string; calories: string; quantity: string } {
+  const normalized = component.replace(/—/g, '|').replace(/ - /g, ' | ');
+  const parts = normalized.split('|').map((part) => part.trim()).filter(Boolean);
+  const name = parts[0]?.replace(/^[-•\s]+/, '') || component;
+  const calories = parts.find((part) => /\bcal\b|kcal/i.test(part))?.replace(/^~\s*/, '') ?? '';
+  const quantity = parts.find((part) => !/\bcal\b|kcal/i.test(part) && part !== name) ?? '';
+  return { name, calories, quantity };
 }
 
 /**
@@ -186,8 +194,6 @@ async function analyzeFoodPhotosDirect(
     feedbackHint?: 'too_low' | 'too_high' | null;
   },
 ): Promise<FoodPhotoAnalysis> {
-  if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
-
   const imageBlocks = images.map((img) => ({
     type: 'image',
     source: { type: 'base64', media_type: detectMediaType(img.base64), data: img.base64 },
@@ -205,15 +211,7 @@ async function analyzeFoodPhotosDirect(
     ? '\n\nREVISION: User says the previous estimate was too LOW. Look harder for hidden calories — denser portions, extra oil/sauce, or items initially missed. Revise meaningfully upward.'
     : '';
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
+  const data = await invokeAnthropicMessages({
       model: 'claude-sonnet-4-6',
       max_tokens: 700,
       system: `You are an expert nutritionist and visual portion estimator for a high-protein fitness app.
@@ -255,6 +253,8 @@ NUTRITION FACTS LABEL: if any image shows a printed label, read exact values, ma
 Return ONLY this JSON, no other text:
 {
   "type": "label" | "food",
+  "name": "short appetizing food title, e.g. Veggie Omelette with Avocado",
+  "description": "one short useful description of the meal or nutrition label",
   "calories": <best single estimate as integer>,
   "caloriesMin": <lower bound — lighter portion, less oil>,
   "caloriesMax": <upper bound — larger portion, more sauce/oil>,
@@ -263,12 +263,18 @@ Return ONLY this JSON, no other text:
   "fatG": <integer>,
   "confidence": "high" | "medium" | "low",
   "components": [
-    "Grilled chicken breast ~150g — ~250 cal, 35g protein",
-    "Steamed rice ~180g — ~230 cal",
-    "Sesame sauce ~2 tbsp — ~60 cal"
+    "Bell pepper | 25 cal | 1/2 cup",
+    "Spinach | 15 cal | 1 cup",
+    "Eggs | 140 cal | 2 large"
   ],
   "isRestaurantPortion": true | false
 }
+
+INGREDIENT RULES:
+- Break visible foods into separate simple ingredients whenever possible. Prefer "bell pepper", "spinach", "mixed vegetables", "egg", "cheese", "rice", "sauce" instead of one combined dish line.
+- Each component must use this exact format: "Ingredient name | total cal | qty".
+- Keep ingredient names short and human-readable.
+- Do not include protein/carbs/fat in component rows; only ingredient name, total calories, and quantity.
 
 CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish; "low" = blurry/complex/obscured.${portionContext}${feedbackContext}`,
       messages: [{
@@ -278,16 +284,7 @@ CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish;
           { type: 'text', text: `Analyze this meal: "${mealName || 'meal'}". Return the nutrition JSON.` },
         ],
       }],
-    }),
   });
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    console.error(`[SpiceStrong] Cal AI vision error ${res.status}:`, errBody);
-    throw new Error(`API ${res.status}`);
-  }
-
-  const data = await res.json();
   const text = data.content?.[0]?.text || '';
   console.log('[SpiceStrong] Cal AI vision response:', text);
 
@@ -295,6 +292,8 @@ CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish;
   const calories = Math.round(Number(parsed.calories) || 0);
 
   return {
+    name: String(parsed.name || ''),
+    description: String(parsed.description || ''),
     calories,
     caloriesMin: Math.round(Number(parsed.caloriesMin) || Math.round(calories * 0.8)),
     caloriesMax: Math.round(Number(parsed.caloriesMax) || Math.round(calories * 1.2)),
@@ -308,16 +307,26 @@ CONFIDENCE: "high" = label or single obvious item; "medium" = recognizable dish;
 }
 
 const ORANGE = '#8F3A1F';
+const TRACKER_ACCENT = '#B6532B';
+const TRACKER_ACCENT_SOFT = '#E8A87C';
+const TRACKER_CREAM = '#F8F1E8';
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 
-const CARD_W = Dimensions.get('window').width - 48;
-const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch_dinner', 'snack_dessert'];
+const CARD_W = Dimensions.get('window').width - 36;
+const SLOT_ORDER: MealSlot[] = ['breakfast', 'lunch_dinner', 'snack_dessert', 'others'];
+const SLOT_META: Record<MealSlot, { icon: keyof typeof Ionicons.glyphMap; accent: string; hint: string }> = {
+  breakfast: { icon: 'sunny-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Start strong' },
+  lunch_dinner: { icon: 'restaurant-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Fuel the day' },
+  snack_dessert: { icon: 'sparkles-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Smart finish' },
+  others: { icon: 'grid-outline', accent: TRACKER_ACCENT_SOFT, hint: 'Untagged meals' },
+};
+
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const DAY_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
@@ -329,28 +338,73 @@ function getFirstDayOfWeek(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-const RING_SIZE = Math.floor((Dimensions.get('window').width - 48) / 3);
-const RING_STROKE = 11;
+const RING_SIZE = Math.floor((Dimensions.get('window').width - 56) / 4);
+const RING_STROKE = 8;
 const RING_R = RING_SIZE / 2 - RING_STROKE / 2 - 2;
 const RING_CIRC = 2 * Math.PI * RING_R;
 
+function formatMacroRingValue(value: number, unit: string, showPositiveSign: boolean): string {
+  const rounded = Math.round(value);
+  const prefix = showPositiveSign && rounded > 0 ? '+' : '';
+  return `${prefix}${rounded}${unit}`;
+}
+
+function getMacroRingModeMeta(displayMode: 'diff' | 'target' | 'consumed', diff: number) {
+  if (displayMode === 'diff') {
+    return {
+      icon: diff >= 0 ? '▲' : '▼',
+      label: 'Diff',
+      color: TRACKER_CREAM,
+      bg: diff >= 0 ? 'rgba(232,168,124,0.16)' : 'rgba(248,241,232,0.10)',
+      border: diff >= 0 ? 'rgba(232,168,124,0.36)' : 'rgba(248,241,232,0.20)',
+    };
+  }
+  if (displayMode === 'target') {
+    return {
+      icon: '◎',
+      label: 'Target',
+      color: TRACKER_CREAM,
+      bg: 'rgba(232,168,124,0.14)',
+      border: 'rgba(232,168,124,0.32)',
+    };
+  }
+  return {
+    icon: '✓',
+    label: 'Eaten',
+    color: TRACKER_CREAM,
+    bg: 'rgba(248,241,232,0.10)',
+    border: 'rgba(248,241,232,0.20)',
+  };
+}
+
 function MacroRing({
-  label, color, target, consumed,
+  label, color, target, consumed, displayMode, onPress, unit = 'g',
 }: {
-  label: string; color: string; target: number; consumed: number;
+  label: string;
+  color: string;
+  target: number;
+  consumed: number;
+  displayMode: 'diff' | 'target' | 'consumed';
+  onPress: () => void;
+  unit?: string;
 }) {
   const ratio = target > 0 ? Math.min(consumed / target, 1) : 0;
   const dashOffset = RING_CIRC * (1 - ratio);
   const diff = consumed - target;
   const cx = RING_SIZE / 2;
   const cy = RING_SIZE / 2;
+  const displayValue = displayMode === 'diff' ? diff : displayMode === 'target' ? target : consumed;
+  const modeMeta = getMacroRingModeMeta(displayMode, diff);
 
   return (
     <View style={{ alignItems: 'center', width: RING_SIZE }}>
-      <Text style={{ color, fontSize: 10, fontWeight: '800', letterSpacing: 1.1, marginBottom: 6, textTransform: 'uppercase' }}>
-        {label} (g)
+      <Text style={{ color, fontSize: 8, fontWeight: '800', letterSpacing: 0.7, marginBottom: 4, textTransform: 'uppercase' }}>
+        {label}
       </Text>
-      <View style={{ width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' }}>
+      <Pressable
+        style={{ width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' }}
+        onPress={onPress}
+      >
         <Svg width={RING_SIZE} height={RING_SIZE} style={{ position: 'absolute' }}>
           <Circle
             cx={cx} cy={cy} r={RING_R}
@@ -370,26 +424,19 @@ function MacroRing({
             origin={`${cx},${cy}`}
           />
         </Svg>
-        <View style={{ alignItems: 'center' }}>
-          <Text style={{ fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.9 }}>TARGET</Text>
-          <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', lineHeight: 22 }}>{target}g</Text>
-          <View style={{ width: 28, height: 1, backgroundColor: 'rgba(255,255,255,0.18)', marginVertical: 3 }} />
-          <Text style={{ fontSize: 8, fontWeight: '700', color: 'rgba(255,255,255,0.45)', letterSpacing: 0.9 }}>CONSUMED</Text>
-          <Text style={{ fontSize: 18, fontWeight: '800', color, lineHeight: 22 }}>{consumed}g</Text>
+        <View style={{ alignItems: 'center', maxWidth: RING_SIZE - 10 }}>
+          <View style={{ borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border, marginBottom: 3 }}>
+            <Text style={{ fontSize: 7.5, fontWeight: '900', color: modeMeta.color, letterSpacing: 0.2 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+              {modeMeta.icon} {modeMeta.label}
+            </Text>
+          </View>
+          <View style={{ borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: modeMeta.bg, borderWidth: 1, borderColor: modeMeta.border }}>
+            <Text style={{ fontSize: 12.5, fontWeight: '900', color: modeMeta.color, lineHeight: 16, textAlign: 'center' }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.62}>
+              {formatMacroRingValue(displayValue, unit, displayMode === 'diff')}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View style={{
-        backgroundColor: color,
-        borderRadius: 12,
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        marginTop: 8,
-        opacity: 0.92,
-      }}>
-        <Text style={{ fontSize: 11, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.4 }}>
-          DIFF {diff >= 0 ? '+' : ''}{diff}g
-        </Text>
-      </View>
+      </Pressable>
     </View>
   );
 }
@@ -406,6 +453,20 @@ interface EnrichedEntry extends MealPlanEntry {
   isQuickAdd?: boolean; // true for manually added meals (no recipe)
 }
 
+interface TrackerCacheSnapshot {
+  version: number;
+  date: string;
+  savedAt: number;
+  entries: EnrichedEntry[];
+}
+
+interface MacroTotals {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
 function dateFromString(dateStr: string): Date {
   const [y, m, d] = dateStr.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -413,6 +474,43 @@ function dateFromString(dateStr: string): Date {
 function stringFromDate(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
+
+function trackerCacheKey(date: string) {
+  return `${TRACKER_CACHE_PREFIX}${date}`;
+}
+
+async function readTrackerCache(date: string): Promise<EnrichedEntry[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(trackerCacheKey(date));
+    if (!raw) return null;
+    const snapshot: TrackerCacheSnapshot = JSON.parse(raw);
+    if (
+      snapshot.version !== TRACKER_CACHE_VERSION ||
+      snapshot.date !== date ||
+      !Array.isArray(snapshot.entries)
+    ) {
+      return null;
+    }
+    return snapshot.entries;
+  } catch {
+    return null;
+  }
+}
+
+async function writeTrackerCache(date: string, entries: EnrichedEntry[]) {
+  try {
+    const snapshot: TrackerCacheSnapshot = {
+      version: TRACKER_CACHE_VERSION,
+      date,
+      savedAt: Date.now(),
+      entries,
+    };
+    await AsyncStorage.setItem(trackerCacheKey(date), JSON.stringify(snapshot));
+  } catch {
+    // Cache writes should never block the tracker.
+  }
+}
+
 function formatDisplayDate(dateStr: string): string {
   const d = dateFromString(dateStr);
   return `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
@@ -434,6 +532,93 @@ async function resolveImage(recipeId: string, recipe: SavedRecipe | null): Promi
   return null;
 }
 
+function hasLoggedMacros(totals: MacroTotals): boolean {
+  return totals.calories > 0 || totals.proteinG > 0 || totals.carbsG > 0 || totals.fatG > 0;
+}
+
+function scoreMacroTotals(totals: MacroTotals, targets: MacroTargets): number {
+  const score = (consumed: number, target: number) =>
+    target > 0 ? Math.max(0, 1 - Math.abs(consumed - target) / target) : 0;
+  return (
+    score(totals.calories, targets.calories) +
+    score(totals.proteinG, targets.proteinG) +
+    score(totals.carbsG, targets.carbsG) +
+    score(totals.fatG, targets.fatG)
+  ) / 4;
+}
+
+function getInclusiveDayCount(startDate: string | null, endDate: string): number {
+  if (!startDate) return 0;
+  const diff = Math.floor((dateFromString(endDate).getTime() - dateFromString(startDate).getTime()) / 86400000);
+  return Math.max(0, diff + 1);
+}
+
+function getTrackingDates(startDate: string | null, endDate: string): string[] {
+  if (!startDate) return [];
+  const dates: string[] = [];
+  const cursor = dateFromString(startDate);
+  const end = dateFromString(endDate);
+  while (cursor.getTime() <= end.getTime()) {
+    dates.push(stringFromDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+async function getMealEntryMacros(entry: MealPlanEntry): Promise<MacroTotals> {
+  let calories = 0, proteinG = 0, carbsG = 0, fatG = 0;
+
+  const applyOverride = async () => {
+    try {
+      const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
+      if (overrideStr) {
+        const o: MacroOverride = JSON.parse(overrideStr);
+        calories = o.calories;
+        proteinG = o.proteinG;
+        carbsG = o.carbsG;
+        fatG = o.fatG;
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  if (await applyOverride()) return { calories, proteinG, carbsG, fatG };
+
+  const recipe = await getRecipeById(entry.recipeId);
+  const isAutoplan = entry.recipeId.startsWith('autoplan_');
+
+  if (isAutoplan && recipe?.aiNutrition && recipe.status !== 'ready') {
+    calories = Math.round(recipe.aiNutrition.calories / 2.5);
+    proteinG = Math.round(recipe.aiNutrition.proteinG / 2.5);
+    carbsG = Math.round(recipe.aiNutrition.carbsG / 2.5);
+    fatG = Math.round(recipe.aiNutrition.fatG / 2.5);
+  } else if (recipe) {
+    if (recipe.pipelineCalories || recipe.pipelineProteinG) {
+      calories = recipe.pipelineCalories ?? 0;
+      proteinG = recipe.pipelineProteinG ?? 0;
+      carbsG = recipe.pipelineCarbsG ?? 0;
+      fatG = recipe.pipelineFatG ?? 0;
+    } else {
+      const stats = getCompletionStats(recipe, '2-3 servings');
+      calories = stats.calories;
+      proteinG = stats.proteinG;
+      carbsG = stats.carbsG;
+      fatG = stats.fatG;
+    }
+  }
+
+  if (isAutoplan && calories === 0) {
+    const desc = entry.recipeName + ' ' + (recipe?.description ?? '');
+    const calMatch = desc.match(/~?(\d+)\s*cal/i);
+    const proMatch = desc.match(/~?(\d+)g?\s*protein/i);
+    if (calMatch) calories = parseInt(calMatch[1], 10);
+    if (proMatch) proteinG = parseInt(proMatch[1], 10);
+  }
+
+  return { calories, proteinG, carbsG, fatG };
+}
+
 export default function MealPlanScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -442,7 +627,15 @@ export default function MealPlanScreen() {
   const [currentDate, setCurrentDate] = useState(today);
   const [enriched, setEnriched] = useState<EnrichedEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const activeLoadRef = useRef(0);
   const [macroTargets, setMacroTargets] = useState<MacroTargets | null>(null);
+  const [overallAdherencePct, setOverallAdherencePct] = useState<number | null>(null);
+  const [overallAdherenceLoading, setOverallAdherenceLoading] = useState(false);
+  const [overallLoggedDays, setOverallLoggedDays] = useState(0);
+  const [cronometerMode, setCronometerMode] = useState<'diff' | 'target' | 'consumed'>('diff');
+  const [trackingStartDate, setTrackingStartDate] = useState<string | null>(null);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [pickerDate, setPickerDate] = useState(today);
 
   // Macro correction modal state
   const [correctEntry, setCorrectEntry] = useState<EnrichedEntry | null>(null);
@@ -467,28 +660,45 @@ export default function MealPlanScreen() {
   const [manualCarbs, setManualCarbs] = useState('');
   const [manualFat, setManualFat] = useState('');
 
+  const updateEnrichedForCurrentDate = useCallback((updater: (entries: EnrichedEntry[]) => EnrichedEntry[]) => {
+    setEnriched((prev) => {
+      const next = updater(prev);
+      void writeTrackerCache(currentDate, next);
+      return next;
+    });
+  }, [currentDate]);
+
   const openCorrectMacros = async (entry: EnrichedEntry) => {
     setCorrectEntry(entry);
-    setCorrectedMacros(null);
+    const initialMacros = {
+      calories: Math.round(entry.calories ?? 0),
+      proteinG: Math.round(entry.proteinG ?? 0),
+      carbsG: Math.round(entry.carbsG ?? 0),
+      fatG: Math.round(entry.fatG ?? 0),
+    };
+    setCorrectedMacros(initialMacros);
     let savedPhotoUris = entry.photoUris ?? (entry.imageUri ? [entry.imageUri] : []);
+    let savedComponents: string[] = [];
     try {
       const overrideStr = await AsyncStorage.getItem(`${MACRO_OVERRIDE_PREFIX}${entry.id}`);
       if (overrideStr) {
         const override: MacroOverride = JSON.parse(overrideStr);
         savedPhotoUris = override.photoUris ?? (override.photoUri ? [override.photoUri] : savedPhotoUris);
+        savedComponents = override.components ?? [];
       }
     } catch {}
     setCorrectionPhotos(savedPhotoUris.slice(0, MAX_MEAL_PHOTOS).map((uri) => ({ uri, base64: '' })));
     setCorrecting(false);
     setManualMode(false);
-    setCorrectionComponents([]);
+    const fallbackComponent = `${entry.recipeName || 'Meal'} | ${initialMacros.calories} cal | 1 serving`;
+    setCorrectionComponents(savedComponents.length > 0 ? savedComponents : [fallbackComponent]);
     setCorrectionCalRange(null);
     setCorrectionConfidence(null);
     setCorrectionPortionType(null);
     setCorrectionFeedback(null);
     setCorrectionReanalyzing(false);
-    setCorrectionComponentEditMode(false);
-    setCorrectionEditableComponents([]);
+    setCorrectionComponentEditMode(true);
+    setCorrectionEditableComponents(savedComponents.length > 0 ? savedComponents : [fallbackComponent]);
     setCorrectionNewIngredient('');
     setCorrectionRecalculating(false);
     setManualCal(''); setManualProtein(''); setManualCarbs(''); setManualFat('');
@@ -626,7 +836,7 @@ export default function MealPlanScreen() {
     const existingPhotoUris = correctEntry.photoUris ?? (correctEntry.imageUri ? [correctEntry.imageUri] : []);
     const override: MacroOverride = { ...macros, photoUri: existingPhotoUris[0] ?? '', photoUris: existingPhotoUris };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
-    setEnriched((prev) =>
+    updateEnrichedForCurrentDate((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
           ? { ...e, ...macros, imageUri: existingPhotoUris[0] ?? e.imageUri, photoUris: existingPhotoUris }
@@ -636,18 +846,57 @@ export default function MealPlanScreen() {
     closeCorrectMacros();
   };
 
+  const updateCorrectionMacroNumber = (
+    field: 'calories' | 'proteinG' | 'carbsG' | 'fatG',
+    value: string,
+  ) => {
+    const numericValue = Math.max(0, Math.round(Number(value.replace(/[^\d]/g, '')) || 0));
+    setCorrectedMacros((prev) => prev ? { ...prev, [field]: numericValue } : prev);
+  };
+
+  const updateCorrectionIngredientPart = (
+    index: number,
+    part: 'name' | 'calories' | 'quantity',
+    value: string,
+  ) => {
+    setCorrectionEditableComponents((prev) => {
+      const updated = [...prev];
+      const item = parseIngredientComponent(updated[index] ?? '');
+      const next = {
+        ...item,
+        [part]: part === 'calories'
+          ? `${value.replace(/[^\d]/g, '') || '0'} cal`
+          : value,
+      };
+      updated[index] = `${next.name || 'Ingredient'} | ${next.calories || '0 cal'} | ${next.quantity || 'qty'}`;
+      return updated;
+    });
+  };
+
+  const addCorrectionIngredient = () => {
+    setCorrectionEditableComponents((prev) => [...prev, 'Ingredient | 0 cal | qty']);
+  };
+
+  const removeCorrectionIngredient = (index: number) => {
+    setCorrectionEditableComponents((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const applyCorrection = async () => {
-    if (!correctEntry || !correctedMacros || correctionPhotos.length === 0) return;
+    if (!correctEntry || !correctedMacros) return;
 
-    const photoUris = await persistMealPhotoUris(correctionPhotos, `meal_${correctEntry.id}`);
-    const heroUri = photoUris[0] ?? '';
-
-    const override: MacroOverride = { ...correctedMacros, photoUri: heroUri, photoUris };
+    const existingPhotoUris = correctEntry.photoUris ?? (correctEntry.imageUri ? [correctEntry.imageUri] : []);
+    const components = correctionEditableComponents.filter((item) => item.trim());
+    const override: MacroOverride = {
+      ...correctedMacros,
+      components,
+      photoUri: existingPhotoUris[0] ?? '',
+      photoUris: existingPhotoUris,
+    };
     await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${correctEntry.id}`, JSON.stringify(override));
-    setEnriched((prev) =>
+    updateEnrichedForCurrentDate((prev) =>
       prev.map((e) =>
         e.id === correctEntry.id
-          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: heroUri, photoUris }
+          ? { ...e, calories: correctedMacros.calories, proteinG: correctedMacros.proteinG, carbsG: correctedMacros.carbsG, fatG: correctedMacros.fatG, imageUri: existingPhotoUris[0] ?? e.imageUri, photoUris: existingPhotoUris }
           : e
       )
     );
@@ -683,10 +932,10 @@ export default function MealPlanScreen() {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddSlot, setQuickAddSlot] = useState<MealSlot>('lunch_dinner');
   const [quickAddName, setQuickAddName] = useState('');
-  const [quickAddPhoto, setQuickAddPhoto] = useState<string | null>(null);
-  const [quickAddBase64, setQuickAddBase64] = useState<string>('');
+  const [quickAddDescription, setQuickAddDescription] = useState('');
   const [quickAddPhotos, setQuickAddPhotos] = useState<{ uri: string; base64: string }[]>([]);
   const [quickAddScanning, setQuickAddScanning] = useState(false);
+  const [quickAddLabelMode, setQuickAddLabelMode] = useState(false);
   const [quickAddManualMode, setQuickAddManualMode] = useState(false);
   const [quickAddEstimated, setQuickAddEstimated] = useState(false);
   const [quickAddMacros, setQuickAddMacros] = useState<{ calories: string; proteinG: string; carbsG: string; fatG: string }>({ calories: '', proteinG: '', carbsG: '', fatG: '' });
@@ -701,14 +950,19 @@ export default function MealPlanScreen() {
   const [quickAddNewIngredient, setQuickAddNewIngredient] = useState('');
   const [quickAddRecalculating, setQuickAddRecalculating] = useState(false);
   const [browseHelpVisible, setBrowseHelpVisible] = useState(false);
+  const [labelCameraOpen, setLabelCameraOpen] = useState(false);
+  const [labelCameraReady, setLabelCameraReady] = useState(false);
+  const [labelCapturing, setLabelCapturing] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const labelCameraRef = useRef<CameraView>(null);
 
   const openQuickAdd = (slot: MealSlot) => {
     setQuickAddSlot(slot);
     setQuickAddName('');
-    setQuickAddPhoto(null);
-    setQuickAddBase64('');
+    setQuickAddDescription('');
     setQuickAddPhotos([]);
     setQuickAddScanning(false);
+    setQuickAddLabelMode(false);
     setQuickAddManualMode(false);
     setQuickAddEstimated(false);
     setQuickAddMacros({ calories: '', proteinG: '', carbsG: '', fatG: '' });
@@ -725,6 +979,11 @@ export default function MealPlanScreen() {
     setQuickAddOpen(true);
   };
 
+  const openManualQuickAdd = (slot: MealSlot = 'lunch_dinner') => {
+    openQuickAdd(slot);
+    setQuickAddManualMode(true);
+  };
+
   const openBrowseRecipeHelp = () => {
     setBrowseHelpVisible(true);
   };
@@ -732,6 +991,51 @@ export default function MealPlanScreen() {
   const closeQuickAdd = () => {
     Keyboard.dismiss();
     setQuickAddOpen(false);
+    setLabelCameraOpen(false);
+    setLabelCameraReady(false);
+  };
+
+  const applyQuickAddAnalysis = (analysis: FoodPhotoAnalysis) => {
+    if (analysis.name?.trim()) setQuickAddName(analysis.name.trim());
+    if (analysis.description?.trim()) setQuickAddDescription(analysis.description.trim());
+    setQuickAddMacros({
+      calories: String(analysis.calories),
+      proteinG: String(analysis.proteinG),
+      carbsG: String(analysis.carbsG),
+      fatG: String(analysis.fatG),
+    });
+    setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
+    setQuickAddComponents(analysis.components);
+    setQuickAddConfidence(analysis.confidence);
+    setQuickAddFeedback(null);
+    setQuickAddEstimated(true);
+  };
+
+  const addQuickAddPhotoFromUri = async (uri: string, providedBase64?: string) => {
+    const compressed = providedBase64
+      ? { base64: providedBase64 }
+      : await manipulateAsync(
+          uri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.5, format: SaveFormat.JPEG, base64: true },
+        );
+    let b64 = compressed.base64 ?? '';
+    if (b64.includes(',')) b64 = b64.split(',')[1];
+
+    setQuickAddEstimated(false);
+    setQuickAddPhotos((prev) => [...prev, { uri: `${uri}?t=${Date.now()}`, base64: b64 }]);
+
+    if (b64 && b64.length > 100) {
+      setQuickAddScanning(true);
+      try {
+        const analysis = await analyzeFoodPhotosDirect([{ base64: b64 }], quickAddName || 'meal', { portionType: quickAddPortionType });
+        applyQuickAddAnalysis(analysis);
+      } catch (err: any) {
+        console.warn('[SpiceStrong] Quick add scan failed:', err);
+      } finally {
+        setQuickAddScanning(false);
+      }
+    }
   };
 
   const pickQuickAddPhoto = async (useCamera: boolean) => {
@@ -767,8 +1071,6 @@ export default function MealPlanScreen() {
     if (b64.includes(',')) b64 = b64.split(',')[1];
 
     setQuickAddEstimated(false);
-    setQuickAddPhoto(`${asset.uri}?t=${Date.now()}`);
-    setQuickAddBase64(b64);
     setQuickAddPhotos((prev) => [...prev, { uri: `${asset.uri}?t=${Date.now()}`, base64: b64 }]);
 
     // Auto-scan immediately after first photo
@@ -776,23 +1078,45 @@ export default function MealPlanScreen() {
       setQuickAddScanning(true);
       try {
         const analysis = await analyzeFoodPhotosDirect([{ base64: b64 }], quickAddName || 'meal', { portionType: quickAddPortionType });
-        setQuickAddMacros({
-          calories: String(analysis.calories),
-          proteinG: String(analysis.proteinG),
-          carbsG: String(analysis.carbsG),
-          fatG: String(analysis.fatG),
-        });
-        setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
-        setQuickAddComponents(analysis.components);
-        setQuickAddConfidence(analysis.confidence);
-        setQuickAddFeedback(null);
-        setQuickAddEstimated(true);
+        applyQuickAddAnalysis(analysis);
       } catch (err: any) {
         console.warn('[SpiceStrong] Quick add scan failed:', err);
         // Silent — user can enter manually
       } finally {
         setQuickAddScanning(false);
       }
+    }
+  };
+
+  const scanQuickAddNutritionLabel = async () => {
+    setQuickAddPortionType(null);
+    const perm = cameraPermission?.granted ? cameraPermission : await requestCameraPermission();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Camera access required.');
+      return;
+    }
+    setLabelCameraReady(false);
+    setLabelCameraOpen(true);
+  };
+
+  const captureNutritionLabelPhoto = async () => {
+    if (!labelCameraReady || !labelCameraRef.current || labelCapturing) return;
+    setLabelCapturing(true);
+    try {
+      const photo = await labelCameraRef.current.takePictureAsync({
+        quality: 0.75,
+        base64: true,
+        skipProcessing: false,
+      });
+      if (photo?.uri) {
+        setLabelCameraOpen(false);
+        setQuickAddLabelMode(false);
+        await addQuickAddPhotoFromUri(photo.uri, photo.base64);
+      }
+    } catch {
+      Alert.alert('Capture failed', 'Could not capture the nutrition label. Try again.');
+    } finally {
+      setLabelCapturing(false);
     }
   };
 
@@ -813,17 +1137,7 @@ export default function MealPlanScreen() {
       if (validPhotos.length === 0) throw new Error('No valid photos to analyze');
       // Send all photos in one Claude call — it handles multi-angle and multi-dish
       const analysis = await analyzeFoodPhotosDirect(validPhotos, quickAddName || 'meal', { portionType: quickAddPortionType });
-      setQuickAddMacros({
-        calories: String(analysis.calories),
-        proteinG: String(analysis.proteinG),
-        carbsG: String(analysis.carbsG),
-        fatG: String(analysis.fatG),
-      });
-      setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
-      setQuickAddComponents(analysis.components);
-      setQuickAddConfidence(analysis.confidence);
-      setQuickAddFeedback(null);
-      setQuickAddEstimated(true);
+      applyQuickAddAnalysis(analysis);
     } catch (err: any) {
       console.warn('[SpiceStrong] Quick add scan failed:', err);
       Alert.alert('Analysis Failed', `${err?.message ?? 'Unknown error'}. Try again or enter manually.`);
@@ -845,16 +1159,7 @@ export default function MealPlanScreen() {
         portionType: quickAddPortionType,
         feedbackHint: feedback,
       });
-      setQuickAddMacros({
-        calories: String(analysis.calories),
-        proteinG: String(analysis.proteinG),
-        carbsG: String(analysis.carbsG),
-        fatG: String(analysis.fatG),
-      });
-      setQuickAddCalRange({ min: analysis.caloriesMin, max: analysis.caloriesMax });
-      setQuickAddComponents(analysis.components);
-      setQuickAddConfidence(analysis.confidence);
-      setQuickAddFeedback(null); // reset so user can give feedback again on revised estimate
+      applyQuickAddAnalysis(analysis);
     } catch (err: any) {
       console.warn('[SpiceStrong] Feedback re-analysis failed:', err);
     } finally {
@@ -870,7 +1175,7 @@ export default function MealPlanScreen() {
 
   const recalculateQuickAddMacros = async () => {
     const newItem = quickAddNewIngredient.trim();
-    const components = newItem ? [...quickAddEditableComponents, newItem] : [...quickAddEditableComponents];
+    const components = (newItem ? [...quickAddEditableComponents, newItem] : [...quickAddEditableComponents]).filter((c) => c.trim());
     if (components.length === 0) return;
     setQuickAddRecalculating(true);
     try {
@@ -903,7 +1208,7 @@ export default function MealPlanScreen() {
 
   const recalculateCorrectionMacros = async () => {
     const newItem = correctionNewIngredient.trim();
-    const components = newItem ? [...correctionEditableComponents, newItem] : [...correctionEditableComponents];
+    const components = (newItem ? [...correctionEditableComponents, newItem] : [...correctionEditableComponents]).filter((c) => c.trim());
     if (components.length === 0) return;
     setCorrectionRecalculating(true);
     try {
@@ -930,6 +1235,7 @@ export default function MealPlanScreen() {
 
   const saveQuickAdd = async () => {
     const name = quickAddName.trim() || 'My Meal';
+    const description = quickAddDescription.trim();
     const entryId = `quick_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const macros = {
       calories: Math.round(Number(quickAddMacros.calories) || 0),
@@ -952,14 +1258,11 @@ export default function MealPlanScreen() {
       return;
     }
 
-    // Save macros + photo as override
+    // Save macros + photo as override using the entry ID returned by the service
     const photoUris = await persistMealPhotoUris(quickAddPhotos, `quick_${Date.now()}`);
-    const override: MacroOverride = { ...macros, photoUri: photoUris[0] ?? '', photoUris };
-    // Need the actual entry ID from the service — use the same ID format
-    const entries = await getMealPlanForDate(currentDate);
-    const newEntry = entries.find((e) => e.recipeName === name && e.slot === quickAddSlot);
-    if (newEntry) {
-      await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${newEntry.id}`, JSON.stringify(override));
+    const override: MacroOverride = { ...macros, description, components: quickAddComponents, photoUri: photoUris[0] ?? '', photoUris };
+    if (result.entryId) {
+      await AsyncStorage.setItem(`${MACRO_OVERRIDE_PREFIX}${result.entryId}`, JSON.stringify(override));
     }
 
     closeQuickAdd();
@@ -967,12 +1270,14 @@ export default function MealPlanScreen() {
   };
 
   const loadEntries = useCallback(async (date: string) => {
+    const loadId = ++activeLoadRef.current;
     setLoading(true);
-    const entries = await getMealPlanForDate(date);
+    try {
+      const entries = await getMealPlanForDate(date);
 
-    // Enrich each entry with full recipe details + images + nutrition
-    const enrichedEntries = await Promise.all(
-      entries.map(async (entry): Promise<EnrichedEntry> => {
+      // Enrich each entry with full recipe details + images + nutrition
+      const enrichedEntries = await Promise.all(
+        entries.map(async (entry): Promise<EnrichedEntry> => {
         const isQuickAdd = entry.recipeId.startsWith('quick_');
         const isAutoplan = entry.recipeId.startsWith('autoplan_');
 
@@ -1067,19 +1372,109 @@ export default function MealPlanScreen() {
           }
         } catch {}
         return { ...entry, recipe, imageUri, photoUris, builtinImage, calories, proteinG, carbsG, fatG };
-      })
-    );
+        })
+      );
 
-    setEnriched(enrichedEntries);
-    setLoading(false);
+      if (loadId !== activeLoadRef.current) return;
+      setEnriched(enrichedEntries);
+      void writeTrackerCache(date, enrichedEntries);
+    } catch (err) {
+      if (loadId === activeLoadRef.current) {
+        console.warn('[SpiceStrong] Could not load meal plan entries:', err);
+      }
+    } finally {
+      if (loadId === activeLoadRef.current) setLoading(false);
+    }
   }, []);
 
   useFocusEffect(useCallback(() => {
-    loadEntries(currentDate);
+    let cancelled = false;
+    activeLoadRef.current += 1;
+
+    readTrackerCache(currentDate).then((cachedEntries) => {
+      if (cancelled) return;
+      setEnriched(cachedEntries ?? []);
+      loadEntries(currentDate);
+    });
+
     getFitnessProfile().then((profile) => {
+      if (cancelled) return;
       if (profile) setMacroTargets(calculateMacroTargets(profile));
+      else setMacroTargets(null);
     }).catch(() => {});
+    AsyncStorage.getItem(TRACKING_START_KEY).then((v) => {
+      if (!cancelled) setTrackingStartDate(v);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [currentDate, loadEntries]));
+
+  useEffect(() => { logScreenView('MealPlanScreen'); }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOverallAdherence = async () => {
+      if (!macroTargets || !trackingStartDate) {
+        setOverallAdherencePct(null);
+        setOverallLoggedDays(0);
+        setOverallAdherenceLoading(false);
+        return;
+      }
+
+      const trackingDates = getTrackingDates(trackingStartDate, currentDate);
+      if (trackingDates.length === 0) {
+        setOverallAdherencePct(null);
+        setOverallLoggedDays(0);
+        setOverallAdherenceLoading(false);
+        return;
+      }
+
+      setOverallAdherenceLoading(true);
+      try {
+        let scoreSum = 0;
+        let loggedDays = 0;
+
+        for (const date of trackingDates) {
+          const entries = await getMealPlanForDate(date);
+          const entryMacros = await Promise.all(entries.map(getMealEntryMacros));
+          const totalsForDate = entryMacros.reduce(
+            (acc, macros) => ({
+              calories: acc.calories + macros.calories,
+              proteinG: acc.proteinG + macros.proteinG,
+              carbsG: acc.carbsG + macros.carbsG,
+              fatG: acc.fatG + macros.fatG,
+            }),
+            { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
+          );
+
+          if (hasLoggedMacros(totalsForDate)) {
+            loggedDays += 1;
+            scoreSum += scoreMacroTotals(totalsForDate, macroTargets);
+          }
+        }
+
+        if (!cancelled) {
+          setOverallLoggedDays(loggedDays);
+          setOverallAdherencePct(loggedDays > 0 ? Math.round((scoreSum / trackingDates.length) * 100) : null);
+        }
+      } catch {
+        if (!cancelled) {
+          setOverallLoggedDays(0);
+          setOverallAdherencePct(null);
+        }
+      } finally {
+        if (!cancelled) setOverallAdherenceLoading(false);
+      }
+    };
+
+    loadOverallAdherence();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentDate, macroTargets, trackingStartDate]);
 
   const goToPrev = () => {
     const d = dateFromString(currentDate);
@@ -1098,47 +1493,40 @@ export default function MealPlanScreen() {
     setGeneratingIds((prev) => new Set(prev).add(entry.id));
 
     try {
-      // Dynamically import the AI builder's callClaudeAPI + saveRecipeFromAI
-      const { callClaudeAPI, saveRecipeFromAI } = require('./AIRecipeBuilderScreen');
 
       // Determine protein from entry name/description or default
       const proteinId = entry.recipe?.proteinId || 'chicken';
       const proteinName = entry.recipe?.proteinName || 'Chicken';
       const proteinEmoji = entry.proteinEmoji || '🍗';
       const mealSlot = entry.slot;
-
-      // Use the spiceBuilderPrompt via a simplified Claude call
-      const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!ANTHROPIC_KEY) throw new Error('No API key');
+      const cuisineStyle = entry.recipe?.cuisineType || entry.recipe?.cuisine || '';
+      const cookTimeBucket = entry.recipe?.cookTimeBucket || '';
 
       const { SPICEBUILDER_SYSTEM_PROMPT } = require('../../src/prompts/spiceBuilderPrompt');
-      const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : 'Lunch/Dinner';
+      const mealTypeLabel = mealSlot === 'breakfast' ? 'Breakfast' : mealSlot === 'snack_dessert' ? 'Snack/Dessert' : mealSlot === 'others' ? 'Meal' : 'Lunch/Dinner';
       const systemPrompt = SPICEBUILDER_SYSTEM_PROMPT;
+      const cuisineInstruction = cuisineStyle
+        ? `- Cuisine style: "${cuisineStyle}". This is mandatory. Do not switch to another cuisine.`
+        : '';
+      const cookTimeInstruction = cookTimeBucket
+        ? `- Cook time preference: "${cookTimeBucket}". Keep the recipe within this time range when possible.`
+        : '';
 
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: `Generate a high-protein ${mealTypeLabel} recipe.
+      const data = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: `Generate a high-protein ${mealTypeLabel} recipe.
 - proteinId: "${proteinId}"
 - proteinName: "${proteinName}"
 - proteinEmoji: "${proteinEmoji}"
 - mealType: "${mealTypeLabel}"
 - Target: ~${entry.calories} cal, ~${entry.proteinG}g protein per serving
+- The recipe name, ingredients, seasoning, and cooking technique must match the requested meal type and cuisine.
+${cuisineInstruction}
+${cookTimeInstruction}
 - Return ONLY the JSON object with: name, proteinId, proteinName, proteinEmoji, description, ingredients (with "2-3 servings" tier), steps (array with title, description, emoji, timerMinutes, tip), chefTip, mealType, aiNutrition (calories, proteinG, carbsG, fatG, fiberG, sugarG, sodiumMg)` }],
-        }),
       });
-
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
 
       // Extract JSON
@@ -1194,9 +1582,12 @@ export default function MealPlanScreen() {
         })),
         chefTip: String(recipeData.chefTip || ''),
         createdAt: Date.now(),
-        mealType: mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack_dessert' : 'lunch_dinner',
+        mealType: mealSlot === 'breakfast' ? 'breakfast' : mealSlot === 'snack_dessert' ? 'snack_dessert' : mealSlot === 'others' ? 'others' : 'lunch_dinner',
         status: 'ready',
         source: 'ai',
+        cuisine: cuisineStyle || recipeData.cuisine || undefined,
+        cuisineType: cuisineStyle || recipeData.cuisineType || undefined,
+        cookTimeBucket: cookTimeBucket || recipeData.cookTimeBucket || undefined,
         aiNutrition: recipeData.aiNutrition || entry.recipe?.aiNutrition,
       };
 
@@ -1258,39 +1649,50 @@ export default function MealPlanScreen() {
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }
   );
 
+  const daysTracked = getInclusiveDayCount(trackingStartDate, currentDate);
+
+  const displayedAdherencePct = trackingStartDate ? overallAdherencePct : null;
+
   const grouped: Record<MealSlot, EnrichedEntry[]> = {
     breakfast: [],
     lunch_dinner: [],
     snack_dessert: [],
+    others: [],
   };
   enriched.forEach((e) => { if (grouped[e.slot]) grouped[e.slot].push(e); });
 
   const isToday = currentDate === today;
+  const cycleCronometerMode = () =>
+    setCronometerMode((m) => m === 'consumed' ? 'target' : m === 'target' ? 'diff' : 'consumed');
 
   return (
     <PremiumScreen style={[styles.container, { paddingTop: insets.top }]}>
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.back}>←</Text>
+          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Daily Tracker</Text>
-        <View style={{ width: 30 }} />
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>Cal Tracker</Text>
+        </View>
+        <HomeButton />
       </View>
 
       {/* Day navigator */}
       <View style={styles.dayNav}>
-        <TouchableOpacity onPress={goToPrev} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
-          <Text style={styles.navArrow}>‹</Text>
+        <TouchableOpacity style={styles.dayArrowBtn} onPress={goToPrev} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
+          <Ionicons name="chevron-back" size={21} color="#FFFFFF" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.dayCenter} onPress={openCalendar} activeOpacity={0.7}>
           <View style={styles.dayLabelRow}>
             <Text style={styles.dayLabel}>{formatDisplayDate(currentDate)}</Text>
-            <Text style={styles.calendarHint}>▾</Text>
+            <Ionicons name="calendar-outline" size={15} color={ORANGE} />
           </View>
+          <Text style={styles.daySubLabel}>{isToday ? 'Live targets and logged meals' : 'Review or plan this day'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
-          <Text style={styles.navArrow}>›</Text>
+        <TouchableOpacity style={styles.dayArrowBtn} onPress={goToNext} hitSlop={{ top: 12, bottom: 12, left: 20, right: 20 }}>
+          <Ionicons name="chevron-forward" size={21} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -1339,7 +1741,6 @@ export default function MealPlanScreen() {
                 }
 
                 for (let day = 1; day <= daysInMonth; day++) {
-                  const cellDate = new Date(calMonth.year, calMonth.month, day);
                   const isSelected =
                     selectedD.getFullYear() === calMonth.year &&
                     selectedD.getMonth() === calMonth.month &&
@@ -1386,39 +1787,128 @@ export default function MealPlanScreen() {
         </Pressable>
       </Modal>
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} size="large" />
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Macro progress rings */}
-          <View style={styles.ringsRow}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
+        showsVerticalScrollIndicator={false}
+      >
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              style={styles.quickActionPrimary}
+              onPress={() => router.push({ pathname: '/screens/ScanFoodScreen', params: { date: currentDate } })}
+              activeOpacity={0.84}
+            >
+              <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.quickActionPrimaryText}>Scan Meal</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionSecondary} onPress={openBrowseRecipeHelp} activeOpacity={0.78}>
+              <Ionicons name="book-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.quickActionSecondaryText}>Recipes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionSecondary} onPress={() => openManualQuickAdd('lunch_dinner')} activeOpacity={0.78}>
+              <Ionicons name="add-circle-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.quickActionSecondaryText}>Add Food</Text>
+            </TouchableOpacity>
+          </View>
+
+          {loading && (
+            <View style={styles.inlineLoadingCard}>
+              <ActivityIndicator size="small" color="#E8A87C" />
+              <Text style={styles.inlineLoadingText}>Updating tracker...</Text>
+            </View>
+          )}
+
+          <View style={styles.ringsPanel}>
+            <View style={styles.ringsRow}>
+            <MacroRing
+              label="Calories"
+              color={TRACKER_ACCENT_SOFT}
+              target={macroTargets?.calories ?? 2000}
+              consumed={totals.calories}
+              displayMode={cronometerMode}
+              onPress={cycleCronometerMode}
+              unit=""
+            />
             <MacroRing
               label="Protein"
-              color="#E8671A"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.proteinG ?? 120}
               consumed={totals.proteinG}
+              displayMode={cronometerMode}
+              onPress={cycleCronometerMode}
             />
             <MacroRing
               label="Carbs"
-              color="#3B82F6"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.carbsG ?? 150}
               consumed={totals.carbsG}
+              displayMode={cronometerMode}
+              onPress={cycleCronometerMode}
             />
             <MacroRing
               label="Fat"
-              color="#22C55E"
+              color={TRACKER_ACCENT_SOFT}
               target={macroTargets?.fatG ?? 80}
               consumed={totals.fatG}
+              displayMode={cronometerMode}
+              onPress={cycleCronometerMode}
             />
           </View>
-
+          </View>
           {/* Calorie equation — Target − Consumed = Diff */}
-          {(() => {
+
+          {/* Diet adherence + days tracking */}
+          {!macroTargets ? (
+            <TouchableOpacity
+              style={styles.fitnessNudge}
+              onPress={() => router.push('/screens/FitnessProfileScreen')}
+              activeOpacity={0.82}
+            >
+              <Ionicons name="fitness-outline" size={20} color={ORANGE} />
+              <Text style={styles.fitnessNudgeText}>Set your fitness goals to track diet adherence</Text>
+              <Ionicons name="chevron-forward" size={16} color="rgba(248,241,232,0.44)" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.adherencePanel}>
+              <View style={styles.adherenceTopRow}>
+                <View>
+                  <Text style={styles.adherenceLabel}>Overall Adherence</Text>
+                  <Text style={styles.adherencePct}>
+                    {overallAdherenceLoading ? '...' : displayedAdherencePct !== null ? `${displayedAdherencePct}%` : '—'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.daysBtn}
+                  onPress={() => { setPickerDate(trackingStartDate ?? today); setShowStartDatePicker(true); }}
+                  activeOpacity={0.82}
+                >
+                  <Ionicons name="calendar-outline" size={14} color={ORANGE} />
+                  <Text style={styles.daysBtnText}>Day {daysTracked}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.adherenceTrack}>
+                <View style={[
+                  styles.adherenceFill,
+                  {
+                    width: `${Math.min(100, displayedAdherencePct ?? 0)}%`,
+                    backgroundColor:
+                      displayedAdherencePct === null ? 'rgba(248,241,232,0.15)' : TRACKER_ACCENT_SOFT,
+                  },
+                ]} />
+              </View>
+              {displayedAdherencePct === null && !overallAdherenceLoading && (
+                <Text style={styles.adherenceHint}>
+                  {trackingStartDate
+                    ? 'Log meals from your start date to see overall adherence'
+                    : 'Set a start date to track overall adherence'}
+                </Text>
+              )}
+              {displayedAdherencePct !== null && trackingStartDate && (
+                <Text style={styles.adherenceHint}>{overallLoggedDays}/{daysTracked} days logged since start</Text>
+              )}
+            </View>
+          )}
+
+          {false && (() => {
             const calTarget = macroTargets?.calories ?? 2000;
             const diff = calTarget - totals.calories;
             const isOver = diff < 0;
@@ -1448,12 +1938,24 @@ export default function MealPlanScreen() {
           {SLOT_ORDER.map((slot) => {
             const slotEntries = grouped[slot];
             const limit = SLOT_LIMITS[slot];
-            const emptyCount = Math.max(0, limit - slotEntries.length);
+            const slotMeta = SLOT_META[slot];
             return (
               <View key={slot} style={styles.slotSection}>
                 <View style={styles.slotHeader}>
-                  <Text style={styles.slotTitle}>{SLOT_LABELS[slot]}</Text>
-                  <Text style={styles.slotCount}>{slotEntries.length}/{limit}</Text>
+                  <View style={styles.slotTitleWrap}>
+                    <View style={[styles.slotIconBadge, { backgroundColor: 'rgba(232,168,124,0.10)', borderColor: 'rgba(232,168,124,0.30)' }]}>
+                      <Ionicons name={slotMeta.icon} size={17} color={slotMeta.accent} />
+                    </View>
+                    <View>
+                      <Text style={styles.slotTitle}>{SLOT_LABELS[slot]}</Text>
+                      <Text style={styles.slotHint}>{slotMeta.hint}</Text>
+                    </View>
+                  </View>
+                  {slot !== 'others' && (
+                    <View style={styles.slotCountPill}>
+                      <Text style={styles.slotCount}>{slotEntries.length}/{limit}</Text>
+                    </View>
+                  )}
                 </View>
 
                 {slotEntries.map((entry) => {
@@ -1513,7 +2015,7 @@ export default function MealPlanScreen() {
                               {entry.fatG > 0 && <Text style={styles.cardMacroPill}>🥑 {entry.fatG}g</Text>}
                             </View>
                             <TouchableOpacity style={styles.removeBtn} onPress={() => handleRemove(entry)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                              <Text style={styles.removeBtnText}>✕</Text>
+                              <Ionicons name="close" size={15} color="#FFFFFF" />
                             </TouchableOpacity>
                           </View>
 
@@ -1521,8 +2023,19 @@ export default function MealPlanScreen() {
                           <View style={styles.cardBottomRow}>
                             <Text style={styles.cardOverlayTitle} numberOfLines={2}>{entry.recipeName}</Text>
                             <View style={styles.cardBottomActions}>
-                              <TouchableOpacity style={styles.updateBtnOverlay} onPress={(e) => { e.stopPropagation(); openCorrectMacros(entry); }} activeOpacity={0.75}>
-                                <Text style={styles.updateBtnOverlayText}>📸 Update</Text>
+                              <TouchableOpacity
+                                style={styles.updateBtnOverlay}
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  router.push({
+                                    pathname: '/screens/EditMealNutritionScreen',
+                                    params: { date: currentDate, entryId: entry.id },
+                                  });
+                                }}
+                                activeOpacity={0.75}
+                              >
+                                <Ionicons name="create-outline" size={14} color="#FFFFFF" />
+                                <Text style={styles.updateBtnOverlayText}>Update</Text>
                               </TouchableOpacity>
                               {isAutoplanPlaceholder && !isGenerating && (
                                 <Text style={styles.tapToGenerate}>Tap to generate</Text>
@@ -1540,29 +2053,58 @@ export default function MealPlanScreen() {
                     );
                   })}
 
-                {/* Empty slot placeholders — tappable to add */}
-                {Array.from({ length: emptyCount }).map((_, i) => (
-                  <TouchableOpacity
-                    key={`empty-${slot}-${i}`}
-                    style={styles.emptySlot}
-                    onPress={() => {
-                      Alert.alert('Add to ' + SLOT_LABELS[slot].replace(/^[^\s]+\s/, ''), 'How would you like to add a meal?', [
-                        { text: 'Browse Recipes', onPress: openBrowseRecipeHelp },
-                        { text: 'Quick Add Meal', onPress: () => openQuickAdd(slot) },
-                        { text: 'Cancel', style: 'cancel' },
-                      ]);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.emptySlotPlus}>+</Text>
-                    <Text style={styles.emptySlotText}>Add Meal</Text>
-                  </TouchableOpacity>
-                ))}
               </View>
             );
           })}
         </ScrollView>
-      )}
+
+      <Modal visible={labelCameraOpen} animationType="slide" onRequestClose={() => setLabelCameraOpen(false)}>
+        <View style={styles.labelCameraWrap}>
+          <CameraView
+            ref={labelCameraRef}
+            style={styles.labelCamera}
+            facing="back"
+            onCameraReady={() => setLabelCameraReady(true)}
+          />
+          <View pointerEvents="box-none" style={styles.labelCameraOverlay}>
+            <View style={styles.labelCameraTopRow}>
+              <TouchableOpacity style={styles.labelCameraTopBtn} onPress={() => setLabelCameraOpen(false)} activeOpacity={0.8}>
+                <Ionicons name="close" size={25} color="#FFFFFF" />
+              </TouchableOpacity>
+              <View style={styles.labelCameraHelpBadge}>
+                <Ionicons name="receipt-outline" size={17} color="#E8A87C" />
+                <Text style={styles.labelCameraHelpText}>Nutrition Label</Text>
+              </View>
+            </View>
+
+            <View style={styles.labelCameraFrameWrap}>
+              <View style={styles.labelCameraFrame}>
+                <View style={[styles.labelCameraCorner, styles.labelCameraCornerTopLeft]} />
+                <View style={[styles.labelCameraCorner, styles.labelCameraCornerTopRight]} />
+                <View style={[styles.labelCameraCorner, styles.labelCameraCornerBottomLeft]} />
+                <View style={[styles.labelCameraCorner, styles.labelCameraCornerBottomRight]} />
+                <Text style={styles.labelCameraFrameText}>Cover nutrition details</Text>
+                <Text style={styles.labelCameraFrameSubtext}>Fit the full Nutrition Facts panel inside this box</Text>
+              </View>
+            </View>
+
+            <View style={styles.labelCameraBottomBar}>
+              <TouchableOpacity
+                style={[styles.labelCameraCapture, (!labelCameraReady || labelCapturing) && styles.labelCameraCaptureDisabled]}
+                onPress={captureNutritionLabelPhoto}
+                disabled={!labelCameraReady || labelCapturing}
+                activeOpacity={0.85}
+              >
+                {labelCapturing ? (
+                  <ActivityIndicator color="#0F0D0B" size="small" />
+                ) : (
+                  <View style={styles.labelCameraCaptureInner} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Browse recipe instruction modal */}
       <Modal visible={browseHelpVisible} transparent animationType="fade" onRequestClose={() => setBrowseHelpVisible(false)} statusBarTranslucent>
@@ -1601,116 +2143,268 @@ export default function MealPlanScreen() {
           <ScrollView>
           <Pressable style={styles.cmSheet} onPress={() => Keyboard.dismiss()}>
             <View style={styles.cmHandle} />
-            <Text style={styles.cmTitle}>Quick Add Meal</Text>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.qaSlotPicker}
+            >
+              {SLOT_ORDER.map((slot) => {
+                const slotMeta = SLOT_META[slot];
+                const active = quickAddSlot === slot;
+                return (
+                  <TouchableOpacity
+                    key={slot}
+                    style={[styles.qaSlotOption, active && styles.qaSlotOptionActive]}
+                    onPress={() => setQuickAddSlot(slot)}
+                    activeOpacity={0.82}
+                  >
+                    <Ionicons name={slotMeta.icon} size={16} color={active ? '#FFFFFF' : slotMeta.accent} />
+                    <Text style={[styles.qaSlotOptionText, active && styles.qaSlotOptionTextActive]}>
+                      {SLOT_LABELS[slot]}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
             {/* Meal name */}
             <TextInput
               style={styles.qaNameInput}
               value={quickAddName}
               onChangeText={setQuickAddName}
-              placeholder="Meal name (e.g., Chipotle Bowl)"
+              placeholder="Food title (e.g., Chicken rice bowl)"
               placeholderTextColor="rgba(255,255,255,0.30)"
+              returnKeyType="done"
+            />
+            <TextInput
+              style={[styles.qaNameInput, styles.qaDescriptionInput]}
+              value={quickAddDescription}
+              onChangeText={setQuickAddDescription}
+              placeholder="Description (optional)"
+              placeholderTextColor="rgba(255,255,255,0.30)"
+              multiline
+              textAlignVertical="top"
               returnKeyType="done"
             />
 
             {!quickAddManualMode && !quickAddEstimated && !quickAddScanning && (
               <>
-            <Text style={styles.qaScaleTip}>Tip: hold a fork or your hand next to the food — it helps estimate portion size</Text>
-            <View style={styles.cmFrameGrid}>
-              {[0, 1, 2, 3].map((idx) => {
-                const photo = quickAddPhotos[idx];
-                return (
-                  <View key={idx} style={styles.cmFrame}>
-                    {photo ? (
-                      <>
-                        <Image source={{ uri: photo.uri }} style={styles.cmFrameImg} contentFit="cover" cachePolicy="none" />
-                        <TouchableOpacity style={styles.cmFrameRemoveLeft} onPress={() => removeQuickAddPhoto(idx)}>
-                          <Text style={styles.cmFrameRemoveText}>x</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.cmFrameEmpty}
-                        onPress={() => Alert.alert('Add Photo', 'How would you like to add?', [
-                          { text: 'Camera', onPress: () => pickQuickAddPhoto(true) },
-                          { text: 'Gallery', onPress: () => pickQuickAddPhoto(false) },
-                          { text: 'Cancel', style: 'cancel' },
-                        ])}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={styles.cmFrameEmptyIcon}>+</Text>
-                        <Text style={styles.cmFrameEmptyLabel}>Photo {idx + 1}</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })}
+            <Text style={styles.qaScaleTip}>Scan a plate, import a meal photo, or capture a nutrition label.</Text>
+            <View style={styles.scanActionGrid}>
+              <TouchableOpacity style={[styles.scanActionCard, styles.scanActionPrimaryCard]} onPress={() => { setQuickAddLabelMode(false); pickQuickAddPhoto(true); }} activeOpacity={0.84}>
+                <View style={styles.scanActionIconPrimary}>
+                  <Ionicons name="scan-outline" size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.scanActionTitlePrimary}>Scan Food</Text>
+                <Text style={styles.scanActionTextPrimary}>Use camera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.scanActionCard} onPress={() => { setQuickAddLabelMode(false); pickQuickAddPhoto(false); }} activeOpacity={0.82}>
+                <View style={styles.scanActionIcon}>
+                  <Ionicons name="images-outline" size={23} color="#E8A87C" />
+                </View>
+                <Text style={styles.scanActionTitle}>Gallery</Text>
+                <Text style={styles.scanActionText}>Pick photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.scanActionCard, quickAddLabelMode && styles.scanActionCardActive]} onPress={() => setQuickAddLabelMode(true)} activeOpacity={0.82}>
+                <View style={styles.scanActionIcon}>
+                  <Ionicons name="receipt-outline" size={23} color="#E8A87C" />
+                </View>
+                <Text style={styles.scanActionTitle}>Food Label</Text>
+                <Text style={styles.scanActionText}>Read macros</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Restaurant vs home toggle */}
-            <View style={styles.qaPortionRow}>
-              <Text style={styles.qaPortionHint}>Portion type</Text>
-              <View style={styles.qaPortionBtns}>
-                <TouchableOpacity
-                  style={[styles.qaPortionBtn, quickAddPortionType === 'home' && styles.qaPortionBtnActive]}
-                  onPress={() => setQuickAddPortionType(quickAddPortionType === 'home' ? null : 'home')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.qaPortionBtnText, quickAddPortionType === 'home' && styles.qaPortionBtnTextActive]}>🏠 Home</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.qaPortionBtn, quickAddPortionType === 'restaurant' && styles.qaPortionBtnActive]}
-                  onPress={() => setQuickAddPortionType(quickAddPortionType === 'restaurant' ? null : 'restaurant')}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.qaPortionBtnText, quickAddPortionType === 'restaurant' && styles.qaPortionBtnTextActive]}>🍴 Restaurant</Text>
+            {quickAddLabelMode && (
+              <View style={styles.labelScanGuide}>
+                <View style={styles.labelScanFrame}>
+                  <View style={[styles.labelCorner, styles.labelCornerTopLeft]} />
+                  <View style={[styles.labelCorner, styles.labelCornerTopRight]} />
+                  <View style={[styles.labelCorner, styles.labelCornerBottomLeft]} />
+                  <View style={[styles.labelCorner, styles.labelCornerBottomRight]} />
+                  <Ionicons name="receipt-outline" size={28} color="#E8A87C" />
+                  <Text style={styles.labelScanTitle}>Cover the nutrition label</Text>
+                  <Text style={styles.labelScanText}>Fit the full Nutrition Facts panel inside this rectangle.</Text>
+                </View>
+                <TouchableOpacity style={styles.labelScanButton} onPress={scanQuickAddNutritionLabel} activeOpacity={0.84}>
+                  <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.labelScanButtonText}>Open Camera</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            )}
+
+            {quickAddPhotos.length > 0 && (
+              <View style={styles.quickPhotoStrip}>
+                {quickAddPhotos.slice(0, 4).map((photo, idx) => (
+                  <View key={`${photo.uri}-${idx}`} style={styles.quickPhotoThumb}>
+                    <Image source={{ uri: photo.uri }} style={styles.quickPhotoThumbImg} contentFit="cover" cachePolicy="none" />
+                    <TouchableOpacity style={styles.quickPhotoRemove} onPress={() => removeQuickAddPhoto(idx)}>
+                      <Ionicons name="close" size={12} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {quickAddPhotos.length > 0 && (
               <TouchableOpacity style={styles.cmAnalyzeBtn} onPress={analyzeQuickAddPhotos} activeOpacity={0.8}>
                 <Text style={styles.cmAnalyzeBtnText}>{quickAddScanning ? 'Analyzing...' : `Analyze Meal (${quickAddPhotos.length} photo${quickAddPhotos.length > 1 ? 's' : ''})`}</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.cmManualBtn} onPress={() => setQuickAddManualMode(true)} activeOpacity={0.8}>
-              <Text style={styles.cmManualBtnText}>Enter Manually</Text>
-            </TouchableOpacity>
               </>
             )}
 
             {quickAddScanning && (
               <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Analyzing {quickAddPhotos.length} photo{quickAddPhotos.length > 1 ? 's' : ''}...</Text>
+                <ProcessingRing
+                  label={`Analyzing ${quickAddPhotos.length} photo${quickAddPhotos.length > 1 ? 's' : ''}...`}
+                  expectedMs={8000}
+                  size={80}
+                />
               </View>
             )}
 
             {(quickAddManualMode || quickAddEstimated) && !quickAddScanning && (
               <>
 
-            {/* Photo section */}
-            {false ? (
-              <View style={styles.cmBtnRow}>
-                <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(true)} activeOpacity={0.75}>
-                  <Text style={styles.cmPhotoBtnText}>📷 Camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.cmPhotoBtn} onPress={() => pickQuickAddPhoto(false)} activeOpacity={0.75}>
-                  <Text style={styles.cmPhotoBtnText}>🖼 Gallery</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.qaPhotoRow}>
-                <Image source={{ uri: quickAddPhoto ?? '' }} style={styles.qaPhotoThumb} contentFit="cover" />
-                <TouchableOpacity onPress={() => { setQuickAddPhoto(null); setQuickAddBase64(''); }} activeOpacity={0.7}>
-                  <Text style={styles.qaPhotoChange}>Change</Text>
-                </TouchableOpacity>
-                {quickAddScanning && <ActivityIndicator color={ORANGE} size="small" style={{ marginLeft: 8 }} />}
+            {quickAddEstimated && (
+              <View style={styles.nutritionResultCard}>
+                <View style={styles.nutritionResultTop}>
+                  <View style={styles.nutritionBookmark}>
+                    <Ionicons name="bookmark-outline" size={20} color="#E8A87C" />
+                  </View>
+                  <View style={styles.nutritionServingPill}>
+                    <Text style={styles.nutritionServingText}>1</Text>
+                    <Ionicons name="pencil" size={14} color="#F8F1E8" />
+                  </View>
+                </View>
+                <Text style={styles.nutritionResultTime}>{new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+                <Text style={styles.nutritionResultTitle} numberOfLines={2}>
+                  {quickAddName.trim() || 'Detected Food'}
+                </Text>
+
+                <View style={styles.nutritionCaloriesCard}>
+                  <View style={styles.nutritionCaloriesIcon}>
+                    <Ionicons name="flame" size={26} color="#F8F1E8" />
+                  </View>
+                  <View>
+                    <Text style={styles.nutritionMetricLabel}>Calories</Text>
+                    <Text style={styles.nutritionCaloriesValue}>{quickAddMacros.calories || '0'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.nutritionMacroRow}>
+                  <View style={styles.nutritionMacroTile}>
+                    <Ionicons name="barbell-outline" size={18} color={TRACKER_ACCENT_SOFT} />
+                    <Text style={styles.nutritionMacroLabel}>Protein</Text>
+                    <Text style={styles.nutritionMacroValue}>{quickAddMacros.proteinG || '0'}g</Text>
+                  </View>
+                  <View style={styles.nutritionMacroTile}>
+                    <Ionicons name="leaf-outline" size={18} color={TRACKER_ACCENT_SOFT} />
+                    <Text style={styles.nutritionMacroLabel}>Carbs</Text>
+                    <Text style={styles.nutritionMacroValue}>{quickAddMacros.carbsG || '0'}g</Text>
+                  </View>
+                  <View style={styles.nutritionMacroTile}>
+                    <Ionicons name="water-outline" size={18} color={TRACKER_ACCENT_SOFT} />
+                    <Text style={styles.nutritionMacroLabel}>Fats</Text>
+                    <Text style={styles.nutritionMacroValue}>{quickAddMacros.fatG || '0'}g</Text>
+                  </View>
+                </View>
+
+                {quickAddComponents.length > 0 && (
+                  <View style={styles.nutritionIngredientsBlock}>
+                    <View style={styles.nutritionIngredientsHeader}>
+                      <Text style={styles.nutritionIngredientsTitle}>Ingredients</Text>
+                      <TouchableOpacity onPress={enterQuickAddEditMode} activeOpacity={0.75}>
+                        <Text style={styles.nutritionAddMore}>+ Add More</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {!quickAddComponentEditMode ? (
+                      quickAddComponents.slice(0, 5).map((component, index) => (
+                        (() => {
+                          const ingredient = parseIngredientComponent(component);
+                          return (
+                            <TouchableOpacity
+                              key={`${component}-${index}`}
+                              style={styles.nutritionIngredientRow}
+                              onPress={enterQuickAddEditMode}
+                              activeOpacity={0.78}
+                            >
+                              <Text style={styles.nutritionIngredientName} numberOfLines={1}>{ingredient.name}</Text>
+                              <View style={styles.nutritionIngredientDetails}>
+                                {!!ingredient.calories && <Text style={styles.nutritionIngredientCalories}>{ingredient.calories}</Text>}
+                                {!!ingredient.quantity && <Text style={styles.nutritionIngredientQty}>{ingredient.quantity}</Text>}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })()
+                      ))
+                    ) : (
+                      <>
+                        {quickAddEditableComponents.map((component, index) => (
+                          <View key={`edit-${index}`} style={styles.nutritionIngredientEditRow}>
+                            <TextInput
+                              style={styles.nutritionIngredientInput}
+                              value={component}
+                              onChangeText={(value) => {
+                                const updated = [...quickAddEditableComponents];
+                                updated[index] = value;
+                                setQuickAddEditableComponents(updated);
+                              }}
+                              multiline
+                              returnKeyType="done"
+                              blurOnSubmit
+                            />
+                            <TouchableOpacity
+                              style={styles.nutritionIngredientRemove}
+                              onPress={() => setQuickAddEditableComponents((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+                              activeOpacity={0.75}
+                            >
+                              <Ionicons name="close" size={14} color="#FFFFFF" />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                        <View style={styles.nutritionIngredientEditRow}>
+                          <TextInput
+                            style={[styles.nutritionIngredientInput, { opacity: 0.7 }]}
+                            value={quickAddNewIngredient}
+                            onChangeText={setQuickAddNewIngredient}
+                            placeholder="Add ingredient or detail"
+                            placeholderTextColor="rgba(248,241,232,0.34)"
+                            returnKeyType="done"
+                            blurOnSubmit
+                          />
+                        </View>
+                        <View style={styles.nutritionEditActions}>
+                          <TouchableOpacity
+                            style={styles.nutritionRecalculateBtn}
+                            onPress={recalculateQuickAddMacros}
+                            disabled={quickAddRecalculating}
+                            activeOpacity={0.82}
+                          >
+                            {quickAddRecalculating ? (
+                              <ActivityIndicator color="#FFFFFF" size="small" />
+                            ) : (
+                              <Text style={styles.nutritionRecalculateText}>Recalculate</Text>
+                            )}
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.nutritionCancelEditBtn}
+                            onPress={() => setQuickAddComponentEditMode(false)}
+                            activeOpacity={0.75}
+                          >
+                            <Text style={styles.nutritionCancelEditText}>Cancel</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                )}
               </View>
             )}
 
             {/* Cal AI breakdown card */}
-            {quickAddEstimated && quickAddComponents.length > 0 && (
+            {false && quickAddEstimated && quickAddComponents.length > 0 && quickAddComponentEditMode && quickAddCalRange && (
               <View style={styles.qaBreakdownCard}>
                 <View style={styles.qaBreakdownHeader}>
                   <Text style={styles.qaBreakdownTitle}>What we found</Text>
@@ -1743,7 +2437,7 @@ export default function MealPlanScreen() {
                       <Text key={i} style={styles.qaBreakdownItem}>· {c}</Text>
                     ))}
                     {quickAddCalRange && (
-                      <Text style={styles.qaCalRange}>Est. range: {quickAddCalRange.min}–{quickAddCalRange.max} kcal</Text>
+                      <Text style={styles.qaCalRange}>Est. range: {quickAddCalRange?.min ?? 0}–{quickAddCalRange?.max ?? 0} kcal</Text>
                     )}
                   </>
                 ) : (
@@ -1815,8 +2509,7 @@ export default function MealPlanScreen() {
             )}
             {quickAddReanalyzing && (
               <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Revising estimate...</Text>
+                <ProcessingRing label="Revising estimate..." expectedMs={6000} size={72} />
               </View>
             )}
             {quickAddFeedback === 'ok' && (
@@ -1901,6 +2594,98 @@ export default function MealPlanScreen() {
             <Text style={styles.cmTitle}>Update Meal</Text>
             <Text style={styles.cmRecipeName}>{correctEntry?.recipeName}</Text>
 
+            <View style={styles.updateEditCard}>
+              <View style={styles.updateCaloriesCard}>
+                <View style={styles.nutritionCaloriesIcon}>
+                  <Ionicons name="flame" size={24} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nutritionMetricLabel}>Calories</Text>
+                  <TextInput
+                    style={styles.updateCaloriesInput}
+                    value={String(correctedMacros?.calories ?? 0)}
+                    onChangeText={(value) => updateCorrectionMacroNumber('calories', value)}
+                    keyboardType="number-pad"
+                    selectTextOnFocus
+                    returnKeyType="done"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.updateMacroGrid}>
+                {[
+                  { key: 'proteinG' as const, label: 'Protein', color: TRACKER_ACCENT_SOFT, icon: 'barbell-outline' as const },
+                  { key: 'carbsG' as const, label: 'Carbs', color: TRACKER_ACCENT_SOFT, icon: 'leaf-outline' as const },
+                  { key: 'fatG' as const, label: 'Fats', color: TRACKER_ACCENT_SOFT, icon: 'water-outline' as const },
+                ].map((macro) => (
+                  <View key={macro.key} style={styles.updateMacroField}>
+                    <Ionicons name={macro.icon} size={18} color={macro.color} />
+                    <Text style={styles.updateMacroLabel}>{macro.label}</Text>
+                    <View style={styles.updateMacroInputRow}>
+                      <TextInput
+                        style={styles.updateMacroInput}
+                        value={String(correctedMacros?.[macro.key] ?? 0)}
+                        onChangeText={(value) => updateCorrectionMacroNumber(macro.key, value)}
+                        keyboardType="number-pad"
+                        selectTextOnFocus
+                        returnKeyType="done"
+                      />
+                      <Text style={styles.updateMacroUnit}>g</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.updateIngredientsHeader}>
+              <Text style={styles.nutritionIngredientsTitle}>Ingredients</Text>
+              <TouchableOpacity style={styles.updateAddIngredientBtn} onPress={addCorrectionIngredient} activeOpacity={0.82}>
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+                <Text style={styles.updateAddIngredientText}>Add</Text>
+              </TouchableOpacity>
+            </View>
+
+            {correctionEditableComponents.map((component, index) => {
+              const item = parseIngredientComponent(component);
+              return (
+                <View key={`${component}_${index}`} style={styles.updateIngredientRow}>
+                  <TextInput
+                    style={[styles.updateIngredientInput, styles.updateIngredientNameInput]}
+                    value={item.name}
+                    onChangeText={(value) => updateCorrectionIngredientPart(index, 'name', value)}
+                    placeholder="Ingredient"
+                    placeholderTextColor="rgba(248,241,232,0.34)"
+                    returnKeyType="done"
+                  />
+                  <TextInput
+                    style={[styles.updateIngredientInput, styles.updateIngredientCalInput]}
+                    value={item.calories.replace(/[^\d]/g, '')}
+                    onChangeText={(value) => updateCorrectionIngredientPart(index, 'calories', value)}
+                    keyboardType="number-pad"
+                    placeholder="cal"
+                    placeholderTextColor="rgba(248,241,232,0.34)"
+                    returnKeyType="done"
+                  />
+                  <TextInput
+                    style={[styles.updateIngredientInput, styles.updateIngredientQtyInput]}
+                    value={item.quantity}
+                    onChangeText={(value) => updateCorrectionIngredientPart(index, 'quantity', value)}
+                    placeholder="qty"
+                    placeholderTextColor="rgba(248,241,232,0.34)"
+                    returnKeyType="done"
+                  />
+                  <TouchableOpacity style={styles.updateRemoveIngredientBtn} onPress={() => removeCorrectionIngredient(index)} activeOpacity={0.82}>
+                    <Ionicons name="close" size={15} color="rgba(248,241,232,0.72)" />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+
+            <TouchableOpacity style={[styles.cmApplyBtn, { marginTop: 12 }]} onPress={applyCorrection} activeOpacity={0.8}>
+              <Text style={styles.cmApplyBtnText}>Apply Changes</Text>
+            </TouchableOpacity>
+
+            {false && (<>
             {/* Current macros */}
             <View style={styles.cmSection}>
               <Text style={styles.cmSectionLabel}>CURRENT</Text>
@@ -2054,7 +2839,7 @@ export default function MealPlanScreen() {
                               <Text key={i} style={styles.qaBreakdownItem}>· {c}</Text>
                             ))}
                             {correctionCalRange && (
-                              <Text style={styles.qaCalRange}>Est. range: {correctionCalRange.min}–{correctionCalRange.max} kcal</Text>
+                              <Text style={styles.qaCalRange}>Est. range: {correctionCalRange?.min ?? 0}–{correctionCalRange?.max ?? 0} kcal</Text>
                             )}
                           </>
                         ) : (
@@ -2110,13 +2895,13 @@ export default function MealPlanScreen() {
                     {/* Macro totals */}
                     <Text style={[styles.cmSectionLabel, { marginTop: 12 }]}>AI-ESTIMATED TOTAL</Text>
                     <View style={styles.cmMacroRow}>
-                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.calories} kcal</Text>
+                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros?.calories ?? 0} kcal</Text>
                       <Text style={styles.cmMacroDot}>·</Text>
-                      <Text style={[styles.cmMacroVal, { color: ORANGE }]}>{correctedMacros.proteinG}g P</Text>
+                      <Text style={[styles.cmMacroVal, { color: ORANGE }]}>{correctedMacros?.proteinG ?? 0}g P</Text>
                       <Text style={styles.cmMacroDot}>·</Text>
-                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.carbsG}g C</Text>
+                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros?.carbsG ?? 0}g C</Text>
                       <Text style={styles.cmMacroDot}>·</Text>
-                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros.fatG}g F</Text>
+                      <Text style={[styles.cmMacroVal, styles.cmMacroNew]}>{correctedMacros?.fatG ?? 0}g F</Text>
                     </View>
 
                     {/* Feedback row */}
@@ -2138,8 +2923,7 @@ export default function MealPlanScreen() {
                     )}
                     {correctionReanalyzing && (
                       <View style={[styles.cmAnalyzing, { marginTop: 10 }]}>
-                        <ActivityIndicator color={ORANGE} size="small" />
-                        <Text style={styles.cmAnalyzingText}>Revising estimate...</Text>
+                        <ProcessingRing label="Revising estimate..." expectedMs={6000} size={72} />
                       </View>
                     )}
                     {correctionFeedback === 'ok' && (
@@ -2175,14 +2959,73 @@ export default function MealPlanScreen() {
             {/* Analyzing */}
             {correcting && (
               <View style={styles.cmAnalyzing}>
-                <ActivityIndicator color={ORANGE} size="small" />
-                <Text style={styles.cmAnalyzingText}>Analyzing {correctionPhotos.length} photo{correctionPhotos.length > 1 ? 's' : ''}...</Text>
+                <ProcessingRing
+                  label={`Analyzing ${correctionPhotos.length} photo${correctionPhotos.length > 1 ? 's' : ''}...`}
+                  expectedMs={8000}
+                  size={80}
+                />
               </View>
             )}
+            </>)}
           </Pressable>
           </ScrollView>
         </Pressable>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Tracking start date picker */}
+      <Modal visible={showStartDatePicker} transparent animationType="slide" onRequestClose={() => setShowStartDatePicker(false)}>
+        <View style={styles.datePickerOverlay}>
+          <View style={styles.datePickerSheet}>
+            <Text style={styles.datePickerTitle}>Tracking Start Date</Text>
+            <Text style={styles.datePickerSub}>When did you start following your diet plan?</Text>
+
+            <View style={styles.datePickerNav}>
+              <TouchableOpacity
+                style={styles.datePickerArrow}
+                onPress={() => {
+                  const d = new Date(pickerDate);
+                  d.setDate(d.getDate() - 1);
+                  setPickerDate(d.toISOString().slice(0, 10));
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+              <Text style={styles.datePickerDate}>
+                {new Date(pickerDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </Text>
+              <TouchableOpacity
+                style={styles.datePickerArrow}
+                onPress={() => {
+                  const d = new Date(pickerDate);
+                  d.setDate(d.getDate() + 1);
+                  const next = d.toISOString().slice(0, 10);
+                  if (next <= today) setPickerDate(next);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.datePickerSetBtn}
+              onPress={async () => {
+                await AsyncStorage.setItem(TRACKING_START_KEY, pickerDate);
+                setTrackingStartDate(pickerDate);
+                setShowStartDatePicker(false);
+              }}
+              activeOpacity={0.86}
+            >
+              <Text style={styles.datePickerSetBtnText}>Set Start Date</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.datePickerCancel} onPress={() => setShowStartDatePicker(false)} activeOpacity={0.7}>
+              <Text style={styles.datePickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </PremiumScreen>
   );
@@ -2196,27 +3039,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(248,241,232,0.12)',
+    borderBottomColor: 'rgba(248,241,232,0.08)',
   },
   backBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(13,11,9,0.54)',
+    backgroundColor: 'rgba(248,241,232,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
+    borderColor: 'rgba(248,241,232,0.14)',
     ...Platform.select({
       ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 6 },
     }),
   },
   back: { fontSize: 28, lineHeight: 30, color: '#FFFFFF', fontWeight: '900' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', fontFamily: PLAYFAIR },
+  headerCenter: { alignItems: 'center' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', fontFamily: PLAYFAIR },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   autoPlanBtn: {
     backgroundColor: 'rgba(143,58,31,0.15)',
@@ -2234,15 +3078,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(248,241,232,0.12)',
+    borderBottomColor: 'rgba(248,241,232,0.08)',
   },
   navArrow: { fontSize: 34, color: ORANGE, fontWeight: '700', lineHeight: 38 },
-  dayCenter: { alignItems: 'center', gap: 6 },
+  dayArrowBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(248,241,232,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+  },
+  dayCenter: { alignItems: 'center', gap: 3, flex: 1 },
   dayLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dayLabel: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  dayLabel: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
+  daySubLabel: { fontSize: 11, fontWeight: '700', color: 'rgba(248,241,232,0.42)' },
   calendarHint: { fontSize: 12, color: ORANGE, marginTop: 2 },
   todayPill: {
     backgroundColor: 'rgba(143,58,31,0.20)',
@@ -2390,7 +3245,300 @@ const styles = StyleSheet.create({
   },
   calTodayBtnText: { fontSize: 14, fontWeight: '700', color: ORANGE },
 
-  scroll: { paddingHorizontal: 20, paddingTop: 16 },
+  scroll: { paddingHorizontal: 18, paddingTop: 16 },
+
+  dailyHero: {
+    borderRadius: 26,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.16)',
+    marginBottom: 14,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.38, shadowRadius: 24, shadowOffset: { width: 0, height: 14 } },
+      android: { elevation: 12 },
+    }),
+  },
+  heroTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 },
+  heroKicker: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: 'rgba(248,241,232,0.58)',
+    textTransform: 'uppercase',
+    letterSpacing: 1.4,
+    marginBottom: 4,
+  },
+  heroHeadline: {
+    fontSize: 54,
+    lineHeight: 58,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  heroSubhead: { fontSize: 15, fontWeight: '800', color: '#86EFAC' },
+  heroSubheadOver: { color: '#FCA5A5' },
+  heroScoreBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(13,11,9,0.46)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.13)',
+  },
+  heroScoreText: { fontSize: 13, fontWeight: '900', color: '#86EFAC' },
+  heroScoreTextOver: { color: '#FCA5A5' },
+  calorieRail: {
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,241,232,0.12)',
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  calorieRailFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: TRACKER_ACCENT_SOFT,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(13,11,9,0.34)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    marginBottom: 14,
+  },
+  heroStat: { flex: 1, alignItems: 'center' },
+  heroStatValue: { fontSize: 18, fontWeight: '900', color: '#FFFFFF' },
+  heroStatLabel: { fontSize: 10, fontWeight: '800', color: 'rgba(248,241,232,0.42)', textTransform: 'uppercase', letterSpacing: 0.9, marginTop: 3 },
+  heroStatDivider: { width: 1, height: 30, backgroundColor: 'rgba(248,241,232,0.10)' },
+  macroBars: { gap: 10 },
+  macroBarItem: { gap: 6 },
+  macroBarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  macroBarLabel: { fontSize: 12, fontWeight: '800', color: 'rgba(248,241,232,0.70)' },
+  macroBarValue: { fontSize: 12, fontWeight: '900', color: '#FFFFFF' },
+  macroBarTrack: { height: 6, borderRadius: 999, backgroundColor: 'rgba(248,241,232,0.12)', overflow: 'hidden' },
+  macroBarFill: { height: '100%', borderRadius: 999 },
+
+  // Fitness nudge banner (no profile set)
+  fitnessNudge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(232,168,124,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.22)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 14,
+  },
+  fitnessNudgeText: {
+    flex: 1,
+    color: '#F8F1E8',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+
+  // Diet adherence panel
+  adherencePanel: {
+    backgroundColor: 'rgba(248,241,232,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+  },
+  adherenceTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  adherenceLabel: {
+    color: 'rgba(248,241,232,0.54)',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 3,
+  },
+  adherencePct: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  daysBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(232,168,124,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.30)',
+    borderRadius: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  daysBtnText: {
+    color: '#E8A87C',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  adherenceTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(248,241,232,0.10)',
+    overflow: 'hidden',
+  },
+  adherenceFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  adherenceHint: {
+    color: 'rgba(248,241,232,0.40)',
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+
+  // Date picker modal
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.60)',
+    justifyContent: 'flex-end',
+  },
+  datePickerSheet: {
+    backgroundColor: '#1A1410',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 24,
+    paddingBottom: 40,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(248,241,232,0.12)',
+  },
+  datePickerTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  datePickerSub: {
+    color: 'rgba(248,241,232,0.50)',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 28,
+    lineHeight: 20,
+  },
+  datePickerNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 28,
+  },
+  datePickerArrow: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  datePickerDate: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+    flex: 1,
+    textAlign: 'center',
+  },
+  datePickerSetBtn: {
+    backgroundColor: '#8F3A1F',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  datePickerSetBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  datePickerCancel: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  datePickerCancelText: {
+    color: 'rgba(248,241,232,0.45)',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  quickActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  inlineLoadingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(232,168,124,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.22)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  inlineLoadingText: {
+    color: 'rgba(248,241,232,0.70)',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  quickActionPrimary: {
+    flex: 1.4,
+    minHeight: 44,
+    borderRadius: 15,
+    backgroundColor: '#B6532B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    ...Platform.select({
+      ios: { shadowColor: '#B6532B', shadowOpacity: 0.34, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+      android: { elevation: 5 },
+    }),
+  },
+  quickActionPrimaryText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  quickActionSecondary: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 15,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  quickActionSecondaryText: { color: '#F8F1E8', fontSize: 13, fontWeight: '800' },
+  quickActionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+  },
 
   // Servings selector
   servingsRow: {
@@ -2428,21 +3576,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 20,
+    paddingHorizontal: 0,
   },
-
+  ringsPanel: {
+    backgroundColor: 'rgba(248,241,232,0.06)',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    marginBottom: 12,
+  },
   // Calorie equation card
   calEqCard: {
-    backgroundColor: SURFACE,
+    backgroundColor: 'rgba(13,11,9,0.46)',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: BORDER,
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    marginHorizontal: 16,
-    marginBottom: 24,
+    borderColor: 'rgba(248,241,232,0.10)',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginBottom: 20,
   },
   calEqRow: {
     flexDirection: 'row',
@@ -2454,13 +3607,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   calEqNum: {
-    fontSize: 28,
+    fontSize: 21,
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   calEqLabel: {
-    fontSize: 10,
+    fontSize: 8,
     fontWeight: '700',
     color: 'rgba(255,255,255,0.40)',
     letterSpacing: 1.2,
@@ -2468,67 +3621,68 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   calEqOp: {
-    fontSize: 22,
+    fontSize: 17,
     fontWeight: '300',
     color: 'rgba(255,255,255,0.25)',
     paddingBottom: 16,
   },
 
   // Slot sections
-  slotSection: { marginBottom: 28 },
+  slotSection: { marginBottom: 30 },
   slotHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 14,
+  },
+  slotTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  slotIconBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
   slotTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: 'rgba(255,255,255,0.50)',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  slotHint: { fontSize: 11, fontWeight: '700', color: 'rgba(248,241,232,0.42)', marginTop: 2 },
+  slotCountPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
   },
   slotCount: {
     fontSize: 12,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.30)',
+    fontWeight: '900',
+    color: 'rgba(248,241,232,0.70)',
   },
-  emptySlot: {
-    backgroundColor: SURFACE,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: 'rgba(143,58,31,0.25)',
-    borderStyle: 'dashed',
-    paddingVertical: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  emptySlotPlus: {
-    fontSize: 28,
-    fontWeight: '300',
-    color: ORANGE,
-    marginBottom: 4,
-  },
-  emptySlotText: { color: 'rgba(255,255,255,0.40)', fontSize: 13, fontWeight: '600' },
-
   // Recipe hero card
   card: {
     width: CARD_W,
-    backgroundColor: SURFACE,
-    borderRadius: 20,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderRadius: 24,
     overflow: 'hidden',
-    marginBottom: 14,
+    marginBottom: 16,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: 'rgba(248,241,232,0.13)',
     ...Platform.select({
-      ios: { shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
-      android: { elevation: 6 },
+      ios: { shadowColor: '#000', shadowOpacity: 0.34, shadowRadius: 18, shadowOffset: { width: 0, height: 10 } },
+      android: { elevation: 8 },
     }),
   },
   // Compact card — everything on hero image
-  cardHero: { height: 180, position: 'relative' },
+  cardHero: { height: 194, position: 'relative' },
   cardHeroImg: { width: '100%', height: '100%' },
   cardHeroFallback: {
     width: '100%',
@@ -2542,14 +3696,14 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 60,
+    height: 78,
   },
   cardHeroGradient: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 100,
+    height: 118,
   },
 
   // Top row: macro pills + remove
@@ -2561,29 +3715,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    padding: 10,
+    padding: 12,
   },
   cardMacroPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, flex: 1, marginRight: 8 },
   cardMacroPill: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '900',
     color: '#FFFFFF',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderRadius: 8,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    backgroundColor: 'rgba(13,11,9,0.56)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     overflow: 'hidden',
   },
   cardMacroPillProtein: {
-    backgroundColor: 'rgba(143,58,31,0.55)',
+    backgroundColor: 'rgba(13,11,9,0.56)',
   },
   removeBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(13,11,9,0.58)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
   },
   removeBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
 
@@ -2593,28 +3749,31 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 12,
+    padding: 14,
   },
   cardOverlayTitle: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 17,
+    fontWeight: '900',
     color: '#FFFFFF',
-    lineHeight: 20,
-    marginBottom: 6,
+    lineHeight: 22,
+    marginBottom: 8,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
   cardBottomActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   updateBtnOverlay: {
-    backgroundColor: 'rgba(143,58,31,0.25)',
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(143,58,31,0.38)',
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
     borderWidth: 1,
-    borderColor: 'rgba(143,58,31,0.50)',
+    borderColor: 'rgba(232,168,124,0.45)',
   },
-  updateBtnOverlayText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
+  updateBtnOverlayText: { fontSize: 13, fontWeight: '900', color: '#FFFFFF' },
   tapToGenerate: { fontSize: 11, fontWeight: '600', color: ORANGE, fontStyle: 'italic' },
   generatingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   generatingText: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.70)' },
@@ -2623,9 +3782,11 @@ const styles = StyleSheet.create({
   cmBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 96 : 72,
+    paddingBottom: 20,
   },
   cmSheet: {
     width: '100%',
@@ -2650,6 +3811,38 @@ const styles = StyleSheet.create({
   },
   cmTitle: { fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4 },
   cmRecipeName: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center', marginBottom: 16 },
+  qaSlotPicker: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 14,
+    paddingRight: 8,
+  },
+  qaSlotOption: {
+    minWidth: 132,
+    minHeight: 44,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.18)',
+    backgroundColor: 'rgba(248,241,232,0.075)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+  },
+  qaSlotOptionActive: {
+    backgroundColor: 'rgba(143,58,31,0.42)',
+    borderColor: 'rgba(232,168,124,0.62)',
+  },
+  qaSlotOptionText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: 'rgba(248,241,232,0.76)',
+  },
+  qaSlotOptionTextActive: {
+    color: '#FFFFFF',
+  },
   cmSection: { marginBottom: 16 },
   cmSectionLabel: {
     fontSize: 10,
@@ -2661,7 +3854,7 @@ const styles = StyleSheet.create({
   },
   cmMacroRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   cmMacroVal: { fontSize: 14, fontWeight: '700', color: 'rgba(255,255,255,0.80)' },
-  cmMacroNew: { color: '#22C55E' },
+  cmMacroNew: { color: TRACKER_ACCENT_SOFT },
   cmMacroDot: { fontSize: 14, color: 'rgba(255,255,255,0.20)' },
   cmPhotoActions: { alignItems: 'center', gap: 14, marginBottom: 8 },
   cmPhotoHint: { fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', lineHeight: 20 },
@@ -2710,6 +3903,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 14,
   },
+  qaDescriptionInput: {
+    minHeight: 76,
+    paddingTop: 12,
+    lineHeight: 20,
+  },
   qaPhotoRow: {
     display: 'none',
     flexDirection: 'row',
@@ -2735,6 +3933,320 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 12,
     lineHeight: 17,
+  },
+  scanActionGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  scanActionCard: {
+    flex: 1,
+    minHeight: 112,
+    borderRadius: 20,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+  },
+  scanActionPrimaryCard: {
+    backgroundColor: '#F8F1E8',
+    borderColor: 'rgba(248,241,232,0.70)',
+  },
+  scanActionCardActive: {
+    borderColor: 'rgba(232,168,124,0.58)',
+    backgroundColor: 'rgba(143,58,31,0.20)',
+  },
+  scanActionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: 'rgba(143,58,31,0.20)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.30)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  scanActionIconPrimary: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: '#8F3A1F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  scanActionTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  scanActionTitlePrimary: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#0F0D0B',
+    textAlign: 'center',
+  },
+  scanActionText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: 'rgba(248,241,232,0.42)',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  scanActionTextPrimary: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: 'rgba(15,13,11,0.52)',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  labelScanGuide: {
+    marginBottom: 14,
+  },
+  labelScanFrame: {
+    minHeight: 170,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.28)',
+    backgroundColor: 'rgba(13,11,9,0.36)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    overflow: 'hidden',
+  },
+  labelCorner: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderColor: '#F8F1E8',
+  },
+  labelCornerTopLeft: {
+    top: 16,
+    left: 16,
+    borderTopWidth: 3,
+    borderLeftWidth: 3,
+    borderTopLeftRadius: 12,
+  },
+  labelCornerTopRight: {
+    top: 16,
+    right: 16,
+    borderTopWidth: 3,
+    borderRightWidth: 3,
+    borderTopRightRadius: 12,
+  },
+  labelCornerBottomLeft: {
+    bottom: 16,
+    left: 16,
+    borderBottomWidth: 3,
+    borderLeftWidth: 3,
+    borderBottomLeftRadius: 12,
+  },
+  labelCornerBottomRight: {
+    bottom: 16,
+    right: 16,
+    borderBottomWidth: 3,
+    borderRightWidth: 3,
+    borderBottomRightRadius: 12,
+  },
+  labelScanTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  labelScanText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(248,241,232,0.54)',
+    textAlign: 'center',
+    lineHeight: 17,
+    marginTop: 5,
+    maxWidth: 230,
+  },
+  labelScanButton: {
+    minHeight: 46,
+    borderRadius: 15,
+    backgroundColor: '#8F3A1F',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  labelScanButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  labelCameraWrap: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  labelCamera: {
+    flex: 1,
+  },
+  labelCameraOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingTop: Platform.OS === 'ios' ? 62 : 34,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 28,
+  },
+  labelCameraTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  labelCameraTopBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.62)',
+  },
+  labelCameraHelpBadge: {
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: 'rgba(13,11,9,0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
+  },
+  labelCameraHelpText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  labelCameraFrameWrap: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  labelCameraFrame: {
+    width: '100%',
+    minHeight: '70%',
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.36)',
+    backgroundColor: 'rgba(13,11,9,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  labelCameraCorner: {
+    position: 'absolute',
+    width: 58,
+    height: 58,
+    borderColor: '#FFFFFF',
+  },
+  labelCameraCornerTopLeft: {
+    top: 18,
+    left: 18,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderTopLeftRadius: 18,
+  },
+  labelCameraCornerTopRight: {
+    top: 18,
+    right: 18,
+    borderTopWidth: 5,
+    borderRightWidth: 5,
+    borderTopRightRadius: 18,
+  },
+  labelCameraCornerBottomLeft: {
+    bottom: 18,
+    left: 18,
+    borderBottomWidth: 5,
+    borderLeftWidth: 5,
+    borderBottomLeftRadius: 18,
+  },
+  labelCameraCornerBottomRight: {
+    bottom: 18,
+    right: 18,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderBottomRightRadius: 18,
+  },
+  labelCameraFrameText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  labelCameraFrameSubtext: {
+    color: 'rgba(248,241,232,0.82)',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+    marginTop: 8,
+    textAlign: 'center',
+    maxWidth: 260,
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
+  },
+  labelCameraBottomBar: {
+    alignItems: 'center',
+  },
+  labelCameraCapture: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: 'rgba(248,241,232,0.92)',
+    borderWidth: 7,
+    borderColor: 'rgba(13,11,9,0.48)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labelCameraCaptureDisabled: {
+    opacity: 0.55,
+  },
+  labelCameraCaptureInner: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FFFFFF',
+  },
+  quickPhotoStrip: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  quickPhotoThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+  },
+  quickPhotoThumbImg: {
+    width: '100%',
+    height: '100%',
+  },
+  quickPhotoRemove: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(13,11,9,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   qaPortionRow: {
     flexDirection: 'row',
@@ -2825,6 +4337,369 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.32)',
     marginTop: 3,
     textAlign: 'center',
+  },
+
+  // Cal AI-inspired nutrition result, SpiceStrong style
+  nutritionResultCard: {
+    borderRadius: 24,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.14)',
+    padding: 16,
+    marginBottom: 12,
+  },
+  nutritionResultTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  nutritionBookmark: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(143,58,31,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.28)',
+  },
+  nutritionServingPill: {
+    minWidth: 72,
+    height: 36,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(13,11,9,0.38)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.13)',
+  },
+  nutritionServingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  nutritionResultTime: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    overflow: 'hidden',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(13,11,9,0.28)',
+    color: 'rgba(248,241,232,0.58)',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  nutritionResultTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    lineHeight: 29,
+    fontWeight: '900',
+    marginBottom: 16,
+  },
+  nutritionCaloriesCard: {
+    minHeight: 96,
+    borderRadius: 20,
+    backgroundColor: 'rgba(13,11,9,0.38)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 18,
+    marginBottom: 12,
+  },
+  nutritionCaloriesIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8F3A1F',
+  },
+  nutritionMetricLabel: {
+    color: 'rgba(248,241,232,0.56)',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  nutritionCaloriesValue: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    lineHeight: 42,
+    fontWeight: '900',
+  },
+  nutritionMacroRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  nutritionMacroTile: {
+    flex: 1,
+    minHeight: 88,
+    borderRadius: 18,
+    backgroundColor: 'rgba(13,11,9,0.30)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.11)',
+    padding: 10,
+    justifyContent: 'center',
+  },
+  nutritionMacroLabel: {
+    color: 'rgba(248,241,232,0.58)',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 6,
+  },
+  nutritionMacroValue: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+  nutritionIngredientsBlock: {
+    marginTop: 2,
+  },
+  nutritionIngredientsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  nutritionIngredientsTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  nutritionAddMore: {
+    color: 'rgba(248,241,232,0.56)',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  nutritionIngredientRow: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 9,
+    gap: 12,
+  },
+  nutritionIngredientName: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  nutritionIngredientDetails: {
+    alignItems: 'flex-end',
+    gap: 2,
+    maxWidth: 118,
+  },
+  nutritionIngredientCalories: {
+    color: '#E8A87C',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  nutritionIngredientQty: {
+    color: 'rgba(248,241,232,0.52)',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  nutritionIngredientEditRow: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 9,
+  },
+  nutritionIngredientInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 19,
+    paddingVertical: 4,
+  },
+  nutritionIngredientRemove: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.58)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+  },
+  nutritionEditActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  nutritionRecalculateBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 15,
+    backgroundColor: '#8F3A1F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nutritionRecalculateText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  nutritionCancelEditBtn: {
+    minHeight: 44,
+    borderRadius: 15,
+    paddingHorizontal: 18,
+    backgroundColor: 'rgba(248,241,232,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nutritionCancelEditText: {
+    color: 'rgba(248,241,232,0.62)',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  updateEditCard: {
+    borderRadius: 22,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.12)',
+    padding: 12,
+    marginBottom: 14,
+  },
+  updateCaloriesCard: {
+    minHeight: 88,
+    borderRadius: 18,
+    backgroundColor: 'rgba(13,11,9,0.34)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+  updateCaloriesInput: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '900',
+    padding: 0,
+  },
+  updateMacroGrid: {
+    flexDirection: 'row',
+    gap: 9,
+  },
+  updateMacroField: {
+    flex: 1,
+    minHeight: 82,
+    borderRadius: 16,
+    backgroundColor: 'rgba(13,11,9,0.30)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    padding: 10,
+    justifyContent: 'center',
+  },
+  updateMacroLabel: {
+    color: 'rgba(248,241,232,0.58)',
+    fontSize: 11,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  updateMacroInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 2,
+  },
+  updateMacroInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    padding: 0,
+  },
+  updateMacroUnit: {
+    color: 'rgba(248,241,232,0.52)',
+    fontSize: 12,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  updateIngredientsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  updateAddIngredientBtn: {
+    minHeight: 32,
+    borderRadius: 16,
+    paddingHorizontal: 11,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(143,58,31,0.48)',
+    borderWidth: 1,
+    borderColor: 'rgba(232,168,124,0.48)',
+  },
+  updateAddIngredientText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  updateIngredientRow: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: 'rgba(248,241,232,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 9,
+  },
+  updateIngredientInput: {
+    minHeight: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(13,11,9,0.34)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  updateIngredientNameInput: { flex: 1.1 },
+  updateIngredientCalInput: { width: 58, textAlign: 'right' },
+  updateIngredientQtyInput: { flex: 0.72 },
+  updateRemoveIngredientBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(13,11,9,0.46)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.10)',
   },
 
   // Cal AI breakdown card

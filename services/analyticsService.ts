@@ -12,7 +12,8 @@
 
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { getDeviceId, isAdminDeviceId } from './adminService';
+import { getDeviceId, isAdminDeviceId, isAdminToolsBuild } from './adminService';
+import { logFirebaseEvent } from './firebaseAnalytics';
 import { supabase } from './supabase';
 
 /**
@@ -33,6 +34,9 @@ const EVENT_FEATURE: Record<string, string> = {
   scan_label: 'scan',
   scan_fridge: 'scan',
   scan_menu: 'scan',
+  food_order: 'scan',
+  scan_food: 'daily_tracker',
+  meal_saved: 'daily_tracker',
   // planning & lists
   auto_meal_plan_generated: 'meal_plan',
   pantry_opened: 'pantry',
@@ -69,29 +73,46 @@ export async function trackEvent(
 ): Promise<void> {
   try {
     const deviceId = await getDeviceId();
-    if (isAdminDeviceId(deviceId)) return;
+    // In Expo Go / dev builds, always track so events can be tested.
+    // In production, drop admin device events to keep metrics clean.
+    if (!isAdminToolsBuild() && isAdminDeviceId(deviceId)) return;
 
     const feature = EVENT_FEATURE[eventName] ?? 'other';
 
-    const { error } = await supabase.from('analytics_events').insert({
-      event_name: eventName,
-      feature,
-      screen: options.screen ?? null,
-      recipe_id: options.recipeId ?? null,
-      protein_id: options.proteinId ?? null,
-      device_id: deviceId,
-      app_version: APP_VERSION,
-      platform: Platform.OS,
-      metadata: options.metadata ?? {},
-    });
-
-    if (error && __DEV__) {
-      console.warn(`[SpiceStrong] Analytics event failed: ${eventName}`, error.message);
-    }
-  } catch (error) {
     if (__DEV__) {
-      console.warn('[SpiceStrong] Analytics unavailable', error);
+      console.log(`[SpiceStrong] trackEvent: ${eventName} (device: ...${deviceId.slice(-8)})`);
     }
+
+    // Fire to both Supabase and Firebase in parallel — failures in either are independent
+    const [supabaseResult] = await Promise.all([
+      supabase.from('analytics_events').insert({
+        event_name: eventName,
+        feature,
+        screen: options.screen ?? null,
+        recipe_id: options.recipeId ?? null,
+        protein_id: options.proteinId ?? null,
+        device_id: deviceId,
+        app_version: APP_VERSION,
+        platform: Platform.OS,
+        metadata: options.metadata ?? {},
+      }),
+      logFirebaseEvent(eventName, {
+        feature,
+        screen: options.screen ?? '',
+        platform: Platform.OS,
+        app_version: APP_VERSION,
+      }),
+    ]);
+
+    if (supabaseResult.error) {
+      console.warn(`[SpiceStrong] Analytics insert failed: ${eventName}`, supabaseResult.error.message);
+    }
+
+    import('./inAppEventNotificationService')
+      .then(({ handleInAppEventNotification }) => handleInAppEventNotification(eventName, options))
+      .catch(() => {});
+  } catch (error) {
+    console.warn('[SpiceStrong] Analytics unavailable', error);
   }
 }
 

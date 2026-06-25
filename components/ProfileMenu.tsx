@@ -31,7 +31,7 @@ const BORDER = 'rgba(248,241,232,0.12)';
 const DRAWER_WIDTH = Dimensions.get('window').width * 0.78;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 
@@ -107,25 +107,27 @@ export function ProfileMenu() {
     params: {},
   }));
   const handleFitnessProfile = () => closeMenu(() => router.push('/screens/FitnessProfileScreen'));
+  const handleBodyScan = () => closeMenu(() => router.push('/screens/BodyScanScreen'));
   const handleScanLabel = () => closeMenu(() => router.push('/screens/ScanLabelScreen'));
   const handleProgressReport = () => closeMenu(() => router.push('/screens/ProgressReportScreen'));
-  const handleScanMenu = () => closeMenu(() => router.push('/screens/ScanMenuScreen'));
+  const handleFoodOrder = () => closeMenu(() => router.push('/screens/FoodOrderScreen'));
 
   // ── Menu items (flat list, no section headers) ──
   const SECTIONS: MenuSection[] = [
     {
       items: [
-        { icon: 'body-outline',          label: 'Fitness Profile',       onPress: handleFitnessProfile },
+        { icon: 'body-outline',          label: 'Fitness Goals',         onPress: handleFitnessProfile },
+        { icon: 'scan-outline',          label: 'AI Body Scan',          onPress: handleBodyScan },
         { icon: 'stats-chart-outline',   label: 'Progress Report',       onPress: handleProgressReport },
-        { icon: 'leaf-outline',          label: 'Dietary Restrictions',  onPress: handleDietary },
-        { icon: 'flash-outline',         label: 'SpiceBuilder Recipe',   onPress: handleSpiceBuilder },
-        { icon: 'calendar-outline',      label: 'Daily Tracker',         onPress: handleMealPlan },
-        { icon: 'sparkles-outline',      label: 'Auto Meal Plan',        onPress: handleAutoMealPlan },
-        { icon: 'barcode-outline',       label: 'Scan Nutrition Label',  onPress: handleScanLabel },
-        { icon: 'restaurant-outline',    label: 'Scan Restaurant Menu',  onPress: handleScanMenu },
-        { icon: 'add-circle-outline',    label: 'Add Your Recipe',       onPress: handleAddRecipe },
-        { icon: 'basket-outline',        label: 'My Pantry Items',       onPress: handleMyPantry },
-        { icon: 'cart-outline',          label: 'My Shopping List',      onPress: handleGroceryList },
+        { icon: 'leaf-outline',          label: 'Dietary Preferences',   onPress: handleDietary },
+        { icon: 'flash-outline',         label: 'SpiceBuilder',          onPress: handleSpiceBuilder },
+        { icon: 'calendar-outline',      label: 'Cal Tracker',           onPress: handleMealPlan },
+        { icon: 'sparkles-outline',      label: 'Meal Planner',          onPress: handleAutoMealPlan },
+        { icon: 'barcode-outline',       label: 'Scan Label',            onPress: handleScanLabel },
+        { icon: 'restaurant-outline',    label: 'Eat out Smart',    onPress: handleFoodOrder },
+        { icon: 'add-circle-outline',    label: 'Add Recipe',            onPress: handleAddRecipe },
+        { icon: 'basket-outline',        label: 'My Pantry',             onPress: handleMyPantry },
+        { icon: 'cart-outline',          label: 'Shopping List',         onPress: handleGroceryList },
         { icon: 'star-outline',          label: 'Upgrade to Pro',        onPress: handleUpgradePro },
         { icon: 'refresh-outline',       label: 'Restore Purchase',      onPress: handleRestorePurchase },
       ],
@@ -160,7 +162,9 @@ export function ProfileMenu() {
         </Pressable>
 
         {/* Drawer */}
-        <Animated.View style={[styles.drawer, { transform: [{ translateX: slideAnim }], paddingTop: insets.top }]}>
+        <Animated.View
+          style={[styles.drawer, { transform: [{ translateX: slideAnim }], paddingTop: insets.top }]}
+        >
           {/* Header */}
           <View style={styles.drawerHeader}>
             <Text style={styles.drawerLogo}>SpiceStrong</Text>

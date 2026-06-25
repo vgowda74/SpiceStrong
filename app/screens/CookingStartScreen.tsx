@@ -5,7 +5,6 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
-  ImageBackground,
   Platform,
   Share,
   StyleSheet,
@@ -17,7 +16,7 @@ import { getRecipeById, SavedRecipe } from '../../src/store/recipes';
 import { openAmazonFresh } from '../../src/utils/shoppingListHelper';
 
 const ORANGE = '#8F3A1F';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 function getCookTimeMin(recipe: SavedRecipe): number {
   const total = recipe.steps.reduce((acc, s) => acc + (s.timerMinutes ?? 0), 0);
@@ -58,12 +57,12 @@ export default function CookingStartScreen() {
   const r = recipe;
   if (!r) {
     return (
-      <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
+      <View style={styles.bg}>
         <View style={styles.overlay} />
         <View style={styles.center}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
@@ -101,7 +100,7 @@ export default function CookingStartScreen() {
   };
 
   return (
-    <ImageBackground source={require('../../assets/images/splash-bg.jpg')} style={styles.bg} resizeMode="cover">
+    <View style={styles.bg}>
       <View style={styles.overlay} />
       <View style={styles.container}>
         <Animated.Text style={[styles.emoji, { transform: [{ scale: pulseAnim }] }]}>👨‍🍳</Animated.Text>
@@ -162,12 +161,12 @@ export default function CookingStartScreen() {
           </LinearGradient>
         </TouchableOpacity>
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
+  bg: { flex: 1, backgroundColor: '#0D0B09' },
   overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#FFFFFF', fontSize: 16 },

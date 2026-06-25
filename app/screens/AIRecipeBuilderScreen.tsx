@@ -10,13 +10,13 @@ import {
   Alert,
   Modal,
   Platform,
-  ImageBackground,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { HomeButton } from '../../components/HomeButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QUANTITY_TIERS, type QuantityTier, type SavedRecipe, type MealType, saveRecipe as upsertRecipe } from '../../src/store/recipes';
 import { generateAllRecipeImages, saveRecipeImages, type RecipeImageResults } from '../../services/imageGenerationService';
-import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe, type RecipeSyncResult } from '../../services/recipeService';
+import { saveAIRecipe, uploadRecipeHeroImage, updateRecipeStatus, classifyAndEnrichRecipe } from '../../services/recipeService';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
@@ -31,8 +31,9 @@ import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import PaywallModal from '../../components/PaywallModal';
 import { trackEvent } from '../../services/analyticsService';
-
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+import { logScreenView } from '../../services/firebaseAnalytics';
+import { ProcessingRing } from '../../components/ProcessingRing';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 /** Max AI recipes allowed PER PROTEIN TYPE for free users. Set to 0 for unlimited.
  * Change this single constant to adjust the limit for all proteins at launch. */
@@ -120,9 +121,9 @@ const PROTEIN_GOAL_OPTIONS = [
 ];
 
 const ALL_MEAL_TYPE_OPTIONS = [
-  { id: 'breakfast', label: '🌅 Breakfast' },
-  { id: 'lunch-dinner', label: '🥗 Lunch/Dinner' },
-  { id: 'snack', label: '🥜 Snack/Dessert/Drink' },
+  { id: 'breakfast', label: 'Breakfast' },
+  { id: 'lunch-dinner', label: 'Lunch/Dinner' },
+  { id: 'snack', label: 'Snack/Dessert/Drink' },
 ];
 
 /** Meal types suitable for each protein. Proteins not listed get all options. */
@@ -218,8 +219,8 @@ const PROTEIN_CUISINES: Record<string, string[]> = {
 const DRINK_MEAL_OPTIONS = [
   { id: 'pre-workout', label: '💪 Pre-Workout' },
   { id: 'post-workout', label: '🏋️ Post-Workout' },
-  { id: 'breakfast', label: '🌅 Breakfast' },
-  { id: 'snack', label: '🥜 Snack' },
+  { id: 'breakfast', label: 'Breakfast' },
+  { id: 'snack', label: 'Snack' },
 ];
 
 const DRINK_TYPE_OPTIONS = [
@@ -239,6 +240,29 @@ const DRINK_FLAVOR_OPTIONS = [
   { id: 'coffee', label: '☕ Coffee' },
   { id: 'traditional', label: '🇮🇳 Traditional' },
 ];
+
+const TARGET_LIMITS = {
+  calories: { min: 100, max: 700, fallback: 450, label: 'Calories' },
+  protein: { min: 5, max: 80, fallback: 35, label: 'Protein' },
+  carbs: { min: 0, max: 80, fallback: 30, label: 'Carbs' },
+  fat: { min: 0, max: 35, fallback: 15, label: 'Fat' },
+} as const;
+
+type TargetField = keyof typeof TARGET_LIMITS;
+
+function sanitizeTargetInput(value: string, field: TargetField): string {
+  const digitsOnly = value.replace(/[^\d]/g, '');
+  if (!digitsOnly) return '';
+  const limit = TARGET_LIMITS[field];
+  return String(Math.min(Number(digitsOnly), limit.max));
+}
+
+function normalizeTargetInput(value: string, field: TargetField): string {
+  const limit = TARGET_LIMITS[field];
+  const digitsOnly = value.replace(/[^\d]/g, '');
+  const numeric = digitsOnly ? Number(digitsOnly) : limit.fallback;
+  return String(Math.min(Math.max(numeric, limit.min), limit.max));
+}
 
 async function callClaudeAPI(
   proteinId: string,
@@ -335,6 +359,12 @@ The nutrition values ("protein", "calories", "fatG", "carbsG", etc.) must be the
 Formula: per-serving value × 2.5 = batch total.
 Example: if per-serving protein is 37g → report "protein": "92g" (37 × 2.5 ≈ 92)
 
+IMPORTANT - TARGET HANDLING:
+- Always return the JSON recipe object. Never explain why targets are difficult, incompatible, or outside a fitness goal.
+- Treat target calories/macros as approximate guidance, not a reason to refuse.
+- If requested targets conflict, choose the closest realistic high-protein meal under 700 calories per serving.
+- Keep per-serving fat at or below 35g and carbs at or below 80g unless the user's calorie target makes that impossible.
+
 Return this exact JSON structure (no markdown, no preamble):
 {
   "name": "Recipe Full Name",
@@ -377,8 +407,12 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
 - If the image shows food with a DIFFERENT protein than "${proteinName}", adapt the recipe to use ${proteinName} instead while keeping the same cooking style and flavors.
 - If the image conflicts with dietary filters (e.g. image shows dairy but user selected dairy-free), prioritize the user's dietary filters.
 - The recipe MUST use ${proteinName} as the primary protein regardless of what the image shows.
-- Focus on recreating the cooking style, cuisine, and flavor profile from the image — not the exact ingredients.`
-    : `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}`;
+- Focus on recreating the cooking style, cuisine, and flavor profile from the image — not the exact ingredients.
+
+Return ONLY the raw JSON object requested by the system prompt. Do not include analysis, fitness-goal matching, explanations, markdown, or preamble.`
+    : `Generate a complete high-protein ${proteinName} recipe. ${constraintsText}
+
+Return ONLY the raw JSON object requested by the system prompt. Do not include analysis, fitness-goal matching, explanations, markdown, or preamble.`;
 
   // Build message content — with optional reference image
   const messageContent: any = referenceImageBase64
@@ -388,38 +422,28 @@ IMPORTANT RULES FOR IMAGE-BASED RECIPES:
       ]
     : userMessageText;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY ?? '',
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: messageContent }],
-    }),
+  const data = await invokeAnthropicMessages({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [
+      { role: 'user', content: messageContent },
+    ],
   });
 
-  const data = await response.json();
-  if (!response.ok) {
-    const errMsg = data.error?.message ?? JSON.stringify(data);
-    console.error(`[SpiceStrong] Claude API error (${response.status}):`, errMsg);
-    throw new Error(errMsg);
-  }
-  const text = data.content?.[0]?.text ?? '';
+  const rawText = data.content?.[0]?.text ?? '';
+  const rawTrimmed = rawText.trim();
+  const text = rawTrimmed;
   console.log('[SpiceStrong] Raw Claude response length:', text.length);
-  // Strip markdown fences and any text before/after the JSON object
+  // Strip markdown fences and extract JSON object
   let cleaned = text.replace(/```json|```/g, '').trim();
-  // Extract JSON object — find first { and last }
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+  if (firstBrace === -1 || lastBrace <= firstBrace) {
+    console.error('[SpiceStrong] No JSON in response. First 300 chars:', cleaned.substring(0, 300));
+    throw new Error('Recipe generation returned no JSON. Please try again.');
   }
+  cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   // Remove control characters that can break JSON.parse
   cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, (ch: string) => (ch === '\n' || ch === '\r' || ch === '\t' ? ch : ''));
   try {
@@ -586,6 +610,30 @@ export default function AIRecipeBuilderScreen() {
   const [targetCarbs, setTargetCarbs] = useState('30');
   const [targetFat, setTargetFat] = useState('15');
 
+  const updateTargetValue = (field: TargetField, value: string) => {
+    const next = sanitizeTargetInput(value, field);
+    if (field === 'calories') setTargetCal(next);
+    else if (field === 'protein') setTargetProtein(next);
+    else if (field === 'carbs') setTargetCarbs(next);
+    else setTargetFat(next);
+  };
+
+  const normalizeTargetValue = (field: TargetField) => {
+    if (field === 'calories') setTargetCal((value) => normalizeTargetInput(value, field));
+    else if (field === 'protein') setTargetProtein((value) => normalizeTargetInput(value, field));
+    else if (field === 'carbs') setTargetCarbs((value) => normalizeTargetInput(value, field));
+    else setTargetFat((value) => normalizeTargetInput(value, field));
+  };
+
+  const getNormalizedTargets = () => ({
+    targetCal: normalizeTargetInput(targetCal, 'calories'),
+    targetProtein: normalizeTargetInput(targetProtein, 'protein'),
+    targetCarbs: normalizeTargetInput(targetCarbs, 'carbs'),
+    targetFat: normalizeTargetInput(targetFat, 'fat'),
+  });
+
+  useEffect(() => { logScreenView('AIRecipeBuilderScreen'); }, []);
+
   // Load fitness profile targets on mount
   useEffect(() => {
     (async () => {
@@ -603,6 +651,7 @@ export default function AIRecipeBuilderScreen() {
   const [generating, setGenerating] = useState(false);
   const [genStep, setGenStep] = useState('');
   const [genRecipeId, setGenRecipeId] = useState<string | null>(null);
+  const [recipeReady, setRecipeReady] = useState(false);
   // Image upload for reference photo
   const [referenceImageUri, setReferenceImageUri] = useState<string | null>(null);
   const [referenceImageBase64, setReferenceImageBase64] = useState<string | null>(null);
@@ -834,7 +883,7 @@ export default function AIRecipeBuilderScreen() {
   };
 
   const handleImportFromPhoto = async () => {
-    if (!importImageBase64 || !ANTHROPIC_KEY) return;
+    if (!importImageBase64) return;
     // Freemium limit check
     const limitResult = await checkLimit('ai_recipe');
     if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
@@ -861,18 +910,10 @@ export default function AIRecipeBuilderScreen() {
       if (importImageBase64.startsWith('iVBOR')) mediaType = 'image/png';
       else if (importImageBase64.startsWith('UklGR')) mediaType = 'image/webp';
 
-      const extractRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 2048,
-          system: `You are a recipe extraction engine for a high-protein cooking app.
+      const extractData = await invokeAnthropicMessages({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system: `You are a recipe extraction engine for a high-protein cooking app.
 
 STEP 1: Determine if the image contains food.
 - If the image is NOT food (person, landscape, object, text without recipe, etc.), return: {"error": "not_food"}
@@ -904,21 +945,14 @@ CRITICAL RULES:
 - ingredientsUsed for each step must ONLY list ingredients actually used in THAT step — never include ingredients from other steps
 - Every ingredient from the ingredient list must appear in exactly one step's ingredientsUsed
 - Step description must mention each ingredient in ingredientsUsed with its quantity`,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType, data: importImageBase64 } },
-              { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
-            ],
-          }],
-        }),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: importImageBase64 } },
+            { type: 'text', text: 'Analyze this image. If it contains food or a recipe, extract the full recipe. If not food, return {"error": "not_food"}.' },
+          ],
+        }],
       });
-
-      if (!extractRes.ok) {
-        const errBody = await extractRes.text().catch(() => '');
-        throw new Error(`API returned ${extractRes.status}: ${errBody.slice(0, 200)}`);
-      }
-      const extractData = await extractRes.json();
       let text = (extractData.content?.[0]?.text || '').trim();
       text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
       const firstBrace = text.indexOf('{');
@@ -945,18 +979,10 @@ CRITICAL RULES:
       // ── Step 2: Auto-fix for high-protein standards (same as AddRecipeScreen) ──
       setImportStep('Optimizing for high-protein standards...');
       try {
-        const fixRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': ANTHROPIC_KEY,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 2048,
-            system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
+        const fixData = await invokeAnthropicMessages({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 2048,
+          system: `You are a high-protein recipe optimizer for SpiceStrong. Fix the recipe to meet these MANDATORY requirements:
 
 1. PROTEIN DENSITY: proteinG / calories × 100 >= 6.4 (CRITICAL)
    - If too low: increase protein source quantity, reduce oils/carbs, add protein-rich ingredients
@@ -972,11 +998,9 @@ CRITICAL RULES:
 
 Return the FIXED recipe as the same JSON format. If already compliant, return as-is.
 Return ONLY the JSON, no explanation.`,
-            messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
-          }),
+          messages: [{ role: 'user', content: `Fix this recipe to meet SpiceStrong standards:\n${JSON.stringify(parsed)}` }],
         });
-        if (fixRes.ok) {
-          const fixData = await fixRes.json();
+        if (fixData) {
           const fixText = (fixData.content?.[0]?.text || '').trim();
           const fixFirst = fixText.indexOf('{');
           const fixLast = fixText.lastIndexOf('}');
@@ -1107,10 +1131,6 @@ Return ONLY the JSON, no explanation.`,
     const limitResult = await checkLimit('ai_recipe');
     if (!limitResult.allowed) { setPaywallCheck(limitResult); setPaywallVisible(true); return; }
 
-    if (!ANTHROPIC_KEY) {
-      Alert.alert('', 'AI is not configured. Set EXPO_PUBLIC_ANTHROPIC_KEY.');
-      return;
-    }
     // Protein restriction (empty = all enabled)
     if (AI_ENABLED_PROTEINS.length > 0 && !AI_ENABLED_PROTEINS.includes(paramProteinId ?? '')) {
       Alert.alert('Coming Soon', 'SpiceBuilder recipes for this protein will be available soon!');
@@ -1132,6 +1152,11 @@ Return ONLY the JSON, no explanation.`,
 
     const proteinId = paramProteinId ?? 'chicken';
     const proteinName = paramProteinName ?? 'Chicken';
+    const normalizedTargets = getNormalizedTargets();
+    setTargetCal(normalizedTargets.targetCal);
+    setTargetProtein(normalizedTargets.targetProtein);
+    setTargetCarbs(normalizedTargets.targetCarbs);
+    setTargetFat(normalizedTargets.targetFat);
     const proteinEmojiVal = proteinEmoji ?? '🍗';
 
     // Save placeholder recipe immediately with status: 'building'
@@ -1162,6 +1187,8 @@ Return ONLY the JSON, no explanation.`,
 
     // Stay on screen with progress steps
     setGenerating(true);
+    setRecipeReady(false);
+    setGenRecipeId(null);
     setGenStep('Understanding your preferences...');
     trackEvent('ai_recipe_generated', {
       screen: 'AIRecipeBuilderScreen',
@@ -1197,7 +1224,7 @@ Return ONLY the JSON, no explanation.`,
               spiceLevel: selectedDrinkFlavor ? findLabel(DRINK_FLAVOR_OPTIONS, selectedDrinkFlavor) : undefined,
               dietary: mergedDietary,
               cuisine: '',
-              targetCal, targetProtein, targetCarbs, targetFat,
+              ...normalizedTargets,
             }
           : {
               meatType: showMeatType ? findLabel(meatTypeOptions, selectedMeatType) : undefined,
@@ -1207,7 +1234,7 @@ Return ONLY the JSON, no explanation.`,
               spiceLevel: findLabel(ALL_SPICE_LEVEL_OPTIONS, selectedSpiceLevel),
               dietary: mergedDietary,
               cuisine: findLabel(ALL_CUISINE_OPTIONS, selectedCuisine),
-              targetCal, targetProtein, targetCarbs, targetFat,
+              ...normalizedTargets,
             },
         proteinEmojiVal,
         referenceImageBase64,
@@ -1218,8 +1245,7 @@ Return ONLY the JSON, no explanation.`,
       saved = await saveRecipeFromAI(result, placeholderId);
       saved.source = 'ai';
       saved.status = 'ready';
-      const syncResult = await saveAIRecipe(saved);
-      if (syncResult.duplicate) await saveAIRecipe(saved, true);
+      await saveAIRecipe(saved);
       updateRecipeStatus(saved.id, 'ready').catch(() => {});
 
       // Increment count
@@ -1232,7 +1258,8 @@ Return ONLY the JSON, no explanation.`,
 
       // Show recipe immediately — user can view it while images generate
       setGenRecipeId(saved.id);
-      setGenStep('Your recipe is ready! Generating images...');
+      setRecipeReady(true);
+      setGenStep('Images will keep finishing in the background.');
 
       // All remaining work in BACKGROUND (non-blocking)
       const bgSavedId = saved.id;
@@ -1249,13 +1276,16 @@ Return ONLY the JSON, no explanation.`,
           const imgResult = await genImages({ id: bgSavedId, name: bgName, ingredients: bgIngredients, steps: bgSteps });
           await saveImgs(bgSavedId, imgResult);
           if (imgResult.dishImage) uploadRecipeHeroImage(bgSavedId, imgResult.dishImage).catch(() => {});
+          setGenStep('Images added to your recipe.');
           console.log(`[SpiceStrong] Background images done for: ${bgName}`);
         } catch (e) {
+          setGenStep('Your recipe is ready. Images can be generated later.');
           console.warn('[SpiceStrong] Background image generation failed:', e);
         }
       })();
 
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error('[SpiceStrong] Recipe generation failed:', err);
       try {
         const toFix = saved ?? placeholder;
@@ -1264,7 +1294,7 @@ Return ONLY the JSON, no explanation.`,
         await saveAIRecipe(toFix);
       } catch { /* best effort */ }
       setGenerating(false);
-      Alert.alert('Generation Failed', 'Something went wrong. Please try again.');
+      Alert.alert('Generation Failed', message || 'Something went wrong. Please try again.');
     }
   };
 
@@ -1274,11 +1304,7 @@ Return ONLY the JSON, no explanation.`,
   const stepCount = Array.isArray(generatedRecipe?.steps) ? (generatedRecipe!.steps as unknown[]).length : 0;
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={styles.bg}
-      resizeMode="cover"
-    >
+    <View style={styles.bg}>
       <View style={styles.overlay} />
 
       <View style={styles.container}>
@@ -1301,13 +1327,13 @@ Return ONLY the JSON, no explanation.`,
             <Text style={styles.backText}>←</Text>
           </TouchableOpacity>
           <Text style={styles.title}>SpiceBuilder</Text>
-          <View style={styles.headerSpacer} />
+          <HomeButton />
         </View>
 
         {/* ── Entry screen: Choose mode ── */}
         {screenMode === 'choose' && !generating && (
           <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { justifyContent: 'center', paddingTop: 40 }]} showsVerticalScrollIndicator={false}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 8, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               How would you like to create?
             </Text>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28 }}>
@@ -1371,7 +1397,7 @@ Return ONLY the JSON, no explanation.`,
             {importImageUri && (
               <Image source={{ uri: importImageUri }} style={{ width: 280, height: 380, borderRadius: 20, marginBottom: 20 }} contentFit="contain" />
             )}
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 6, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               Ready to import
             </Text>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 28, paddingHorizontal: 20 }}>
@@ -1398,10 +1424,9 @@ Return ONLY the JSON, no explanation.`,
         {importing && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ActivityIndicator color="#8F3A1F" size="large" style={{ marginBottom: 24 }} />
+              <ProcessingRing label={importStep} sublabel="Extracting recipe from your photo" expectedMs={22000} size={108} />
               <Text style={styles.genEmoji}>📸</Text>
               <Text style={styles.genTitle}>Importing Recipe</Text>
-              <Text style={styles.genStep}>{importStep}</Text>
             </View>
           </View>
         )}
@@ -1412,7 +1437,7 @@ Return ONLY the JSON, no explanation.`,
             {importImageUri && (
               <Image source={{ uri: importImageUri }} style={{ width: 220, height: 220, borderRadius: 20, marginBottom: 16 }} contentFit="cover" />
             )}
-            <Text style={{ fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }) }}>
+            <Text style={{ fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center', marginBottom: 4, fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }) }}>
               {importedRecipe.name}
             </Text>
             <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.50)', textAlign: 'center', marginBottom: 6 }}>
@@ -1479,10 +1504,19 @@ Return ONLY the JSON, no explanation.`,
         {generating && (
           <View style={styles.genOverlay}>
             <View style={styles.genContent}>
-              <ActivityIndicator color="#8F3A1F" size="large" style={{ marginBottom: 24 }} />
-              <Text style={styles.genEmoji}>👨‍🍳</Text>
-              <Text style={styles.genTitle}>Creating Your Recipe</Text>
-              <Text style={styles.genStep}>{genStep}</Text>
+              {recipeReady ? (
+                <>
+                  <Text style={styles.genEmoji}>👨‍🍳</Text>
+                  <Text style={styles.genTitle}>Recipe Ready</Text>
+                  <Text style={styles.genStep}>{genStep}</Text>
+                </>
+              ) : (
+                <>
+                  <ProcessingRing label={genStep} sublabel="AI is crafting your recipe" expectedMs={20000} size={108} />
+                  <Text style={styles.genEmoji}>👨‍🍳</Text>
+                  <Text style={styles.genTitle}>Creating Your Recipe</Text>
+                </>
+              )}
               {genRecipeId && (
                 <TouchableOpacity
                   style={styles.genViewBtn}
@@ -1552,19 +1586,19 @@ Return ONLY the JSON, no explanation.`,
               <Text style={styles.sectionLabel}>🎯 TARGET PER SERVING</Text>
               <View style={styles.macroInputRow}>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={styles.macroInputField} value={targetCal} onChangeText={setTargetCal} keyboardType="numeric" returnKeyType="done" placeholder="450" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={styles.macroInputField} value={targetCal} onChangeText={(value) => updateTargetValue('calories', value)} onBlur={() => normalizeTargetValue('calories')} keyboardType="numeric" returnKeyType="done" placeholder="450" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={styles.macroInputUnit}>cal</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={[styles.macroInputField, { color: '#8F3A1F' }]} value={targetProtein} onChangeText={setTargetProtein} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={[styles.macroInputField, { color: '#8F3A1F' }]} value={targetProtein} onChangeText={(value) => updateTargetValue('protein', value)} onBlur={() => normalizeTargetValue('protein')} keyboardType="numeric" returnKeyType="done" placeholder="35" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={[styles.macroInputUnit, { color: '#8F3A1F' }]}>g P</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={styles.macroInputField} value={targetCarbs} onChangeText={setTargetCarbs} keyboardType="numeric" returnKeyType="done" placeholder="30" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={styles.macroInputField} value={targetCarbs} onChangeText={(value) => updateTargetValue('carbs', value)} onBlur={() => normalizeTargetValue('carbs')} keyboardType="numeric" returnKeyType="done" placeholder="30" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={styles.macroInputUnit}>g C</Text>
                 </View>
                 <View style={styles.macroInputBox}>
-                  <TextInput style={styles.macroInputField} value={targetFat} onChangeText={setTargetFat} keyboardType="numeric" returnKeyType="done" placeholder="15" placeholderTextColor="rgba(255,255,255,0.20)" />
+                  <TextInput style={styles.macroInputField} value={targetFat} onChangeText={(value) => updateTargetValue('fat', value)} onBlur={() => normalizeTargetValue('fat')} keyboardType="numeric" returnKeyType="done" placeholder="15" placeholderTextColor="rgba(255,255,255,0.20)" />
                   <Text style={styles.macroInputUnit}>g F</Text>
                 </View>
               </View>
@@ -1644,8 +1678,7 @@ Return ONLY the JSON, no explanation.`,
 
           {loading && (
             <View style={styles.loadingWrap}>
-              <ActivityIndicator size="large" color={ACCENT} />
-              <Text style={styles.loadingText}>🍳 SpiceBuilder is crafting your recipe...</Text>
+              <ProcessingRing label="SpiceBuilder is crafting your recipe..." expectedMs={20000} />
             </View>
           )}
 
@@ -1731,12 +1764,12 @@ Return ONLY the JSON, no explanation.`,
         </View>
       </Modal>
       <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} limitCheck={paywallCheck} onUpgrade={() => { setPaywallVisible(false); /* TODO: IAP */ }} />
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
+  bg: { flex: 1, backgroundColor: '#0D0B09' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1760,7 +1793,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     textAlign: 'center',
-    fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' }),
+    fontFamily: Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' }),
   },
   genStep: {
     fontSize: 15,

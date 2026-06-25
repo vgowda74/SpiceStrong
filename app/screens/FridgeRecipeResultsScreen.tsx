@@ -8,8 +8,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
-  ActivityIndicator,
   Dimensions,
   Platform,
   ScrollView,
@@ -32,6 +32,7 @@ import { getRecipeImageUrls } from '../../services/recipeService';
 import { loadRecipeImages } from '../../services/imageGenerationService';
 import { getRecipeCardImage } from '../../src/data/recipeImages';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const ORANGE = '#8F3A1F';
 const SURFACE = 'rgba(248,241,232,0.08)';
@@ -39,7 +40,7 @@ const BORDER = 'rgba(248,241,232,0.12)';
 const CARD_W = Dimensions.get('window').width - 48;
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 
@@ -105,13 +106,12 @@ export default function FridgeRecipeResultsScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Recipe Matches</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator color={ORANGE} size="large" />
-          <Text style={styles.loadingText}>Matching recipes...</Text>
+          <ProcessingRing label="Matching recipes…" sublabel="Finding the best matches for your ingredients" expectedMs={5000} />
         </View>
       ) : (
         <ScrollView

@@ -1,10 +1,9 @@
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Dimensions,
   FlatList,
-  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import { filterProteinsForPreference, getDietPreference, type DietPreference } f
 import { ProfileMenu } from '../../components/ProfileMenu';
 import { Premium } from '../../src/theme/premium';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 
 /** Custom images for proteins (replaces emoji). */
 const PROTEIN_IMAGES: Record<string, ImageSourcePropType> = {
@@ -114,13 +114,16 @@ function ProteinCard({
 
 export default function ProteinSelectionScreen() {
   const router = useRouter();
+  useEffect(() => { logScreenView('ProteinSelectionScreen'); }, []);
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
   const [search, setSearch] = useState('');
-  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>('veg');
+  const [dietPreference, setDietPreferenceState] = useState<DietPreference | null>(null);
 
-  useEffect(() => {
-    getDietPreference().then(setDietPreferenceState);
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      getDietPreference().then(setDietPreferenceState);
+    }, [])
+  );
 
   const filtered = useMemo(() => {
     return filterProteinsForPreference(PROTEINS, dietPreference).filter((p) => {
@@ -146,11 +149,7 @@ export default function ProteinSelectionScreen() {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       <View
         pointerEvents="none"
         style={{
@@ -257,11 +256,15 @@ export default function ProteinSelectionScreen() {
       </ScrollView>
 
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#0D0B09',
+  },
   container: {
     flex: 1,
   },

@@ -8,7 +8,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  ImageBackground,
   Platform,
   ScrollView,
   StyleSheet,
@@ -82,11 +81,7 @@ export default function AIRecipeResultScreen() {
   const steps = recipe.steps ?? [];
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       <View style={styles.overlay} />
       <View style={styles.container}>
         {/* Back button */}
@@ -249,11 +244,12 @@ export default function AIRecipeResultScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#0D0B09' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.5)',

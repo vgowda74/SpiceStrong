@@ -7,7 +7,6 @@ import {
   Animated,
   Dimensions,
   FlatList,
-  ImageBackground,
   Modal,
   Platform,
   Pressable,
@@ -99,10 +98,10 @@ type FilterTab = 'all' | 'breakfast' | 'lunch_dinner' | 'snack_dessert' | 'favou
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'breakfast', label: '🌅 Breakfast' },
-  { key: 'lunch_dinner', label: '🍽️ Lunch/Dinner' },
-  { key: 'snack_dessert', label: '🥜 Snack/Dessert' },
-  { key: 'favourites', label: '★ Favourites' },
+  { key: 'breakfast', label: 'Breakfast' },
+  { key: 'lunch_dinner', label: 'Lunch/Dinner' },
+  { key: 'snack_dessert', label: 'Snack/Dessert' },
+  { key: 'favourites', label: 'Favourites' },
 ];
 
 export default function RecipeListScreen() {
@@ -843,11 +842,7 @@ export default function RecipeListScreen() {
   }, [visibleCardImages]);
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       <View style={{
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(13,11,9,0.76)',
@@ -1142,11 +1137,12 @@ export default function RecipeListScreen() {
           </Animated.View>
         </Pressable>
       </Modal>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#0D0B09' },
   container: { flex: 1 },
   screenContent: { flex: 1 },
   headerOrange: {

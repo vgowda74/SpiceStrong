@@ -34,9 +34,13 @@ import { normalizeDietType, type DietType } from '../../src/utils/dietPreference
 import { getSavedMacroTargets } from '../../services/fitnessProfileService';
 import { checkLimit, recordUsage, type LimitCheck } from '../../services/subscriptionService';
 import { trackEvent } from '../../services/analyticsService';
+import { logScreenView } from '../../services/firebaseAnalytics';
 import PaywallModal from '../../components/PaywallModal';
 import { getProductTier, type TierInfo } from '../../src/data/proteinTiers';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
+import { ProcessingRing } from '../../components/ProcessingRing';
+import { invokeAnthropicMessages } from '../../services/anthropicService';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
@@ -55,7 +59,7 @@ const BORDER = 'rgba(248,241,232,0.12)';
 const GREEN = '#22C55E';
 const YELLOW = '#F59E0B';
 const RED = '#EF4444';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 // Presentation for the veg/vegan diet badge shown on scan results.
 const DIET_BADGE: Record<DietType, { emoji: string; label: string; color: string }> = {
@@ -121,6 +125,10 @@ export default function ScanLabelScreen() {
   const [paywallVisible, setPaywallVisible] = useState(false);
   const [paywallCheck, setPaywallCheck] = useState<LimitCheck | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const labelCamRef = useRef<CameraView>(null);
+  const [labelCamOpen, setLabelCamOpen] = useState(false);
+  const [labelCamReady, setLabelCamReady] = useState(false);
+  const [labelCamCapturing, setLabelCamCapturing] = useState(false);
   const [labelData, setLabelData] = useState<LabelData | null>(null);
   const [healthScore, setHealthScore] = useState<HealthScore | null>(null);
   const [dietaryViolations, setDietaryViolations] = useState<string[]>([]);
@@ -128,6 +136,7 @@ export default function ScanLabelScreen() {
   const [aiSummary, setAiSummary] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => { logScreenView('ScanLabelScreen'); }, []);
   useEffect(() => {
     barcodeOpenRef.current = barcodeOpen;
   }, [barcodeOpen]);
@@ -149,16 +158,17 @@ export default function ScanLabelScreen() {
       quality: 0.8,
       base64: false,
     };
-    let result: ImagePicker.ImagePickerResult;
     if (useCamera) {
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) return;
-      result = await ImagePicker.launchCameraAsync(opts);
-    } else {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) return;
-      result = await ImagePicker.launchImageLibraryAsync(opts);
+      const perm = cameraPermission?.granted ? cameraPermission : await requestCameraPermission();
+      if (!perm.granted) { Alert.alert('Permission needed', 'Camera access is required.'); return; }
+      setLabelCamReady(false);
+      setLabelCamOpen(true);
+      return;
     }
+    let result: ImagePicker.ImagePickerResult;
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    result = await ImagePicker.launchImageLibraryAsync(opts);
     if (!result.canceled && result.assets?.[0]) {
       setImageUri(result.assets[0].uri);
       setLabelData(null);
@@ -166,6 +176,27 @@ export default function ScanLabelScreen() {
       setError(null);
       setAiSummary('');
       analyzeLabelImage(result.assets[0].uri);
+    }
+  };
+
+  const captureLabel = async () => {
+    if (!labelCamRef.current || !labelCamReady || labelCamCapturing) return;
+    setLabelCamCapturing(true);
+    try {
+      const photo = await labelCamRef.current.takePictureAsync({ quality: 0.75, base64: false, skipProcessing: false });
+      if (photo?.uri) {
+        setLabelCamOpen(false);
+        setImageUri(photo.uri);
+        setLabelData(null);
+        setHealthScore(null);
+        setError(null);
+        setAiSummary('');
+        analyzeLabelImage(photo.uri);
+      }
+    } catch {
+      Alert.alert('Capture failed', 'Could not capture the label.');
+    } finally {
+      setLabelCamCapturing(false);
     }
   };
 
@@ -182,22 +213,11 @@ export default function ScanLabelScreen() {
       );
       const b64 = manipulated.base64 || '';
 
-      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-      if (!apiKey) throw new Error('No API key');
-
       // Step 1: Extract label data
-      const res = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 1500,
-          system: `You are a nutrition label reader. Extract ALL information from this nutrition facts label photo.
+      const data = await invokeAnthropicMessages({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1500,
+        system: `You are a nutrition label reader. Extract ALL information from this nutrition facts label photo.
 
 Return ONLY this JSON:
 {
@@ -237,18 +257,14 @@ Rules:
   - "vegan": contains NO animal-derived ingredients at all — fully plant-based.
   - "unknown": ONLY use when an ingredient is genuinely ambiguous and you cannot tell its source (e.g. "natural flavors", "mono- and diglycerides", unspecified "lecithin", "vitamin D3", "enzymes"). When unsure, prefer "unknown" over guessing "vegan". NEVER label something "vegan" unless you are confident.
   - dietReason: one short phrase naming the deciding ingredient(s) or "All plant-based ingredients".`,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-              { type: 'text', text: 'Read this nutrition label. Extract all values, ingredients, additives, and allergens.' },
-            ],
-          }],
-        }),
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+            { type: 'text', text: 'Read this nutrition label. Extract all values, ingredients, additives, and allergens.' },
+          ],
+        }],
       });
-
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
       const text = data.content?.[0]?.text || '';
       const start = text.indexOf('{');
       let depth = 0, end = -1;
@@ -313,18 +329,10 @@ Rules:
       }
 
       // Step 5: Generate AI health summary
-      const summaryRes = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 300,
-          messages: [{ role: 'user', content: `You are a fitness nutrition expert. Give a 2-3 sentence health assessment of this product for someone focused on high-protein fitness nutrition.
+      const summaryData = await invokeAnthropicMessages({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 300,
+        messages: [{ role: 'user', content: `You are a fitness nutrition expert. Give a 2-3 sentence health assessment of this product for someone focused on high-protein fitness nutrition.
 
 Product: ${label.productName}
 Per serving (${label.servingSize}): ${label.calories} cal, ${label.proteinG}g protein, ${label.carbsG}g carbs, ${label.fatG}g fat, ${label.sugarG}g sugar, ${label.sodiumMg}mg sodium
@@ -333,12 +341,8 @@ Additives: ${label.additives.length > 0 ? label.additives.join(', ') : 'None det
 ${violations.length > 0 ? `Dietary violations: ${violations.join(', ')}` : ''}
 
 Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specific numbers.` }],
-        }),
       });
-      if (summaryRes.ok) {
-        const summaryData = await summaryRes.json();
-        setAiSummary(summaryData.content?.[0]?.text || '');
-      }
+      setAiSummary(summaryData.content?.[0]?.text || '');
     } catch (err: any) {
       console.error('[SpiceStrong] Label scan failed:', err);
       const msg = err?.message || '';
@@ -581,15 +585,10 @@ Be direct. Start with ✅ if good choice or ⚠️ if concerning. Mention specif
       } catch (e) { console.log('[SpiceStrong] Macro targets failed', e); }
 
       try {
-        const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-        if (apiKey) {
-          const summaryRes = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-            body: JSON.stringify({
-              model: ANTHROPIC_MODEL,
-              max_tokens: 300,
-              messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
+        const sd = await invokeAnthropicMessages({
+          model: ANTHROPIC_MODEL,
+          max_tokens: 300,
+          messages: [{ role: 'user', content: `You are a brutally honest fitness nutritionist. Assess this product using the Protein Source Quality framework below.
 
 PROTEIN TIER SYSTEM:
 - S-Tier (Supreme): Highest protein, very low fat/calories. Examples: chicken breast, turkey, tuna in water, whey isolate, egg whites.
@@ -609,13 +608,8 @@ Give a 2-3 sentence verdict. Include:
 - Calories needed to get 25g protein from this product
 - Whether this helps or hurts fitness goals — be direct, no sugarcoating
 Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
-            }),
-          });
-          if (summaryRes.ok) {
-            const sd = await summaryRes.json();
-            setAiSummary(sd.content?.[0]?.text || '');
-          }
-        }
+        });
+        setAiSummary(sd.content?.[0]?.text || '');
       } catch (e) { console.log('[SpiceStrong] AI summary failed', e); }
     } catch (err: any) {
       if (!barcodeOpenRef.current) return;
@@ -751,7 +745,7 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Scan Label</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]} showsVerticalScrollIndicator={false}>
@@ -805,12 +799,52 @@ Start with ✅ if good (S/A tier) or ⚠️ if concerning (B or below).` }],
           </View>
         </Modal>
 
+        {/* Label Camera Modal */}
+        <Modal visible={labelCamOpen} animationType="slide" onRequestClose={() => setLabelCamOpen(false)}>
+          <View style={styles.labelCamWrap}>
+            <CameraView ref={labelCamRef} style={styles.labelCamFull} facing="back" onCameraReady={() => setLabelCamReady(true)} />
+            <View style={styles.labelCamOverlay}>
+              <View style={[styles.labelCamTopRow, { paddingTop: insets.top + 12 }]}>
+                <TouchableOpacity style={styles.labelCamFloatBtn} onPress={() => setLabelCamOpen(false)} activeOpacity={0.82}>
+                  <Text style={{ fontSize: 22, color: '#FFFFFF' }}>✕</Text>
+                </TouchableOpacity>
+                <View style={styles.labelCamBadge}>
+                  <Text style={{ fontSize: 16 }}>🔍</Text>
+                  <Text style={styles.labelCamBadgeTxt}>Nutrition Label</Text>
+                </View>
+              </View>
+              <View style={styles.labelCamFrameWrap}>
+                <View style={styles.labelCamFrame}>
+                  <View style={[styles.labelCorner, { top: 16, left: 16, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 14 }]} />
+                  <View style={[styles.labelCorner, { top: 16, right: 16, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 14 }]} />
+                  <View style={[styles.labelCorner, { bottom: 16, left: 16, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 14 }]} />
+                  <View style={[styles.labelCorner, { bottom: 16, right: 16, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 14 }]} />
+                  <Text style={styles.labelCamTitle}>Cover the full label</Text>
+                  <Text style={styles.labelCamSub}>Fit the Nutrition Facts panel AND the Ingredients list inside this frame</Text>
+                </View>
+              </View>
+              <View style={[styles.labelCamCaptureWrap, { paddingBottom: insets.bottom + 24 }]}>
+                <TouchableOpacity
+                  style={[styles.labelCamCapBtn, (!labelCamReady || labelCamCapturing) && styles.labelCamCapBtnDisabled]}
+                  onPress={captureLabel}
+                  disabled={!labelCamReady || labelCamCapturing}
+                  activeOpacity={0.82}
+                >
+                  <View style={styles.labelCamCapInner} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Scanning */}
         {scanning && (
           <View style={styles.scanningWrap}>
-            <ActivityIndicator color={ORANGE} size="large" />
-            <Text style={styles.scanningTitle}>Reading nutrition label...</Text>
-            <Text style={styles.scanningSub}>Analyzing ingredients, additives, and nutrition facts</Text>
+            <ProcessingRing
+              label="Reading nutrition label..."
+              sublabel="Analyzing ingredients, additives, and nutrition facts"
+              expectedMs={7000}
+            />
           </View>
         )}
 
@@ -1178,4 +1212,60 @@ const styles = StyleSheet.create({
   // Scan another
   scanAnotherBtn: { backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 14, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', marginTop: 8 },
   scanAnotherText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+
+  // Label Camera Modal
+  labelCamWrap: { flex: 1, backgroundColor: '#000000' },
+  labelCamFull: { flex: 1 },
+  labelCamOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between', paddingHorizontal: 10 },
+  labelCamTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  labelCamFloatBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(13,11,9,0.62)', alignItems: 'center', justifyContent: 'center' },
+  labelCamBadge: { minHeight: 44, borderRadius: 22, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: 'rgba(13,11,9,0.62)', borderWidth: 1, borderColor: 'rgba(248,241,232,0.14)' },
+  labelCamBadgeTxt: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  labelCamFrameWrap: { flex: 1, justifyContent: 'center' },
+  labelCamFrame: {
+    width: '100%',
+    minHeight: '62%',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(248,241,232,0.28)',
+    backgroundColor: 'rgba(13,11,9,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  labelCorner: { position: 'absolute', width: 52, height: 52, borderColor: '#FFFFFF' },
+  labelCamTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '900',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  labelCamSub: {
+    color: 'rgba(248,241,232,0.80)',
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    marginTop: 8,
+    textAlign: 'center',
+    maxWidth: 260,
+    textShadowColor: 'rgba(0,0,0,0.65)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 5,
+  },
+  labelCamCaptureWrap: { alignItems: 'center' },
+  labelCamCapBtn: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: 'rgba(248,241,232,0.92)',
+    borderWidth: 7,
+    borderColor: 'rgba(13,11,9,0.48)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labelCamCapBtnDisabled: { opacity: 0.55 },
+  labelCamCapInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#FFFFFF' },
 });

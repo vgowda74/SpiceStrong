@@ -4,22 +4,23 @@
  * Reuses the expo-file-system pattern from imageGenerationService.ts.
  */
 
-import { Paths, File, Directory } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 
 const CACHED_IMAGES_DIR = 'cached_recipe_images';
 
-/** Get or create the cached images directory. */
-function getCacheDir(): Directory {
-  const dir = new Directory(Paths.document, CACHED_IMAGES_DIR);
-  if (!dir.exists) {
-    dir.create();
-  }
-  return dir;
+function getCacheDirUri(): string {
+  return `${FileSystem.documentDirectory}${CACHED_IMAGES_DIR}/`;
 }
 
-/**
- * Derive a safe filename from a cache key (strip non-alphanumeric except dash/underscore/dot).
- */
+async function ensureCacheDir(): Promise<string> {
+  const dirUri = getCacheDirUri();
+  const info = await FileSystem.getInfoAsync(dirUri);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
+  }
+  return dirUri;
+}
+
 function safeFileName(cacheKey: string): string {
   return cacheKey.replace(/[^a-zA-Z0-9_\-\.]/g, '_').substring(0, 120);
 }
@@ -40,17 +41,16 @@ export async function getCachedImageUri(
   if (!remoteUrl) return null;
 
   try {
-    const dir = getCacheDir();
+    const dirUri = await ensureCacheDir();
     const fileName = safeFileName(cacheKey);
-    const file = new File(dir, fileName);
+    const fileUri = dirUri + fileName;
 
-    // Already cached locally
-    if (file.exists) {
-      return file.uri;
+    const info = await FileSystem.getInfoAsync(fileUri);
+    if (info.exists) {
+      return fileUri;
     }
 
-    // Download and cache
-    const downloaded = await File.downloadFileAsync(remoteUrl, file);
+    const downloaded = await FileSystem.downloadAsync(remoteUrl, fileUri);
     console.log(`[SpiceStrong] Image cached: ${cacheKey} -> ${downloaded.uri}`);
     return downloaded.uri;
   } catch (e) {
@@ -85,46 +85,24 @@ export async function preCacheRecipeImages(
 }
 
 /**
- * Clear cached images older than 7 days.
- * Runs on app startup to prevent unbounded disk usage.
+ * Clear cached images if the cache directory has too many files.
+ * Uses the legacy FileSystem API to avoid TurboModule crashes.
  */
 export async function pruneImageCache(): Promise<void> {
   try {
-    const dir = getCacheDir();
-    const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-    const now = Date.now();
+    const dirUri = getCacheDirUri();
+    const info = await FileSystem.getInfoAsync(dirUri);
+    if (!info.exists) return;
 
-    // List files in the cache directory
-    const contents = dir.list();
-    for (const item of contents) {
-      if (item instanceof File) {
-        try {
-          // Use file modification time if available, otherwise skip
-          // expo-file-system File doesn't expose modifiedTime directly,
-          // so we encode the creation timestamp approach: delete files
-          // that haven't been accessed recently. Since we re-download on
-          // cache miss, aggressive pruning is safe.
-          // For simplicity, delete all files and let them re-cache on next access
-          // only if the directory is large (>100 files).
-          // This is a lightweight approach.
-        } catch {
-          // skip individual file errors
-        }
-      }
-    }
-
-    // Simple approach: if more than 200 cached files, clear older ones
+    const contents = await FileSystem.readDirectoryAsync(dirUri);
     if (contents.length > 200) {
       console.log(`[SpiceStrong] Image cache has ${contents.length} files, pruning...`);
-      // Delete the first half (oldest by filesystem order)
       const toDelete = contents.slice(0, Math.floor(contents.length / 2));
-      for (const item of toDelete) {
-        if (item instanceof File) {
-          try {
-            item.delete();
-          } catch { /* best effort */ }
-        }
-      }
+      await Promise.all(
+        toDelete.map((name) =>
+          FileSystem.deleteAsync(dirUri + name, { idempotent: true }).catch(() => {}),
+        ),
+      );
       console.log(`[SpiceStrong] Pruned ${toDelete.length} cached images`);
     }
   } catch (e) {

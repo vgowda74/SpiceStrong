@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  ImageBackground,
   Linking,
   Modal,
   ScrollView,
@@ -15,11 +14,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { setDietPreference, type DietPreference } from '../src/utils/dietPreference';
+import { getDietPreference, setDietPreference, DIET_PREFERENCE_KEY, type DietPreference } from '../src/utils/dietPreference';
 
 const PLAYFAIR = Platform.select({
   ios: 'PlayfairDisplay_700Bold',
-  android: 'PlayfairDisplay_700Bold',
+  android: 'serif',
   default: 'serif',
 });
 
@@ -34,6 +33,7 @@ const FEATURES = [
 ];
 
 const DISCLAIMER_KEY = 'spicestrong_disclaimer_accepted';
+const DIETARY_RESTRICTIONS_KEY = 'spicestrong_dietary_restrictions';
 
 export default function Index() {
   const router = useRouter();
@@ -42,12 +42,32 @@ export default function Index() {
   const [termsChecked, setTermsChecked] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [selectedPreference, setSelectedPreference] = useState<DietPreference | null>(null);
+  const [savedPreference, setSavedPreference] = useState<DietPreference | null>(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(DISCLAIMER_KEY).then((val) => {
-      if (val === 'true') setDisclaimerAccepted(true);
+    Promise.all([
+      AsyncStorage.getItem(DISCLAIMER_KEY),
+      getDietPreference(),
+    ]).then(([disclaimer, pref]) => {
+      if (disclaimer === 'true') setDisclaimerAccepted(true);
+      if (pref) {
+        setSavedPreference(pref);
+        setShowReturnModal(true);
+      }
     });
   }, []);
+
+  const handleContinue = () => {
+    setShowReturnModal(false);
+    router.push('/screens/ProteinSelectionScreen');
+  };
+
+  const handleResetDiet = async () => {
+    await AsyncStorage.multiRemove([DIET_PREFERENCE_KEY, DIETARY_RESTRICTIONS_KEY]);
+    setSavedPreference(null);
+    setShowReturnModal(false);
+  };
 
   const handleDietSelect = async (preference: DietPreference) => {
     setSelectedPreference(preference);
@@ -69,11 +89,7 @@ export default function Index() {
 
   return (
     <View style={styles.container}>
-      <ImageBackground
-        source={require('../assets/images/splash-bg.jpg')}
-        style={styles.background}
-        resizeMode="cover"
-      >
+      <View style={[styles.background, styles.androidBackground]}>
         <View style={styles.overlay} />
 
         <ScrollView
@@ -151,36 +167,81 @@ export default function Index() {
           </View>
         </ScrollView>
 
-        {/* Sticky footer CTA */}
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-          <Pressable
-            style={styles.buttonWrapper}
-            onPress={() => handleDietSelect('veg')}
-          >
-            <LinearGradient
-              colors={['#2F8A45', '#155A2B']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.button}
+        {/* Sticky footer CTA — only shown on first launch or after a reset */}
+        {!savedPreference && (
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
+            <Pressable
+              style={styles.buttonWrapper}
+              onPress={() => handleDietSelect('veg')}
             >
-              <Text style={styles.buttonText}>Vegetarian</Text>
-            </LinearGradient>
-          </Pressable>
-          <Pressable
-            style={styles.buttonWrapper}
-            onPress={() => handleDietSelect('nonveg')}
-          >
-            <LinearGradient
-              colors={['#A94724', '#742B17']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.button}
+              <LinearGradient
+                colors={['#2F8A45', '#155A2B']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.button}
+              >
+                <Text style={styles.buttonText}>Vegetarian</Text>
+              </LinearGradient>
+            </Pressable>
+            <Pressable
+              style={styles.buttonWrapper}
+              onPress={() => handleDietSelect('nonveg')}
             >
-              <Text style={styles.buttonText}>Non-Vegetarian</Text>
-            </LinearGradient>
-          </Pressable>
+              <LinearGradient
+                colors={['#A94724', '#742B17']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.button}
+              >
+                <Text style={styles.buttonText}>Non-Vegetarian</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {/* Returning user modal */}
+      <Modal visible={showReturnModal} transparent animationType="slide" onRequestClose={handleContinue}>
+        <View style={styles.returnOverlay}>
+          <View style={[styles.returnCard, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.returnHandle} />
+            <Text style={styles.returnEmoji}>
+              {savedPreference === 'veg' ? '🥦' : '🍗'}
+            </Text>
+            <Text style={styles.returnTitle}>Welcome back!</Text>
+            <Text style={styles.returnSubtitle}>
+              You're on the{' '}
+              <Text style={styles.returnHighlight}>
+                {savedPreference === 'veg' ? 'Vegetarian' : 'Non-Vegetarian'}
+              </Text>
+              {' '}plan with your dietary preferences saved.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.continueBtn}
+              onPress={handleContinue}
+              activeOpacity={0.88}
+            >
+              <LinearGradient
+                colors={savedPreference === 'veg' ? ['#2F8A45', '#155A2B'] : ['#A94724', '#742B17']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.continueBtnGradient}
+              >
+                <Text style={styles.continueBtnText}>Continue</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.resetBtn}
+              onPress={handleResetDiet}
+              activeOpacity={0.78}
+            >
+              <Text style={styles.resetBtnText}>Reset Dietary Choices</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </ImageBackground>
+      </Modal>
 
       {/* Disclaimer Modal */}
       <Modal visible={showDisclaimer} transparent animationType="slide" onRequestClose={() => setShowDisclaimer(false)}>
@@ -274,6 +335,9 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   background: { flex: 1 },
+  androidBackground: {
+    backgroundColor: '#0D0B09',
+  },
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.72)',
@@ -541,4 +605,84 @@ const styles = StyleSheet.create({
   acceptBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   cancelBtn: { paddingVertical: 12, alignItems: 'center' },
   cancelBtnText: { color: 'rgba(255,255,255,0.35)', fontSize: 13, fontWeight: '600' },
+
+  // Returning user modal
+  returnOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.70)',
+    justifyContent: 'flex-end',
+  },
+  returnCard: {
+    backgroundColor: '#1A1209',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderColor: 'rgba(143,58,31,0.30)',
+    alignItems: 'center',
+  },
+  returnHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    marginBottom: 20,
+  },
+  returnEmoji: {
+    fontSize: 52,
+    marginBottom: 12,
+  },
+  returnTitle: {
+    fontFamily: PLAYFAIR,
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#F5ECD7',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  returnSubtitle: {
+    fontSize: 15,
+    color: 'rgba(255,255,255,0.65)',
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 28,
+    paddingHorizontal: 8,
+  },
+  returnHighlight: {
+    color: '#E8A87C',
+    fontWeight: '800',
+  },
+  continueBtn: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    shadowColor: '#8F3A1F',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+  },
+  continueBtnGradient: {
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
+  continueBtnText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  resetBtn: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    width: '100%',
+  },
+  resetBtnText: {
+    color: 'rgba(255,255,255,0.40)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

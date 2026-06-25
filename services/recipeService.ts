@@ -33,6 +33,7 @@ import {
 } from '../src/utils/dietPreference';
 import { getDeviceId as getAdminDeviceId, isAdmin } from './adminService';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
+import { invokeAnthropicMessages } from './anthropicService';
 
 // ─── Cache Constants ───
 const CACHE_KEY_PREFIX = 'spicestrong_recipe_cache_';
@@ -104,6 +105,22 @@ async function checkRecipeTableAvailable(): Promise<boolean> {
 }
 
 // ─── Device ID ───
+export async function getCuratedRecipeCount(): Promise<number> {
+  try {
+    const tableAvailable = await checkRecipeTableAvailable();
+    if (tableAvailable) {
+      const { count, error } = await supabase
+        .from('recipes')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'curated')
+        .eq('is_active', true);
+      if (!error && typeof count === 'number' && count > 0) return count;
+    }
+  } catch {}
+
+  return Math.max(BUILTIN_RECIPES.length, 300);
+}
+
 async function getDeviceId(): Promise<string> {
   try {
     let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
@@ -1285,19 +1302,12 @@ const DIFFICULTY_MAP: Record<string, string> = {
  * category columns (cuisine_type, dietary_tags, allergen_tags, fitness_goal, etc.)
  * and Edamam-style nutrition columns (calories, protein_g, carbs_g, fat_g, fiber_g).
  *
- * This runs client-side using the EXPO_PUBLIC_ANTHROPIC_KEY that's already
- * available for the AI recipe builder.
+ * This now goes through the Supabase proxy via invokeAnthropicMessages.
  *
  * @param recipe - The saved recipe to classify
  * @returns true if classification succeeded, false otherwise
  */
 export async function classifyAndEnrichRecipe(recipe: SavedRecipe): Promise<boolean> {
-  const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
-  if (!apiKey) {
-    console.warn('[SpiceStrong] No EXPO_PUBLIC_ANTHROPIC_KEY — skipping classification');
-    return false;
-  }
-
   try {
     const isAvailable = await checkRecipeTableAvailable();
     if (!isAvailable) return false;
@@ -1327,29 +1337,12 @@ ${flatIngredients.map((ing, i) => `${i + 1}. ${ing}`).join('\n')}
 Instructions:
 ${flatInstructions.map((step, i) => `${i + 1}. ${step}`).join('\n')}`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        system: CLASSIFICATION_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
+    const data = await invokeAnthropicMessages({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: CLASSIFICATION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: userMessage }],
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[SpiceStrong] Classification API error (${response.status}):`, errorText);
-      return false;
-    }
-
-    const data = await response.json();
     let rawText = (data.content?.[0]?.text ?? '').trim();
 
     // Strip markdown fences if present

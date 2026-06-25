@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(curl -s -X POST \"https://dqghnktxrhsvdkgcjsmc.supabase.co/rest/v1/analytics_events\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s\" -H \"Content-Type: application/json\" -H \"Prefer: return=representation\" -d '{\"event_name\":\"app_open\",\"feature\":\"app\",\"device_id\":\"policy_test_device\",\"app_version\":\"1.0\",\"platform\":\"ios\",\"metadata\":{}}')",
+      "Bash(curl -s \"https://dqghnktxrhsvdkgcjsmc.supabase.co/rest/v1/analytics_events?select=event_name,feature,device_id,created_at&order=created_at.desc&limit=10\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxZ2hua3R4cmhzdmRrZ2Nqc21jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0OTg4MjEsImV4cCI6MjA4OTA3NDgyMX0.EEgckXvrnHv-Y4-b79uWmpfbPUZZZ-WOKNyeuc-Vf8s\")"
     ]
   }
 }

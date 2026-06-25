@@ -1,9 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ProcessingRing } from '../../components/ProcessingRing';
 import {
-  ActivityIndicator,
   Animated,
-  ImageBackground,
   Linking,
   Modal,
   Platform,
@@ -308,26 +307,18 @@ export default function IngredientChecklistScreen() {
 
   if (loading) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         {overlay}
         <View style={[styles.container, styles.loadingContainer]}>
           <Text style={styles.loadingText}>Loading recipe...</Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
   if (!recipeId || !recipe) {
     return (
-      <ImageBackground
-        source={require('../../assets/images/splash-bg.jpg')}
-        style={{ flex: 1 }}
-        resizeMode="cover"
-      >
+      <View style={styles.screen}>
         {overlay}
         <View style={[styles.container, { paddingTop: 60 }]}>
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -338,7 +329,7 @@ export default function IngredientChecklistScreen() {
             This recipe may have been deleted or the link is invalid.
           </Text>
         </View>
-      </ImageBackground>
+      </View>
     );
   }
 
@@ -539,16 +530,17 @@ export default function IngredientChecklistScreen() {
   );
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       {overlay}
       <View style={styles.wrapper}>
         {/* Fixed back button */}
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.backText}>←</Text>
+        </TouchableOpacity>
+
+        {/* Fixed home button */}
+        <TouchableOpacity style={styles.homeBtn} onPress={() => router.push('/screens/ProteinSelectionScreen')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} activeOpacity={0.75}>
+          <Text style={{ fontSize: 22, color: '#FFFFFF' }}>🏠</Text>
         </TouchableOpacity>
 
         {/* Ingredient list */}
@@ -794,8 +786,7 @@ export default function IngredientChecklistScreen() {
             </View>
             {infoLoading ? (
               <View style={styles.infoLoading}>
-                <ActivityIndicator color={ORANGE} size="large" />
-                <Text style={styles.infoLoadingText}>Looking up {infoItemName}...</Text>
+                <ProcessingRing label={`Looking up ${infoItemName}…`} expectedMs={5000} size={72} />
               </View>
             ) : (
               <RNScrollView style={styles.infoScroll} showsVerticalScrollIndicator={false}>
@@ -805,11 +796,15 @@ export default function IngredientChecklistScreen() {
           </View>
         </View>
       </Modal>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#0D0B09',
+  },
   wrapper: {
     flex: 1,
   },
@@ -857,6 +852,20 @@ const styles = StyleSheet.create({
       ios: { shadowColor: '#000', shadowOpacity: 0.32, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
       android: { elevation: 6 },
     }),
+  },
+  homeBtn: {
+    position: 'absolute',
+    right: 16,
+    top: 52,
+    zIndex: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
   },
   backText: {
     color: '#FFFFFF',

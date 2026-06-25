@@ -2,20 +2,14 @@
   "expo": {
     "name": "SpiceStrong",
     "slug": "SpiceStrong",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon_resized.png",
     "scheme": "spicestrong",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "updates": {
-      "url": "https://u.expo.dev/7c79b4c1-3bb0-404b-8354-cf7fc38ecf6d",
-      "enabled": true,
-      "fallbackToCacheTimeout": 0,
-      "checkAutomatically": "ON_LOAD"
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
+      "enabled": false
     },
     "ios": {
       "supportsTablet": true,
@@ -25,6 +19,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSSpeechRecognitionUsageDescription": "SpiceStrong uses speech recognition so you can dictate recipe ideas, ingredients, and cooking preferences into SpiceBuilder.",
         "NSCameraUsageDescription": "SpiceStrong uses the camera when you choose to scan food labels, barcodes, menus, receipts, or fridge ingredients. For example, a nutrition label photo is analyzed to estimate macros, and a fridge photo can identify ingredients for recipe suggestions.",
+        "NSLocationWhenInUseUsageDescription": "SpiceStrong uses your approximate location when you choose Food Order so it can match nearby restaurants and avoid asking for city or state.",
         "NSPhotoLibraryUsageDescription": "SpiceStrong uses selected photos when you choose to upload nutrition labels, recipes, menus, receipts, or ingredient photos for AI extraction. For example, a receipt photo can be analyzed to add grocery items to your pantry.",
         "NSPhotoLibraryAddUsageDescription": "SpiceStrong saves images only when you choose to export or save recipe photos, progress images, or shareable recipe cards to your photo library."
       }
@@ -34,11 +29,13 @@
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F0F0F",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -55,7 +52,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/icon_resized.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#0F0F0F",
@@ -79,7 +76,7 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     },
     "extra": {
       "router": {},

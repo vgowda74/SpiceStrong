@@ -8,15 +8,17 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { PremiumScreen } from '../../components/PremiumScreen';
+import { HomeButton } from '../../components/HomeButton';
 
 const SURFACE = 'rgba(248,241,232,0.08)';
 const BORDER = 'rgba(248,241,232,0.12)';
-const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'PlayfairDisplay_700Bold', default: 'serif' });
+const ACCENT = '#E8A87C';
+const PLAYFAIR = Platform.select({ ios: 'PlayfairDisplay_700Bold', android: 'serif', default: 'serif' });
 
 const SERVICES = [
-  { name: 'Amazon Fresh', emoji: '📦', color: '#FF9900' },
-  { name: 'Instacart', emoji: '🥕', color: '#43B02A' },
-  { name: 'Walmart', emoji: '🏪', color: '#0071DC' },
+  { name: 'Amazon Fresh', emoji: '📦', color: ACCENT },
+  { name: 'Instacart', emoji: '🥕', color: ACCENT },
+  { name: 'Walmart', emoji: '🏪', color: ACCENT },
 ];
 
 export default function OrderGroceryScreen() {
@@ -30,7 +32,7 @@ export default function OrderGroceryScreen() {
           <Text style={styles.back}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Order Groceries</Text>
-        <View style={{ width: 30 }} />
+        <HomeButton />
       </View>
 
       <View style={styles.content}>

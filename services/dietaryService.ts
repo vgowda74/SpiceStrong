@@ -6,22 +6,13 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import { getDeviceId } from './adminService';
 
 const LOCAL_KEY = 'spicestrong_dietary_restrictions';
-const DEVICE_ID_KEY = 'spicestrong_device_id';
 
 export interface DietaryRestrictions {
   dietaryTags: string[];   // e.g. "Keto", "Low carb"
   allergenTags: string[];  // e.g. "Gluten free", "Vegan"
-}
-
-async function getDeviceId(): Promise<string> {
-  let id = await AsyncStorage.getItem(DEVICE_ID_KEY);
-  if (!id) {
-    id = `device_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    await AsyncStorage.setItem(DEVICE_ID_KEY, id);
-  }
-  return id;
 }
 
 export async function getDietaryRestrictions(): Promise<DietaryRestrictions> {

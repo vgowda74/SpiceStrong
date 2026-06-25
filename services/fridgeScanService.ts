@@ -16,8 +16,7 @@ import { fetchRecipesByProtein } from './recipeService';
 import { type SavedRecipe } from '../src/store/recipes';
 import { BUILTIN_RECIPES } from '../src/data/builtInRecipes';
 import { filterRecipesForPreference, getAllowedProteinIds, getDietPreference } from '../src/utils/dietPreference';
-
-const ANTHROPIC_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_KEY;
+import { invokeAnthropicMessages } from './anthropicService';
 
 // ═══════════════════════════════════════
 // TYPES
@@ -66,15 +65,7 @@ export function prepareImagesFromBase64(
   const results: { base64: string; mediaType: string }[] = [];
   for (const img of base64Images) {
     let b64 = img.base64;
-    // Fallback: read from file if picker didn't return base64
-    if (!b64) {
-      try {
-        const { File } = require('expo-file-system');
-        b64 = new File(img.uri).base64();
-      } catch (e) {
-        console.warn('[SpiceStrong] Could not read base64 from file:', e);
-      }
-    }
+    // Picker is always called with base64:true; if b64 is missing the image is skipped below
     if (!b64 || typeof b64 !== 'string') {
       console.warn('[SpiceStrong] Skipping image — no base64 available:', img.uri);
       continue;
@@ -94,7 +85,6 @@ export function prepareImagesFromBase64(
 export async function identifyIngredients(
   base64Images: { base64: string; uri: string }[],
 ): Promise<ScannedIngredient[]> {
-  if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
   if (base64Images.length === 0) throw new Error('No photos provided');
 
   const images = prepareImagesFromBase64(base64Images);
@@ -111,35 +101,12 @@ export async function identifyIngredients(
   }
   content.push({ type: 'text', text: FRIDGE_SCAN_USER_PROMPT() });
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system: FRIDGE_SCAN_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
-    }),
+  const data = await invokeAnthropicMessages({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2000,
+    system: FRIDGE_SCAN_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content }],
   });
-
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    console.error(`[SpiceStrong] Fridge scan API error ${res.status}:`, errBody);
-    // Parse error message from Claude API response
-    let errMsg = `API returned ${res.status}`;
-    try {
-      const errJson = JSON.parse(errBody);
-      errMsg = errJson.error?.message || errMsg;
-    } catch {}
-    throw new Error(errMsg);
-  }
-
-  const data = await res.json();
   const text = data.content?.[0]?.text || '';
   console.log('[SpiceStrong] Fridge scan response:', text);
 
@@ -180,7 +147,6 @@ export async function scanReceiptOrList(
   base64Images: { base64: string; uri: string }[],
   mode: 'receipt' | 'list',
 ): Promise<ScannedIngredient[]> {
-  if (!ANTHROPIC_KEY) throw new Error('No API key — set EXPO_PUBLIC_ANTHROPIC_KEY');
   if (base64Images.length === 0) throw new Error('No photos provided');
 
   const images = prepareImagesFromBase64(base64Images);
@@ -243,38 +209,12 @@ IMPORTANT: NEVER refuse to read a list. Even if handwriting is messy or partiall
   }
   content.push({ type: 'text', text: mode === 'receipt' ? 'Read this grocery receipt and extract all food items.' : 'Read this shopping list and extract all items.' });
 
-  // Retry up to 2 times on 529 overloaded errors
-  let res: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content }],
-      }),
-    });
-    if (res.status !== 529 || attempt === 2) break;
-    console.log(`[SpiceStrong] ${mode} scan overloaded, retrying in ${(attempt + 1) * 3}s...`);
-    await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
-  }
-
-  if (!res!.ok) {
-    const errBody = await res!.text().catch(() => '');
-    console.error(`[SpiceStrong] ${mode} scan API error ${res!.status}:`, errBody);
-    let errMsg = res!.status === 529 ? 'Server is busy, please try again in a moment.' : `API returned ${res!.status}`;
-    try { const errJson = JSON.parse(errBody); errMsg = errJson.error?.message || errMsg; } catch {}
-    throw new Error(errMsg);
-  }
-
-  const data = await res!.json();
+  const data = await invokeAnthropicMessages({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 2000,
+    system: systemPrompt,
+    messages: [{ role: 'user', content }],
+  });
   const text = data.content?.[0]?.text || '';
   console.log(`[SpiceStrong] ${mode} scan response:`, text);
 

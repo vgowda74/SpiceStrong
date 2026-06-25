@@ -6,9 +6,9 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Paths, File, Directory } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import { supabase } from './supabase';
 
-const FAL_KEY = process.env.EXPO_PUBLIC_FAL_KEY || process.env.FAL_KEY;
 const AI_IMAGES_PREFIX = 'spicestrong_ai_images_';
 const IMAGE_DIR_NAME = 'ai_recipe_images';
 
@@ -26,13 +26,18 @@ export interface RecipeImageResults {
   stepImages: Record<string, string | null>;   // stepIndex -> local file URI
 }
 
+function getImageDirUri(): string {
+  return `${FileSystem.documentDirectory}${IMAGE_DIR_NAME}/`;
+}
+
 /** Get or create the local image directory. */
-function getImageDir(): Directory {
-  const dir = new Directory(Paths.document, IMAGE_DIR_NAME);
-  if (!dir.exists) {
-    dir.create();
+async function ensureImageDir(): Promise<string> {
+  const dirUri = getImageDirUri();
+  const info = await FileSystem.getInfoAsync(dirUri);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(dirUri, { intermediates: true });
   }
-  return dir;
+  return dirUri;
 }
 
 /**
@@ -41,12 +46,13 @@ function getImageDir(): Directory {
  */
 async function downloadImage(remoteUrl: string, localFileName: string): Promise<string | null> {
   try {
-    const dir = getImageDir();
-    const destination = new File(dir, localFileName);
-    if (destination.exists) {
-      destination.delete();
+    const dirUri = await ensureImageDir();
+    const destination = dirUri + localFileName;
+    const info = await FileSystem.getInfoAsync(destination);
+    if (info.exists) {
+      await FileSystem.deleteAsync(destination, { idempotent: true });
     }
-    const downloaded = await File.downloadFileAsync(remoteUrl, destination);
+    const downloaded = await FileSystem.downloadAsync(remoteUrl, destination);
     console.log(`[SpiceStrong] Image saved: ${localFileName} -> ${downloaded.uri}`);
     return downloaded.uri;
   } catch (e) {
@@ -60,99 +66,43 @@ async function downloadImage(remoteUrl: string, localFileName: string): Promise<
  * ~$0.003 per image.
  */
 type FalModel = 'schnell' | 'dev';
-const FAL_MODEL_PATHS: Record<FalModel, string> = {
-  schnell: 'fal-ai/flux/schnell',
-  dev: 'fal-ai/flux/dev',
-};
 
 async function callFal(prompt: string, label: string, model: FalModel = 'schnell'): Promise<{ url: string | null; error?: string }> {
-  if (!FAL_KEY) return { url: null, error: 'No FAL_KEY set' };
-
   const MAX_RETRIES = 2;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`[SpiceStrong] fal.ai request for "${label}" (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
+      console.log(`[SpiceStrong] fal.ai proxy request for "${label}" (attempt ${attempt + 1}/${MAX_RETRIES + 1})`);
 
-      // Submit to queue
-      const submitRes = await fetch(`https://queue.fal.run/${FAL_MODEL_PATHS[model]}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Key ${FAL_KEY}`,
-        },
-        body: JSON.stringify({
-          prompt,
-          image_size: 'square_hd',
-          num_images: 1,
-          enable_safety_checker: false,
-        }),
+      const { data, error } = await supabase.functions.invoke('fal-image-proxy', {
+        body: { prompt, label, model },
       });
 
-      if (!submitRes.ok) {
-        const err = await submitRes.text().catch(() => '');
-        console.warn(`[SpiceStrong] fal.ai submit error ${submitRes.status}: ${err}`);
-        if (submitRes.status === 429 && attempt < MAX_RETRIES) {
-          await delay(5000);
+      if (error) {
+        const message = await getFunctionErrorMessage(error);
+        console.warn(`[SpiceStrong] fal.ai proxy error for "${label}": ${message}`);
+        if (attempt < MAX_RETRIES) {
+          await delay(3000);
           continue;
         }
-        return { url: null, error: `fal.ai ${submitRes.status}` };
+        return { url: null, error: message };
       }
 
-      let submitData;
-      try { submitData = await submitRes.json(); } catch { return { url: null, error: 'Invalid response from fal.ai' }; }
-
-      // If response has images directly (synchronous response)
-      if (submitData.images?.[0]?.url) {
-        console.log(`[SpiceStrong] fal.ai instant response for "${label}"`);
-        return { url: submitData.images[0].url };
+      const result = data as { url?: string | null; error?: string } | null;
+      if (result?.url) {
+        console.log(`[SpiceStrong] fal.ai proxy success for "${label}"`);
+        return { url: result.url };
       }
 
-      // Queue-based: poll for result
-      const responseUrl = submitData.response_url;
-      if (!responseUrl) {
-        return { url: null, error: 'No response_url from fal.ai' };
+      const message = result?.error || 'No image URL returned from fal.ai proxy';
+      console.warn(`[SpiceStrong] fal.ai proxy returned no image for "${label}": ${message}`);
+      if (attempt < MAX_RETRIES) {
+        await delay(3000);
+        continue;
       }
-
-      // Poll for up to 60 seconds
-      const maxWait = 60000;
-      const pollInterval = 2000;
-      const startTime = Date.now();
-
-      while (Date.now() - startTime < maxWait) {
-        await delay(pollInterval);
-        const pollRes = await fetch(responseUrl, {
-          headers: { Authorization: `Key ${FAL_KEY}` },
-        });
-
-        if (!pollRes.ok) {
-          const err = await pollRes.text().catch(() => '');
-          console.warn(`[SpiceStrong] fal.ai poll error ${pollRes.status}: ${err}`);
-          continue;
-        }
-
-        let pollData;
-        try { pollData = await pollRes.json(); } catch { continue; }
-
-        if (pollData.images?.[0]?.url) {
-          console.log(`[SpiceStrong] fal.ai success for "${label}"`);
-          return { url: pollData.images[0].url };
-        }
-
-        // Still processing
-        if (pollData.status === 'IN_QUEUE' || pollData.status === 'IN_PROGRESS') {
-          continue;
-        }
-
-        // Failed
-        if (pollData.status === 'COMPLETED' && !pollData.images?.[0]?.url) {
-          return { url: null, error: 'No image in completed response' };
-        }
-      }
-
-      return { url: null, error: 'Timed out waiting for fal.ai (60s)' };
+      return { url: null, error: message };
     } catch (networkErr) {
       const errMsg = networkErr instanceof Error ? networkErr.message : 'Network error';
-      console.warn(`[SpiceStrong] Network error for "${label}": ${errMsg}`);
+      console.warn(`[SpiceStrong] fal.ai proxy network error for "${label}": ${errMsg}`);
       if (attempt < MAX_RETRIES) {
         await delay(3000);
         continue;
@@ -161,6 +111,24 @@ async function callFal(prompt: string, label: string, model: FalModel = 'schnell
     }
   }
   return { url: null, error: 'Max retries exceeded' };
+}
+
+async function getFunctionErrorMessage(error: any): Promise<string> {
+  const fallback = error?.message || 'fal.ai proxy failed';
+  try {
+    const context = error?.context;
+    if (!context) return fallback;
+    const text = await context.text();
+    if (!text) return fallback;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed?.error || parsed?.message || fallback;
+    } catch {
+      return text.slice(0, 220);
+    }
+  } catch {
+    return fallback;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -181,15 +149,15 @@ const BODY_SCAN_SAMPLE_PROMPTS: Record<'male' | 'female', string> = {
  * Get the local URI of the front-pose reference sample for a gender.
  * Returns a cached local file if available; otherwise generates one via fal.ai,
  * downloads it, caches the URI, and returns it. Returns null on failure
- * (e.g. no FAL_KEY) so the caller can fall back to a placeholder.
+ * so the caller can fall back to a placeholder.
  */
 export async function generateBodyScanSample(gender: 'male' | 'female'): Promise<string | null> {
   const cacheKey = `${BODY_SCAN_SAMPLE_PREFIX}${gender}`;
   try {
     const cached = await AsyncStorage.getItem(cacheKey);
     if (cached) {
-      const file = new File(cached);
-      if (file.exists) return cached;
+      const info = await FileSystem.getInfoAsync(cached);
+      if (info.exists) return cached;
     }
   } catch { /* regenerate below */ }
 
@@ -236,9 +204,20 @@ const SCAN_INSTR_PROMPTS: Record<keyof ScanInstrImages, string> = {
   distanceBad: 'Fitness body scan bad example. Same man shirtless in gym shorts but standing far too close to camera, only chest and shoulders visible in frame, waist and legs completely cut off, severely over-cropped portrait, demonstrating wrong camera distance for body scan',
 };
 
+// Public CDN URL for pre-uploaded instruction images in Supabase Storage.
+// Run scripts/seed-scan-instructions.js once to populate the bucket.
+const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
+const SCAN_INSTR_BUCKET_BASE = `${SUPABASE_URL}/storage/v1/object/public/scan-instructions`;
+
 /**
- * Generate (or load from cache) all 8 instruction comparison images.
- * Calls onProgress as each image resolves so the UI can update card-by-card.
+ * Load all 8 body-scan instruction comparison images.
+ * Priority order:
+ *   1. Local file cache (instant — no network)
+ *   2. Supabase Storage CDN  (fast — pre-uploaded static assets)
+ *   3. fal.ai generation     (slow — only on first-ever run before seed)
+ *
+ * Call this on app start from _layout.tsx so images are cached before the
+ * user ever opens the body-scan instruction screen.
  */
 export async function generateScanInstrImages(
   onProgress?: (update: { key: keyof ScanInstrImages; uri: string }) => void,
@@ -250,34 +229,59 @@ export async function generateScanInstrImages(
     distanceGood: null, distanceBad: null,
   };
 
-  // Try cache
+  // 1. Local file cache — all 8 files must exist
   try {
     const cached = await AsyncStorage.getItem(SCAN_INSTR_CACHE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached) as ScanInstrImages;
-      const allValid = (Object.keys(parsed) as (keyof ScanInstrImages)[]).every((k) => {
-        const uri = parsed[k];
-        if (!uri) return false;
-        try { return new File(uri).exists; } catch { return false; }
-      });
-      if (allValid) return parsed;
+      const existsChecks = await Promise.all(
+        (Object.keys(parsed) as (keyof ScanInstrImages)[]).map(async (k) => {
+          const uri = parsed[k];
+          if (!uri) return false;
+          try { return (await FileSystem.getInfoAsync(uri)).exists; } catch { return false; }
+        }),
+      );
+      if (existsChecks.every(Boolean)) {
+        console.log('[SpiceStrong] scan instr images: loaded from local cache');
+        return parsed;
+      }
     }
-  } catch { /* regenerate */ }
-
-  if (!FAL_KEY) return empty;
+  } catch { /* fall through */ }
 
   const result: ScanInstrImages = { ...empty };
-  getImageDir();
-
-  // Generate all 8 in parallel — each resolves independently
+  await ensureImageDir();
   const keys = Object.keys(SCAN_INSTR_PROMPTS) as (keyof ScanInstrImages)[];
+
+  // 2. Supabase Storage — download pre-seeded static images in parallel
+  if (SUPABASE_URL) {
+    let supabaseOk = true;
+    await Promise.all(
+      keys.map(async (key) => {
+        const remoteUrl = `${SCAN_INSTR_BUCKET_BASE}/${key}.jpg`;
+        const localUri = await downloadImage(remoteUrl, `scan_instr_${key}.jpg`);
+        if (localUri) {
+          result[key] = localUri;
+          onProgress?.({ key, uri: localUri });
+        } else {
+          supabaseOk = false;
+        }
+      }),
+    );
+
+    if (supabaseOk && keys.every((k) => result[k])) {
+      console.log('[SpiceStrong] scan instr images: downloaded from Supabase Storage');
+      try { await AsyncStorage.setItem(SCAN_INSTR_CACHE_KEY, JSON.stringify(result)); } catch { /* non-blocking */ }
+      return result;
+    }
+    console.warn('[SpiceStrong] scan instr: some Supabase images missing, falling back to fal.ai');
+  }
+
+  // 3. fal.ai generation — last resort (before bucket is seeded)
   await Promise.all(
     keys.map(async (key) => {
+      if (result[key]) return; // already loaded from Supabase
       const { url, error } = await callFal(SCAN_INSTR_PROMPTS[key], `scan-instr-${key}`, 'schnell');
-      if (!url) {
-        console.warn(`[SpiceStrong] scan instr ${key} failed: ${error}`);
-        return;
-      }
+      if (!url) { console.warn(`[SpiceStrong] scan instr ${key} fal.ai failed: ${error}`); return; }
       const localUri = await downloadImage(url, `scan_instr_${key}.jpg`);
       if (localUri) {
         result[key] = localUri;
@@ -458,11 +462,6 @@ export async function generateAllRecipeImages(
     steps: { title?: string; description?: string }[];
   },
 ): Promise<RecipeImageResults> {
-  if (!FAL_KEY) {
-    console.warn('[SpiceStrong] FAL_KEY is not set — skipping image generation');
-    return { dishImage: null, ingredientImages: {}, stepImages: {} };
-  }
-
   const recipeId = recipe.id ?? recipe.name.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
   const recipeName = recipe.name;
   const steps = recipe.steps ?? [];
@@ -472,7 +471,7 @@ export async function generateAllRecipeImages(
     ?? [];
 
   console.log(`[SpiceStrong] Generating images for: ${recipeName} (1 hero + ${steps.length} steps, ${ingredientList.length} ingredients)`);
-  getImageDir();
+  await ensureImageDir();
 
   // Generate hero image first — context-aware with visible ingredients
   const dishResult = await generateDishImage(recipeName, recipeId, ingredientList);
@@ -520,11 +519,6 @@ export async function generateSingleStepImage(
   },
   stepIndex: number,
 ): Promise<ImageResult> {
-  if (!FAL_KEY) {
-    console.warn('[SpiceStrong] FAL_KEY is not set - skipping step image generation');
-    return { url: null, error: 'No FAL_KEY set' };
-  }
-
   const steps = recipe.steps ?? [];
   const step = steps[stepIndex];
   if (!step) return { url: null, error: 'Step not found' };
@@ -534,7 +528,7 @@ export async function generateSingleStepImage(
     ?? Object.values(recipe.ingredients ?? {})[0]
     ?? [];
 
-  getImageDir();
+  await ensureImageDir();
   return generateStepImage(
     recipe.name,
     recipeId,
@@ -556,6 +550,21 @@ export async function saveRecipeImages(recipeId: string, images: RecipeImageResu
   } catch (e) {
     console.error('[SpiceStrong] Failed to save recipe images:', e);
   }
+}
+
+/**
+ * Generate a single hero image for a restaurant food item (Food Order feature).
+ * Uses flux/schnell for speed. Returns the remote URL or null on failure.
+ */
+export async function generateFoodItemImage(itemName: string, description: string): Promise<string | null> {
+  const nameLower = itemName.toLowerCase();
+  let vessel = 'on a plate';
+  if (/curry|soup|ramen|pho|stew|chili|bowl/i.test(nameLower)) vessel = 'in a bowl';
+  else if (/wrap|burrito|sandwich|roll/i.test(nameLower)) vessel = 'on a cutting board';
+  else if (/smoothie|shake|drink|soda|juice/i.test(nameLower)) vessel = 'in a glass';
+  const prompt = `Award-winning food photography of "${itemName}" — ${description}. Plated ${vessel}. Shot from 45-degree overhead angle, dark ceramic plate, rustic wooden table. Natural window light, soft shadows. Vibrant, appetizing colors, visible texture. Shallow depth of field. Bon Appétit magazine quality. Photorealistic, no text, no logos, no watermarks.`;
+  const result = await callFal(prompt, `food order: ${itemName}`, 'schnell');
+  return result.url;
 }
 
 /**

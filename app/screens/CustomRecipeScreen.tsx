@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ImageBackground, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { saveRecipe, getRecipes, QUANTITY_TIERS, type QuantityTier, type IngredientsByTier } from '../../src/store/recipes';
 
 const defaultIngredientsByTier = (): IngredientsByTier => ({
@@ -109,11 +109,7 @@ const handleSave = async () => {
   };
 
   return (
-    <ImageBackground
-      source={require('../../assets/images/splash-bg.jpg')}
-      style={{ flex: 1 }}
-      resizeMode="cover"
-    >
+    <View style={styles.screen}>
       <View style={{
         ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(0,0,0,0.45)',
@@ -221,11 +217,12 @@ const handleSave = async () => {
         <Text style={styles.saveBtnText}>Save Recipe</Text>
       </TouchableOpacity>
     </ScrollView>
-    </ImageBackground>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#0D0B09' },
   container: { flex: 1 },
   content: { padding: 16, paddingTop: 60, paddingBottom: 60 },
   backBtn: {
