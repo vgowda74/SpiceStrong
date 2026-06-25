@@ -246,8 +246,17 @@ export default function Index() {
       {/* Disclaimer Modal */}
       <Modal visible={showDisclaimer} transparent animationType="slide" onRequestClose={() => setShowDisclaimer(false)}>
         <View style={styles.disclaimerOverlay}>
-          <View style={styles.disclaimerCard}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: '80%' }}>
+          <View
+            style={[
+              styles.disclaimerCard,
+              { paddingBottom: Math.max(insets.bottom + 24, 30) },
+            ]}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={styles.disclaimerScroll}
+              contentContainerStyle={styles.disclaimerScrollContent}
+            >
               <Text style={styles.disclaimerEmoji}>🛡️</Text>
               <Text style={styles.disclaimerTitle}>Before You Start</Text>
 
@@ -532,8 +541,13 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingHorizontal: 24,
     paddingTop: 24,
-    paddingBottom: 30,
     maxHeight: '90%',
+  },
+  disclaimerScroll: {
+    maxHeight: '80%',
+  },
+  disclaimerScrollContent: {
+    paddingBottom: 18,
   },
   disclaimerEmoji: { fontSize: 40, textAlign: 'center', marginBottom: 8 },
   disclaimerTitle: {
