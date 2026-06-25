@@ -71,7 +71,6 @@
           }
         }
       ],
-      "./plugins/withFirebaseStaticFix",
       "expo-web-browser"
     ],
     "experiments": {
