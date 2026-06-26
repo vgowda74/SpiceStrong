@@ -2,7 +2,7 @@
   "expo": {
     "name": "SpiceStrong",
     "slug": "SpiceStrong",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/images/icon_resized.png",
     "scheme": "spicestrong",
